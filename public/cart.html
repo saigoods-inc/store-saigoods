@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Your Cart | SAI Goods Store</title>
+    <meta
+      name="description"
+      content="Review your SAI Goods cart, adjust case counts by size, and proceed to secure checkout."
+    />
+    <link rel="stylesheet" href="/css/styles.css" />
+  </head>
+  <body class="page--cart">
+    <div class="site-frame">
+      <header data-site-header></header>
+
+      <main class="section section--tight">
+        <div class="shell">
+          <div data-cart-root></div>
+
+          <section class="checkout-details">
+            <h2>Checkout details</h2>
+            <form id="checkout-form" data-checkout-form class="checkout-form">
+              <div class="checkout-form__grid">
+                <div class="field">
+                  <label for="fullName">Full name</label>
+                  <input id="fullName" name="fullName" type="text" autocomplete="name" required />
+                </div>
+
+                <div class="field">
+                  <label for="email">Email</label>
+                  <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    autocomplete="email"
+                    required
+                  />
+                </div>
+
+                <div class="field">
+                  <label for="phone">Phone</label>
+                  <input
+                    id="phone"
+                    name="phone"
+                    type="tel"
+                    autocomplete="tel"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="address">Shipping address</label>
+                <textarea
+                  id="address"
+                  name="address"
+                  rows="3"
+                  autocomplete="shipping street-address"
+                  required
+                ></textarea>
+              </div>
+            </form>
+          </section>
+        </div>
+      </main>
+
+      <footer data-site-footer></footer>
+    </div>
+
+    <div class="toast-stack" data-toast-stack aria-live="polite" aria-atomic="true"></div>
+    <script type="module" src="/js/cart.js"></script>
+  </body>
+</html>

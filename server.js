@@ -1,0 +1,375 @@
+import { createReadStream, readFileSync } from "node:fs";
+import { access, stat } from "node:fs/promises";
+import { createServer } from "node:http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+loadDotEnv();
+
+const storeData = JSON.parse(
+  readFileSync(path.join(__dirname, "data", "store.json"), "utf8"),
+);
+
+const productMap = new Map(storeData.products.map((product) => [product.slug, product]));
+const knownSizes = storeData.site.sizes;
+const port = Number(process.env.PORT || 3000);
+const publicDir = path.join(__dirname, "public");
+const imageDir = path.join(__dirname, "img");
+
+const MIME_TYPES = {
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".otf": "font/otf",
+  ".ico": "image/x-icon",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
+  ".webp": "image/webp",
+};
+
+const server = createServer(async (req, res) => {
+  try {
+    const requestUrl = new URL(req.url, `http://${req.headers.host || `localhost:${port}`}`);
+    const { pathname } = requestUrl;
+
+    if (pathname === "/api/products" && req.method === "GET") {
+      return sendJson(res, 200, storeData);
+    }
+
+    if (pathname.startsWith("/api/products/") && req.method === "GET") {
+      const slug = pathname.replace("/api/products/", "");
+      const product = productMap.get(slug);
+
+      if (!product) {
+        return sendJson(res, 404, { error: "Product not found." });
+      }
+
+      return sendJson(res, 200, product);
+    }
+
+    if (pathname === "/api/cart/quote" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const quote = buildQuote(body.items);
+      return sendJson(res, 200, quote);
+    }
+
+    if (pathname === "/api/checkout" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const quote = buildQuote(body.items);
+
+      if (!quote.items.length) {
+        return sendJson(res, 400, { error: "Your cart is empty." });
+      }
+
+      if (!process.env.STRIPE_SECRET_KEY) {
+        return sendJson(res, 503, {
+          error:
+            "Stripe is not configured yet. Add STRIPE_SECRET_KEY and PUBLIC_BASE_URL to your .env file to enable live checkout.",
+          stripeReady: false,
+          quote,
+        });
+      }
+
+      const session = await createCheckoutSession(quote, req);
+      return sendJson(res, 200, {
+        checkoutUrl: session.url,
+        sessionId: session.id,
+        quote,
+        stripeReady: true,
+      });
+    }
+
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      return sendJson(res, 405, { error: "Method not allowed." });
+    }
+
+    if (pathname === "/" || pathname === "/index.html") {
+      return serveFile(res, path.join(publicDir, "index.html"), req.method);
+    }
+
+    if (pathname === "/product.html") {
+      return serveFile(res, path.join(publicDir, "product.html"), req.method);
+    }
+
+    if (pathname === "/cart.html") {
+      return serveFile(res, path.join(publicDir, "cart.html"), req.method);
+    }
+
+    if (pathname.startsWith("/css/")) {
+      const filePath = safeJoin(publicDir, pathname.replace("/css/", "css/"));
+      return filePath
+        ? serveFile(res, filePath, req.method)
+        : sendJson(res, 403, { error: "Forbidden." });
+    }
+
+    if (pathname.startsWith("/js/")) {
+      const filePath = safeJoin(publicDir, pathname.replace("/js/", "js/"));
+      return filePath
+        ? serveFile(res, filePath, req.method)
+        : sendJson(res, 403, { error: "Forbidden." });
+    }
+
+    if (pathname.startsWith("/img/")) {
+      const filePath = safeJoin(imageDir, pathname.replace("/img/", ""));
+      return filePath
+        ? serveFile(res, filePath, req.method)
+        : sendJson(res, 403, { error: "Forbidden." });
+    }
+
+    if (pathname.startsWith("/font/")) {
+      const filePath = safeJoin(publicDir, pathname.replace("/font/", "font/"));
+      return filePath
+        ? serveFile(res, filePath, req.method)
+        : sendJson(res, 403, { error: "Forbidden." });
+    }
+
+    return sendJson(res, 404, { error: "Not found." });
+  } catch (error) {
+    console.error(error);
+
+    if (error.statusCode) {
+      return sendJson(res, error.statusCode, { error: error.message });
+    }
+
+    return sendJson(res, 500, { error: "Internal server error." });
+  }
+});
+
+server.listen(port, () => {
+  console.log(`SAI Goods Store running at http://localhost:${port}`);
+});
+
+function loadDotEnv() {
+  const envPath = path.join(__dirname, ".env");
+
+  try {
+    const raw = readFileSync(envPath, "utf8");
+
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+
+      if (!trimmed || trimmed.startsWith("#")) {
+        continue;
+      }
+
+      const separatorIndex = trimmed.indexOf("=");
+
+      if (separatorIndex === -1) {
+        continue;
+      }
+
+      const key = trimmed.slice(0, separatorIndex).trim();
+      const value = trimmed.slice(separatorIndex + 1).trim();
+
+      if (!process.env[key]) {
+        process.env[key] = value;
+      }
+    }
+  } catch {
+    // .env is optional in local development.
+  }
+}
+
+function safeJoin(root, requestPath) {
+  const normalized = path.normalize(decodeURIComponent(requestPath)).replace(/^(\.\.(\/|\\|$))+/, "");
+  const filePath = path.join(root, normalized);
+
+  if (!filePath.startsWith(root)) {
+    return null;
+  }
+
+  return filePath;
+}
+
+async function serveFile(res, filePath, method) {
+  try {
+    await access(filePath);
+    const fileStats = await stat(filePath);
+
+    if (!fileStats.isFile()) {
+      return sendJson(res, 404, { error: "Not found." });
+    }
+
+    const extension = path.extname(filePath).toLowerCase();
+    const contentType = MIME_TYPES[extension] || "application/octet-stream";
+
+    res.writeHead(200, { "Content-Type": contentType });
+
+    if (method === "HEAD") {
+      return res.end();
+    }
+
+    createReadStream(filePath).pipe(res);
+  } catch {
+    return sendJson(res, 404, { error: "Not found." });
+  }
+}
+
+function sendJson(res, statusCode, body) {
+  res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
+  res.end(JSON.stringify(body));
+}
+
+async function readJsonBody(req) {
+  let rawBody = "";
+
+  for await (const chunk of req) {
+    rawBody += chunk;
+  }
+
+  if (!rawBody) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(rawBody);
+  } catch {
+    const error = new Error("Invalid JSON body.");
+    error.statusCode = 400;
+    throw error;
+  }
+}
+
+function buildQuote(items) {
+  const normalizedItems = Array.isArray(items) ? items : [];
+  let subtotalCents = 0;
+  let totalCases = 0;
+
+  const quoteItems = normalizedItems
+    .map((item) => {
+      const product = productMap.get(item.slug);
+
+      if (!product) {
+        return null;
+      }
+
+      const quantities = normalizeQuantities(item.quantities);
+      const lineCases = getLineCases(quantities);
+
+      if (!lineCases) {
+        return null;
+      }
+
+      const lineTotalCents = lineCases * product.priceCents;
+      subtotalCents += lineTotalCents;
+      totalCases += lineCases;
+
+      return {
+        slug: product.slug,
+        name: product.name,
+        shortName: product.shortName,
+        cardImage: product.cardImage,
+        priceCents: product.priceCents,
+        priceFormatted: formatCurrency(product.priceCents),
+        quantities,
+        lineCases,
+        lineTotalCents,
+        lineTotalFormatted: formatCurrency(lineTotalCents),
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    items: quoteItems,
+    subtotalCents,
+    subtotalFormatted: formatCurrency(subtotalCents),
+    totalCases,
+    stripeReady: Boolean(process.env.STRIPE_SECRET_KEY),
+  };
+}
+
+function normalizeQuantities(quantities) {
+  return knownSizes.reduce((result, size) => {
+    const rawValue = quantities && Object.hasOwn(quantities, size) ? quantities[size] : 0;
+    const parsed = Number(rawValue);
+    result[size] = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+    return result;
+  }, {});
+}
+
+function getLineCases(quantities) {
+  return Object.values(quantities).reduce((sum, quantity) => sum + quantity, 0);
+}
+
+function formatCurrency(cents) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(cents / 100);
+}
+
+function getBaseUrl(req) {
+  const configuredBaseUrl = process.env.PUBLIC_BASE_URL;
+
+  if (configuredBaseUrl) {
+    return configuredBaseUrl.replace(/\/$/, "");
+  }
+
+  const host = req.headers.host || `localhost:${port}`;
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  const protocol = forwardedProto || (host.includes("localhost") ? "http" : "https");
+
+  return `${protocol}://${host}`;
+}
+
+async function createCheckoutSession(quote, req) {
+  const stripeEndpoint = "https://api.stripe.com/v1/checkout/sessions";
+  const baseUrl = getBaseUrl(req);
+  const params = new URLSearchParams();
+
+  params.set("mode", "payment");
+  params.set("success_url", `${baseUrl}/cart.html?checkout=success&session_id={CHECKOUT_SESSION_ID}`);
+  params.set("cancel_url", `${baseUrl}/cart.html?checkout=cancelled`);
+  params.set("payment_method_types[0]", "card");
+  params.set("billing_address_collection", "required");
+  params.set("shipping_address_collection[allowed_countries][0]", "US");
+  params.set("phone_number_collection[enabled]", "true");
+  params.set("submit_type", "pay");
+  params.set("metadata[store]", "saigoods");
+  params.set("metadata[total_cases]", String(quote.totalCases));
+
+  let lineIndex = 0;
+
+  for (const item of quote.items) {
+    const product = productMap.get(item.slug);
+    const selectedSizes = Object.entries(item.quantities).filter(([, quantity]) => quantity > 0);
+
+    for (const [size, quantity] of selectedSizes) {
+      params.set(`line_items[${lineIndex}][price_data][currency]`, "usd");
+      params.set(`line_items[${lineIndex}][price_data][product_data][name]`, `${item.name} (${size})`);
+      params.set(
+        `line_items[${lineIndex}][price_data][product_data][description]`,
+        `${product.shortName} gloves, ${size} size, priced per case.`,
+      );
+      params.set(`line_items[${lineIndex}][price_data][unit_amount]`, String(item.priceCents));
+      params.set(`line_items[${lineIndex}][quantity]`, String(quantity));
+      lineIndex += 1;
+    }
+  }
+
+  const response = await fetch(stripeEndpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: params,
+  });
+
+  const session = await response.json();
+
+  if (!response.ok || !session.url) {
+    const error = new Error(session.error?.message || "Stripe checkout could not be created.");
+    error.statusCode = response.status || 500;
+    throw error;
+  }
+
+  return session;
+}

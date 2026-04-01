@@ -1,0 +1,188 @@
+{
+  "site": {
+    "name": "SAI Goods Store",
+    "legalName": "SAI Goods Inc.",
+    "sizes": ["Small", "Medium", "Large", "X Large"],
+    "addressLines": [
+      "6001 Jackson Square Blvd,",
+      "Ste 400, La Vergne, Tennessee",
+      "37086 USA"
+    ],
+    "email": "sales@saigoods.com",
+    "phone": "+1 (615) 375 6575",
+    "duns": "136336202",
+    "uei": "CHQVN9139UD8",
+    "cage": "15JK6"
+  },
+  "products": [
+    {
+      "id": "prod_standard",
+      "slug": "nitrile-standard",
+      "name": "Nitrile Examination \u2013 Standard",
+      "shortName": "Standard Series",
+      "priceCents": 4599,
+      "currency": "usd",
+      "cardImage": "/img/nitrile-sale-page.png",
+      "heroBadge": "Most Popular",
+      "subtext": "Powder-free blue examination gloves built for consistent, everyday protection in clinical, janitorial, and hygiene workflows.",
+      "description": "Designed for reliable protection in medical, laboratory, and hygiene environments, LYDUS Standard Series nitrile examination gloves provide exceptional barrier defense against pathogens and contaminants.",
+      "keywords": [
+        "nitrile",
+        "standard",
+        "blue",
+        "exam",
+        "examination",
+        "medical",
+        "clinic",
+        "powder free",
+        "hospital",
+        "gloves"
+      ],
+      "gallery": [
+        "/img/product-listing/nitrile-standard/amazon-listing-img-main-1.jpg",
+        "/img/product-listing/nitrile-standard/amazon-listing-img-1.jpg",
+        "/img/product-listing/nitrile-standard/amazon-listing-img-5.jpg",
+        "/img/product-listing/nitrile-standard/amazon-listing-img-7.jpg",
+        "/img/product-listing/nitrile-standard/amazon-listing-img-8.jpg"
+      ],
+      "specs": [
+        { "label": "Intended Use", "value": "Medical, laboratory, and hygiene use." },
+        { "label": "Material", "value": "Nitrile" },
+        { "label": "Powdered", "value": "Powder-free" },
+        { "label": "Sterility", "value": "Non-sterile" },
+        { "label": "Color", "value": "Blue" },
+        { "label": "Cuff", "value": "Beaded" },
+        { "label": "Texture", "value": "Fingertip textured" },
+        { "label": "Weight (M size)", "value": "~ 3.5g (4 mil)" }
+      ],
+      "intro": {
+        "headline": "Nitrile Examination Gloves",
+        "label": "4 mil",
+        "image": "/img/blue-gloves-img.png",
+        "eyebrow": "Reliable daily protection",
+        "body": "Balanced stretch, tactile control, and consistent barrier performance for fast-paced clinical environments.",
+        "features": [
+          "Easy to put on and remove, even during busy hours",
+          "Doesn't leave residue or powder mess",
+          "Gentle on skin for long wear and frequent glove changes"
+        ],
+        "theme": "blue"
+      }
+    },
+    {
+      "id": "prod_general",
+      "slug": "black-nitrile-general",
+      "name": "Black Nitrile \u2013 General",
+      "shortName": "General Purpose",
+      "priceCents": 4899,
+      "currency": "usd",
+      "cardImage": "/img/nitrile-general-sale-page.png",
+      "heroBadge": "Versatile Pick",
+      "subtext": "A 5 mil black nitrile glove for shop floors, industrial handling, food prep, sanitation, and front-of-house presentation.",
+      "description": "A versatile black nitrile glove made for light industrial work, maintenance, food handling, and cleaning teams that need a professional look with dependable grip.",
+      "keywords": [
+        "black",
+        "nitrile",
+        "general",
+        "general purpose",
+        "multi purpose",
+        "everyday use",
+        "shop",
+        "service",
+        "food prep",
+        "janitorial",
+        "maintenance",
+        "gloves"
+      ],
+      "gallery": [
+        "/img/product-listing/black-nitrile-general/amazon-listing-img-main.jpg",
+        "/img/product-listing/black-nitrile-general/amazon-listing-img-1.jpg",
+        "/img/product-listing/black-nitrile-general/amazon-listing-img-5.jpg",
+        "/img/product-listing/black-nitrile-general/amazon-listing-img-7.jpg",
+        "/img/product-listing/black-nitrile-general/amazon-listing-img-8.jpg"
+      ],
+      "specs": [
+        { "label": "Intended Use", "value": "General purpose, sanitation, and service work." },
+        { "label": "Material", "value": "Nitrile" },
+        { "label": "Powdered", "value": "Powder-free" },
+        { "label": "Sterility", "value": "Non-sterile" },
+        { "label": "Color", "value": "Black" },
+        { "label": "Cuff", "value": "Beaded" },
+        { "label": "Texture", "value": "Textured fingertips" },
+        { "label": "Weight (M size)", "value": "~ 4.3g (5 mil)" }
+      ],
+      "intro": {
+        "headline": "Black Nitrile Gloves",
+        "label": "5 mil",
+        "image": "/img/black-general-gloves-img.png",
+        "eyebrow": "General purpose performance",
+        "body": "Flexible enough for long shifts, strong enough for daily service, maintenance, and shop applications.",
+        "features": [
+          "Strong barrier with a comfortable stretch profile",
+          "Professional black finish hides stains and product residue",
+          "Dependable grip for cleaning, prep, and light industrial tasks"
+        ],
+        "theme": "stone"
+      }
+    },
+    {
+      "id": "prod_heavy",
+      "slug": "black-nitrile-heavy-duty",
+      "name": "Black Nitrile \u2013 Heavy Duty",
+      "shortName": "Heavy Duty",
+      "priceCents": 10599,
+      "currency": "usd",
+      "cardImage": "/img/nitrile-heavy-duty-sale-page.png",
+      "heroBadge": "Max Protection",
+      "subtext": "An 8 mil heavy-duty glove for mechanics, industrial teams, manufacturing, and demanding handling conditions.",
+      "description": "Built for tougher environments, LYDUS Heavy Duty black nitrile gloves deliver added thickness, durability, and puncture resistance when standard exam gloves are not enough.",
+      "keywords": [
+        "black",
+        "nitrile",
+        "heavy duty",
+        "mechanic",
+        "mechanical",
+        "automotive",
+        "auto shop",
+        "industrial",
+        "thick",
+        "8 mil",
+        "manufacturing",
+        "warehouse",
+        "heavy machinery",
+        "machinery",
+        "gloves"
+      ],
+      "gallery": [
+        "/img/product-listing/black-nitrile-heavy-duty/amazon-listing-img-main.jpg",
+        "/img/product-listing/black-nitrile-heavy-duty/amazon-listing-img-1.jpg",
+        "/img/product-listing/black-nitrile-heavy-duty/amazon-listing-img-2.jpg",
+        "/img/product-listing/black-nitrile-heavy-duty/amazon-listing-img-5.jpg",
+        "/img/product-listing/black-nitrile-heavy-duty/amazon-listing-img-7.jpg"
+      ],
+      "specs": [
+        { "label": "Intended Use", "value": "Industrial, mechanical, and heavy handling tasks." },
+        { "label": "Material", "value": "Nitrile" },
+        { "label": "Powdered", "value": "Powder-free" },
+        { "label": "Sterility", "value": "Non-sterile" },
+        { "label": "Color", "value": "Black" },
+        { "label": "Cuff", "value": "Beaded" },
+        { "label": "Texture", "value": "Diamond-textured fingertips" },
+        { "label": "Weight (M size)", "value": "~ 7.1g (8 mil)" }
+      ],
+      "intro": {
+        "headline": "Black Nitrile Gloves",
+        "label": "8 mil",
+        "image": "/img/black-heavy-duty-gloves-img.png",
+        "eyebrow": "Heavy-duty protection",
+        "body": "Extra thickness and toughness for mechanics, industrial handling, and high-contact environments.",
+        "features": [
+          "Added puncture resistance for tougher tasks",
+          "Durable feel without sacrificing fit and control",
+          "Made for grease, grime, and demanding industrial use"
+        ],
+        "theme": "sand"
+      }
+    }
+  ]
+}
