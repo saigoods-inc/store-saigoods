@@ -65,7 +65,8 @@ export default async function handler(req, res) {
     const paymentId = payment.id;
     const note = payment.note || "";
 
-    const orderIdMatch = note.match(/Order\s+([a-f0-9-]+)/i);
+    // Matches bigint (e.g. Order 42 from) or uuid (Order d88b... from)
+    const orderIdMatch = note.match(/Order\s+(\S+)\s+from/i);
     const orderId = orderIdMatch ? orderIdMatch[1] : null;
 
     if (!orderId) {
