@@ -3,6 +3,7 @@
 
 create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
+  order_ref text not null unique,
   status text not null default 'pending',
   customer_name text,
   customer_email text,

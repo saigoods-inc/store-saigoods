@@ -84,6 +84,7 @@ export default async function handler(req, res) {
 
     const orderForEmail = {
       id: order.id,
+      orderRef: order.order_ref,
       paymentId,
       customer: {
         name: order.customer_name,

@@ -39,6 +39,7 @@ export default async function handler(req, res) {
       checkoutUrl: paymentLink.checkoutUrl,
       quote,
       orderId: pendingOrder.id,
+      orderRef: pendingOrder.order_ref,
       squareReady: true,
     });
   } catch (error) {
