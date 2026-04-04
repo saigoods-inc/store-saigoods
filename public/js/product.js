@@ -11,7 +11,6 @@ let product;
 let selectedImageIndex = 0;
 let isCheckingOut = false;
 let selectedQuantities = {};
-let customer = null;
 
 document.addEventListener("DOMContentLoaded", init);
 

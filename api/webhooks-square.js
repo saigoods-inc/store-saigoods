@@ -24,10 +24,13 @@ export default async function handler(req, res) {
     const rawBody = Buffer.concat(chunks).toString("utf8");
     const signature = req.headers["x-square-hmacsha256-signature"];
 
-    const notificationUrl = `${process.env.PUBLIC_BASE_URL.replace(
-      /\/$/,
-      "",
-    )}/api/webhooks/square`;
+    const baseUrl = process.env.PUBLIC_BASE_URL?.replace(/\/$/, "");
+    if (!baseUrl) {
+      res.status(500).json({ error: "PUBLIC_BASE_URL is not configured." });
+      return;
+    }
+
+    const notificationUrl = `${baseUrl}/api/webhooks/square`;
 
     const valid = verifySquareSignature({
       body: rawBody,
@@ -40,14 +43,19 @@ export default async function handler(req, res) {
       return;
     }
 
-    const event = JSON.parse(rawBody);
-
-    if (!event || !event.type || !event.data?.object?.payment) {
-      res.status(400).json({ error: "Invalid webhook payload." });
+    let event;
+    try {
+      event = JSON.parse(rawBody);
+    } catch {
+      res.status(400).json({ error: "Invalid JSON body." });
       return;
     }
 
-    const payment = event.data.object.payment;
+    const payment = extractPaymentFromSquareEvent(event);
+    if (!payment) {
+      res.status(200).json({ ok: true, ignored: true });
+      return;
+    }
 
     if (payment.status !== "COMPLETED") {
       res.status(200).json({ ok: true });
@@ -107,5 +115,24 @@ function formatCurrency(cents) {
     style: "currency",
     currency: "USD",
   }).format((Number(cents) || 0) / 100);
+}
+
+/** Square webhook payloads nest payment under data.object.payment; tolerate variants. */
+function extractPaymentFromSquareEvent(event) {
+  if (!event?.data?.object) {
+    return null;
+  }
+
+  const obj = event.data.object;
+
+  if (obj.payment && typeof obj.payment === "object") {
+    return obj.payment;
+  }
+
+  if (obj.id && obj.status && obj.amount_money) {
+    return obj;
+  }
+
+  return null;
 }
 

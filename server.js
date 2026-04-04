@@ -17,7 +17,7 @@ const productMap = new Map(storeData.products.map((product) => [product.slug, pr
 const knownSizes = storeData.site.sizes;
 const port = Number(process.env.PORT || 3000);
 const publicDir = path.join(__dirname, "public");
-const imageDir = path.join(__dirname, "img");
+const imageDir = path.join(__dirname, "public", "img");
 
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
