@@ -1,6 +1,6 @@
 import { markOrderPaid } from "../lib/orders.js";
 import { sendCustomerEmail, sendVendorEmail } from "../lib/email.js";
-import { verifySquareSignature } from "../lib/square.js";
+import { formatPaymentShippingAddress, verifySquareSignature } from "../lib/square.js";
 
 export const config = {
   api: {
@@ -82,6 +82,7 @@ export default async function handler(req, res) {
         paidTotalCents != null && Number.isFinite(Number(paidTotalCents))
           ? Number(paidTotalCents)
           : undefined,
+      customerAddress: formatPaymentShippingAddress(payment),
     });
 
     // If no order was updated, it was already handled; avoid duplicate emails.

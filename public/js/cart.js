@@ -94,7 +94,7 @@ function renderCart() {
         <p class="summary-card__note">
           ${
             quote.squareReady
-              ? "Shipping and any taxes are added on the secure Square payment page after you continue."
+              ? "Enter your shipping ZIP for rates. You’ll enter your full delivery address once on Square’s payment page."
               : "Checkout is not fully configured yet. Add Square and email environment variables on the server to enable live payments."
           }
         </p>
@@ -266,7 +266,6 @@ function getCustomerDetails() {
     email: formData.get("email") || "",
     phone: formData.get("phone") || "",
     zipCode: formData.get("zipCode") || "",
-    address: formData.get("address") || "",
   };
 }
 

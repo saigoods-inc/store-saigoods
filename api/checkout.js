@@ -1,4 +1,5 @@
-import { buildQuote } from "../lib/quote.js";
+import { qualifiesForLocalFreeShippingByZip } from "../lib/local-free-shipping.js";
+import { buildQuote, formatCurrency } from "../lib/quote.js";
 import { createPendingOrder } from "../lib/orders.js";
 import { createPaymentLink } from "../lib/square.js";
 import { normalizeUsZip } from "../lib/shipping.js";
@@ -30,7 +31,20 @@ export default async function handler(req, res) {
     }
 
     const zip = normalizeUsZip(customer.zipCode);
-    const quote = buildQuote(items, { zipCode: zip });
+    let quote = buildQuote(items, { zipCode: zip });
+
+    if (await qualifiesForLocalFreeShippingByZip(zip)) {
+      const subtotal = quote.subtotalCents;
+      const tax = quote.taxCents;
+      quote = {
+        ...quote,
+        shippingCents: 0,
+        shippingFormatted: formatCurrency(0),
+        shippingZone: "local_free",
+        totalCents: subtotal + tax,
+        totalFormatted: formatCurrency(subtotal + tax),
+      };
+    }
 
     if (!quote.items.length) {
       res.status(400).json({ error: "Your cart is empty." });
