@@ -56,10 +56,10 @@ export function getCartQuote(items) {
   });
 }
 
-export function createCheckout(items, customer) {
+export function createCheckout(items, customer = {}) {
   return requestJson("/api/checkout", {
     method: "POST",
-    body: JSON.stringify({ items, customer }),
+    body: JSON.stringify({ items, customer: customer || {} }),
   });
 }
 

@@ -1,6 +1,10 @@
 import { markOrderPaid } from "../lib/orders.js";
 import { sendCustomerEmail, sendVendorEmail } from "../lib/email.js";
-import { formatPaymentShippingAddress, verifySquareSignature } from "../lib/square.js";
+import {
+  extractBuyerContactFromPayment,
+  formatPaymentShippingAddress,
+  verifySquareSignature,
+} from "../lib/square.js";
 
 export const config = {
   api: {
@@ -75,6 +79,7 @@ export default async function handler(req, res) {
     }
 
     const paidTotalCents = payment.amount_money?.amount;
+    const contact = extractBuyerContactFromPayment(payment);
     const order = await markOrderPaid({
       orderId,
       paymentId,
@@ -83,6 +88,9 @@ export default async function handler(req, res) {
           ? Number(paidTotalCents)
           : undefined,
       customerAddress: formatPaymentShippingAddress(payment),
+      buyerEmail: contact.email,
+      buyerPhone: contact.phone,
+      buyerName: contact.name,
     });
 
     // If no order was updated, it was already handled; avoid duplicate emails.

@@ -3,7 +3,6 @@ import { clearCart, getCart, removeProduct, updateSizeQuantity } from "./cart-st
 import { escapeHtml, initSite, setButtonBusy, showToast } from "./site.js";
 
 const cartRoot = document.querySelector("[data-cart-root]");
-const checkoutForm = document.querySelector("[data-checkout-form]");
 const currentUrl = new URL(window.location.href);
 
 let store;
@@ -16,7 +15,6 @@ async function init() {
   store = await initSite({ page: "cart" });
   handleCheckoutReturn();
   cartRoot.addEventListener("click", handleCartClick);
-  checkoutForm?.addEventListener("submit", handleCheckoutSubmit);
   await refreshQuote();
 }
 
@@ -84,8 +82,8 @@ function renderCart() {
 
         <button
           class="button button--primary button--full"
-          type="submit"
-          form="checkout-form"
+          type="button"
+          data-action="checkout"
           ${!quote.squareReady || isCheckingOut ? "disabled" : ""}
         >
           Proceed to checkout
@@ -94,7 +92,7 @@ function renderCart() {
         <p class="summary-card__note">
           ${
             quote.squareReady
-              ? "Enter your shipping ZIP for rates. You’ll enter your full delivery address once on Square’s payment page."
+              ? "You’ll enter contact, shipping, and payment on Square’s secure checkout. Shipping is calculated there per your Square settings."
               : "Checkout is not fully configured yet. Add Square and email environment variables on the server to enable live payments."
           }
         </p>
@@ -150,7 +148,7 @@ function renderCartItem(item) {
             <p class="cart-card__meta">${formatCaseLabel(item.lineCases)} selected · ${escapeHtml(item.lineTotalFormatted)}</p>
           </div>
 
-          <button class="cart-card__remove" type="button" data-action="remove" aria-label="Remove ${escapeHtml(item.name)} from cart">
+          <button type="button" data-action="remove" aria-label="Remove ${escapeHtml(item.name)} from cart">
             <img src="/img/trash-icon.svg" alt="" aria-hidden="true" />
           </button>
         </div>
@@ -190,7 +188,7 @@ async function handleCartClick(event) {
   const action = target.dataset.action;
 
   if (action === "checkout") {
-    // Checkout is now handled by the form submit.
+    await startCheckout(target);
     return;
   }
 
@@ -223,15 +221,7 @@ async function startCheckout(button) {
   try {
     isCheckingOut = true;
     setButtonBusy(button, true, "Redirecting...");
-    const customer = getCustomerDetails();
-    const zip5 = String(customer.zipCode || "")
-      .replace(/\D/g, "")
-      .slice(0, 5);
-    if (zip5.length !== 5) {
-      showToast("Enter a valid 5-digit U.S. ZIP code.", "error");
-      return;
-    }
-    const response = await createCheckout(getCart(store.site.sizes), customer);
+    const response = await createCheckout(getCart(store.site.sizes));
     window.location.href = response.checkoutUrl;
   } catch (error) {
     showToast(error.message, "error");
@@ -240,33 +230,6 @@ async function startCheckout(button) {
     setButtonBusy(button, false);
     renderCart();
   }
-}
-
-async function handleCheckoutSubmit(event) {
-  event.preventDefault();
-
-  if (!store || isCheckingOut) {
-    return;
-  }
-
-  const submitButton = checkoutForm.querySelector("[type='submit']");
-
-  await startCheckout(submitButton);
-}
-
-function getCustomerDetails() {
-  if (!checkoutForm) {
-    return {};
-  }
-
-  const formData = new FormData(checkoutForm);
-
-  return {
-    name: formData.get("fullName") || "",
-    email: formData.get("email") || "",
-    phone: formData.get("phone") || "",
-    zipCode: formData.get("zipCode") || "",
-  };
 }
 
 function handleCheckoutReturn() {

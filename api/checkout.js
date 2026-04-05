@@ -1,8 +1,6 @@
-import { qualifiesForLocalFreeShippingByZip } from "../lib/local-free-shipping.js";
-import { buildQuote, formatCurrency } from "../lib/quote.js";
+import { buildQuote } from "../lib/quote.js";
 import { createPendingOrder } from "../lib/orders.js";
 import { createPaymentLink } from "../lib/square.js";
-import { normalizeUsZip } from "../lib/shipping.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -11,40 +9,16 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { items, customer } = req.body || {};
+    const { items, customer: rawCustomer } = req.body || {};
+    const customer =
+      rawCustomer && typeof rawCustomer === "object" && !Array.isArray(rawCustomer) ? rawCustomer : {};
 
     if (!Array.isArray(items) || items.length === 0) {
       res.status(400).json({ error: "Your cart is empty." });
       return;
     }
 
-    if (!customer || !customer.email) {
-      res.status(400).json({ error: "Customer details are required." });
-      return;
-    }
-
-    if (!normalizeUsZip(customer.zipCode)) {
-      res.status(400).json({
-        error: "Enter a valid 5-digit U.S. ZIP code.",
-      });
-      return;
-    }
-
-    const zip = normalizeUsZip(customer.zipCode);
-    let quote = buildQuote(items, { zipCode: zip });
-
-    if (await qualifiesForLocalFreeShippingByZip(zip)) {
-      const subtotal = quote.subtotalCents;
-      const tax = quote.taxCents;
-      quote = {
-        ...quote,
-        shippingCents: 0,
-        shippingFormatted: formatCurrency(0),
-        shippingZone: "local_free",
-        totalCents: subtotal + tax,
-        totalFormatted: formatCurrency(subtotal + tax),
-      };
-    }
+    const quote = buildQuote(items, { omitShippingEstimate: true });
 
     if (!quote.items.length) {
       res.status(400).json({ error: "Your cart is empty." });
@@ -72,4 +46,3 @@ export default async function handler(req, res) {
       .json({ error: error.message || "Checkout could not be created." });
   }
 }
-
