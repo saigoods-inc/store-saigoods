@@ -29,7 +29,8 @@ export default async function handler(req, res) {
       return;
     }
 
-    const quote = buildQuote(items, { omitShippingEstimate: true });
+    const zip = normalizeUsZip(customer.zipCode);
+    const quote = buildQuote(items, { zipCode: zip });
 
     if (!quote.items.length) {
       res.status(400).json({ error: "Your cart is empty." });
