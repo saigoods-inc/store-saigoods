@@ -49,15 +49,10 @@ export function formatCaseLabel(count) {
   return `${count} case${count === 1 ? "" : "s"}`;
 }
 
-export function getCartQuote(items, zipCode) {
-  const body = { items };
-  const z = zipCode != null ? String(zipCode).trim() : "";
-  if (z) {
-    body.zipCode = z;
-  }
+export function getCartQuote(items) {
   return requestJson("/api/cart/quote", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: JSON.stringify({ items }),
   });
 }
 

@@ -8,8 +8,7 @@ export default async function handler(req, res) {
 
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
-    const zipCode = req.body?.zipCode;
-    const quote = buildQuote(items, { zipCode });
+    const quote = buildQuote(items, { omitShippingEstimate: true });
 
     const checkoutReady = Boolean(
       process.env.SQUARE_ACCESS_TOKEN &&

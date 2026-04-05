@@ -74,7 +74,15 @@ export default async function handler(req, res) {
       return;
     }
 
-    const order = await markOrderPaid({ orderId, paymentId });
+    const paidTotalCents = payment.amount_money?.amount;
+    const order = await markOrderPaid({
+      orderId,
+      paymentId,
+      paidTotalCents:
+        paidTotalCents != null && Number.isFinite(Number(paidTotalCents))
+          ? Number(paidTotalCents)
+          : undefined,
+    });
 
     // If no order was updated, it was already handled; avoid duplicate emails.
     if (!order) {

@@ -58,7 +58,7 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/api/cart/quote" && req.method === "POST") {
       const body = await readJsonBody(req);
-      const quote = buildQuote(body.items, { zipCode: body.zipCode });
+      const quote = buildQuote(body.items, { omitShippingEstimate: true });
       return sendJson(res, 200, quote);
     }
 

@@ -51,7 +51,7 @@
                 </div>
 
                 <div class="field">
-                  <label for="zipCode">Shipping ZIP code</label>
+                  <label for="zipCode">ZIP code</label>
                   <input
                     id="zipCode"
                     name="zipCode"
@@ -72,8 +72,12 @@
                   name="address"
                   rows="3"
                   autocomplete="shipping street-address"
+                  placeholder="Street, city, state, ZIP (you’ll confirm or adjust delivery on Square’s payment page)"
                   required
                 ></textarea>
+                <p class="inline-note">
+                  This page shows your merchandise total only. Square adds shipping and any taxes when you pay.
+                </p>
               </div>
             </form>
           </section>
