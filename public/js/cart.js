@@ -10,6 +10,8 @@ let store;
 let quote = null;
 let isCheckingOut = false;
 
+let quoteRefreshTimer;
+
 document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
@@ -17,7 +19,20 @@ async function init() {
   handleCheckoutReturn();
   cartRoot.addEventListener("click", handleCartClick);
   checkoutForm?.addEventListener("submit", handleCheckoutSubmit);
+  checkoutForm?.addEventListener("input", (event) => {
+    if (event.target?.id === "zipCode") {
+      window.clearTimeout(quoteRefreshTimer);
+      quoteRefreshTimer = window.setTimeout(() => {
+        refreshQuote();
+      }, 350);
+    }
+  });
   await refreshQuote();
+}
+
+function getCheckoutZipValue() {
+  const el = checkoutForm?.querySelector("#zipCode");
+  return el?.value?.trim() || "";
 }
 
 async function refreshQuote() {
@@ -30,7 +45,7 @@ async function refreshQuote() {
   }
 
   try {
-    quote = await getCartQuote(items);
+    quote = await getCartQuote(items, getCheckoutZipValue());
   } catch (error) {
     quote = null;
     showToast(error.message, "error");
@@ -76,6 +91,14 @@ function renderCart() {
             <span>Subtotal</span>
             <strong>${quote.subtotalFormatted}</strong>
           </div>
+          <div class="summary-card__row">
+            <span>Shipping (UPS Ground est.)</span>
+            <strong>${quote.shippingQuoteComplete ? quote.shippingFormatted : "Enter ZIP"}</strong>
+          </div>
+          <div class="summary-card__row">
+            <span>Estimated total</span>
+            <strong>${quote.shippingQuoteComplete ? quote.totalFormatted : "—"}</strong>
+          </div>
         </div>
 
         <div class="summary-card__breakdown">
@@ -86,16 +109,18 @@ function renderCart() {
           class="button button--primary button--full"
           type="submit"
           form="checkout-form"
-          ${!quote.squareReady || isCheckingOut ? "disabled" : ""}
+          ${!quote.squareReady || !quote.shippingQuoteComplete || isCheckingOut ? "disabled" : ""}
         >
           Proceed to checkout
         </button>
 
         <p class="summary-card__note">
           ${
-            quote.squareReady
-              ? "Your final payment is created from the validated server quote using Square-hosted checkout."
-              : "Checkout is not fully configured yet. Add Square and email environment variables on the server to enable live payments."
+            quote.shippingQuoteComplete
+              ? quote.squareReady
+                ? "Your final payment includes UPS Ground shipping from your ZIP and uses Square-hosted checkout."
+                : "Checkout is not fully configured yet. Add Square and email environment variables on the server to enable live payments."
+              : "Enter a 5-digit U.S. shipping ZIP code to calculate shipping and continue."
           }
         </p>
       </aside>
@@ -258,6 +283,7 @@ function getCustomerDetails() {
     name: formData.get("fullName") || "",
     email: formData.get("email") || "",
     phone: formData.get("phone") || "",
+    zipCode: formData.get("zipCode") || "",
     address: formData.get("address") || "",
   };
 }
@@ -271,7 +297,7 @@ function handleCheckoutReturn() {
 
   if (checkoutState === "success") {
     clearCart();
-    showToast("Stripe checkout completed. Your local cart has been cleared.", "success");
+    showToast("Payment completed. Your local cart has been cleared.", "success");
   }
 
   if (checkoutState === "cancelled") {
@@ -280,5 +306,6 @@ function handleCheckoutReturn() {
 
   currentUrl.searchParams.delete("checkout");
   currentUrl.searchParams.delete("session_id");
+  currentUrl.searchParams.delete("order_id");
   window.history.replaceState({}, "", `${currentUrl.pathname}${currentUrl.search}`);
 }

@@ -3,6 +3,8 @@ import { access, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildQuote } from "./lib/quote.js";
+import { resolveShippingZip } from "./lib/shipping.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,13 +58,14 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/api/cart/quote" && req.method === "POST") {
       const body = await readJsonBody(req);
-      const quote = buildQuote(body.items);
+      const quote = buildQuote(body.items, { zipCode: body.zipCode });
       return sendJson(res, 200, quote);
     }
 
     if (pathname === "/api/checkout" && req.method === "POST") {
       const body = await readJsonBody(req);
-      const quote = buildQuote(body.items);
+      const shippingZip = resolveShippingZip(body.customer);
+      const quote = buildQuote(body.items, { zipCode: shippingZip || undefined });
 
       if (!quote.items.length) {
         return sendJson(res, 400, { error: "Your cart is empty." });
@@ -235,74 +238,6 @@ async function readJsonBody(req) {
     error.statusCode = 400;
     throw error;
   }
-}
-
-function buildQuote(items) {
-  const normalizedItems = Array.isArray(items) ? items : [];
-  let subtotalCents = 0;
-  let totalCases = 0;
-
-  const quoteItems = normalizedItems
-    .map((item) => {
-      const product = productMap.get(item.slug);
-
-      if (!product) {
-        return null;
-      }
-
-      const quantities = normalizeQuantities(item.quantities);
-      const lineCases = getLineCases(quantities);
-
-      if (!lineCases) {
-        return null;
-      }
-
-      const lineTotalCents = lineCases * product.priceCents;
-      subtotalCents += lineTotalCents;
-      totalCases += lineCases;
-
-      return {
-        slug: product.slug,
-        name: product.name,
-        shortName: product.shortName,
-        cardImage: product.cardImage,
-        priceCents: product.priceCents,
-        priceFormatted: formatCurrency(product.priceCents),
-        quantities,
-        lineCases,
-        lineTotalCents,
-        lineTotalFormatted: formatCurrency(lineTotalCents),
-      };
-    })
-    .filter(Boolean);
-
-  return {
-    items: quoteItems,
-    subtotalCents,
-    subtotalFormatted: formatCurrency(subtotalCents),
-    totalCases,
-    stripeReady: Boolean(process.env.STRIPE_SECRET_KEY),
-  };
-}
-
-function normalizeQuantities(quantities) {
-  return knownSizes.reduce((result, size) => {
-    const rawValue = quantities && Object.hasOwn(quantities, size) ? quantities[size] : 0;
-    const parsed = Number(rawValue);
-    result[size] = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
-    return result;
-  }, {});
-}
-
-function getLineCases(quantities) {
-  return Object.values(quantities).reduce((sum, quantity) => sum + quantity, 0);
-}
-
-function formatCurrency(cents) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(cents / 100);
 }
 
 function getBaseUrl(req) {

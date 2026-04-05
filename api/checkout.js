@@ -1,6 +1,7 @@
 import { buildQuote } from "../lib/quote.js";
 import { createPendingOrder } from "../lib/orders.js";
 import { createPaymentLink } from "../lib/square.js";
+import { resolveShippingZip } from "../lib/shipping.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -21,7 +22,15 @@ export default async function handler(req, res) {
       return;
     }
 
-    const quote = buildQuote(items);
+    const shippingZip = resolveShippingZip(customer);
+    if (!shippingZip) {
+      res.status(400).json({
+        error: "Enter a valid 5-digit U.S. shipping ZIP code (ZIP field or address).",
+      });
+      return;
+    }
+
+    const quote = buildQuote(items, { zipCode: shippingZip });
 
     if (!quote.items.length) {
       res.status(400).json({ error: "Your cart is empty." });
