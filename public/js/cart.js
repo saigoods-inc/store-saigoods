@@ -89,13 +89,11 @@ function renderCart() {
           Proceed to checkout
         </button>
 
-        <p class="summary-card__note">
-          ${
-            quote.squareReady
-              ? "You’ll enter contact, shipping, and payment on Square’s secure checkout. Shipping is calculated there per your Square settings."
-              : "Checkout is not fully configured yet. Add Square and email environment variables on the server to enable live payments."
-          }
-        </p>
+        ${
+          quote.squareReady
+            ? ""
+            : `<p class="summary-card__note">Checkout is not fully configured yet. Add Square and email environment variables on the server to enable live payments.</p>`
+        }
       </aside>
     </section>
   `;
