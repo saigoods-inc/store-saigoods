@@ -1,5 +1,5 @@
-import { createCheckout, formatCaseLabel, getCartQuote } from "./catalog.js";
-import { clearCart, getCart, removeProduct, updateSizeQuantity } from "./cart-store.js";
+import { createCheckout, formatCartUnitLabel, getCartQuote } from "./catalog.js";
+import { clearCart, getCart, removeProduct } from "./cart-store.js";
 import { escapeHtml, initSite, setButtonBusy, showToast } from "./site.js";
 
 const cartRoot = document.querySelector("[data-cart-root]");
@@ -46,7 +46,7 @@ function renderCart() {
 
       <div class="empty-state empty-state--wide">
         <h3>Your cart is empty.</h3>
-        <p>Add products from the catalog, then come back here to review the backend-priced order summary.</p>
+        <p>Add products from the catalog, then come back here to review your order summary.</p>
         <a class="button button--primary" href="/index.html#products">Continue shopping</a>
       </div>
     `;
@@ -60,14 +60,14 @@ function renderCart() {
 
     <section class="cart-layout">
       <div class="cart-items">
-        ${quote.items.map(renderCartItem).join("")}
+        ${quote.items.map((item) => renderCartItem(item, store.site.sizes)).join("")}
       </div>
 
       <aside class="summary-card">
         <h2>Order Summary</h2>
         <div class="summary-card__rows">
           <div class="summary-card__row">
-            <span>Total cases</span>
+            <span>Shipping units (cases&nbsp;eq.)</span>
             <strong>${quote.totalCases}</strong>
           </div>
           <div class="summary-card__row">
@@ -77,7 +77,7 @@ function renderCart() {
         </div>
 
         <div class="summary-card__breakdown">
-          ${renderOrderBreakdown(quote)}
+          ${renderOrderBreakdown(quote, store.site.sizes)}
         </div>
 
         <button
@@ -101,40 +101,90 @@ function renderCart() {
   `;
 }
 
-function renderOrderBreakdown(currentQuote) {
+/**
+ * One line per size: "Small: 5 cases 2 boxes" (omits zero parts).
+ */
+function combinedSizeLineHtml(size, quantities, boxQuantities) {
+  const c = Math.floor(Number(quantities?.[size]) || 0);
+  const b = Math.floor(Number(boxQuantities?.[size]) || 0);
+  if (c < 1 && b < 1) {
+    return null;
+  }
+  const parts = [];
+  if (c > 0) {
+    parts.push(`${c} case${c === 1 ? "" : "s"}`);
+  }
+  if (b > 0) {
+    parts.push(`${b} box${b === 1 ? "" : "es"}`);
+  }
+  return `${escapeHtml(size)}: ${parts.join(" ")}`;
+}
+
+function renderOrderBreakdown(currentQuote, sizes) {
   if (!currentQuote?.items?.length) {
     return "";
   }
 
+  const sizeOrder =
+    Array.isArray(sizes) && sizes.length
+      ? sizes
+      : [...new Set([...Object.keys(currentQuote.items[0].quantities || {})])];
+
   return currentQuote.items
     .map((item) => {
-      const sizeLines = Object.entries(item.quantities)
-        .filter(([_, count]) => Number(count) > 0)
+      const lines = sizeOrder
+        .map((size) => combinedSizeLineHtml(size, item.quantities, item.boxQuantities))
+        .filter(Boolean)
         .map(
-          ([size, count]) => `
+          (html) => `
             <div class="summary-card__row summary-card__row--size">
-              <span>${escapeHtml(size)}</span>
-              <strong>${count}</strong>
+              <span>${html}</span>
             </div>
           `,
         )
         .join("");
 
-      if (!sizeLines) {
+      if (!lines) {
         return "";
       }
 
       return `
         <div class="summary-card__product">
           <p class="summary-card__product-name">${escapeHtml(item.name)}</p>
-          ${sizeLines}
+          ${lines}
         </div>
       `;
     })
     .join("");
 }
 
-function renderCartItem(item) {
+function renderCartItemSummary(item, sizes) {
+  const sizeOrder =
+    Array.isArray(sizes) && sizes.length
+      ? sizes
+      : [
+          ...new Set([
+            ...Object.keys(item.quantities || {}),
+            ...Object.keys(item.boxQuantities || {}),
+          ]),
+        ];
+
+  const rows = sizeOrder
+    .map((size) => combinedSizeLineHtml(size, item.quantities, item.boxQuantities))
+    .filter(Boolean)
+    .map((html) => `<li>${html}</li>`);
+
+  if (!rows.length) {
+    return `<p class="cart-card__summary-empty">—</p>`;
+  }
+
+  return `<ul class="cart-card__summary-list">${rows.join("")}</ul>`;
+}
+
+function renderCartItem(item, sizes) {
+  const slugEnc = encodeURIComponent(item.slug);
+  const productHref = `/product.html?slug=${slugEnc}`;
+
   return `
     <article class="cart-card" data-slug="${escapeHtml(item.slug)}">
       <div class="cart-card__media">
@@ -145,33 +195,30 @@ function renderCartItem(item) {
         <div class="cart-card__topline">
           <div>
             <h3>${escapeHtml(item.name)}</h3>
-            <p class="cart-card__meta">${formatCaseLabel(item.lineCases)} selected · ${escapeHtml(item.lineTotalFormatted)}</p>
+            <p class="cart-card__meta">${escapeHtml(formatCartUnitLabel(item))} · ${escapeHtml(item.lineTotalFormatted)}</p>
           </div>
 
-          <button type="button" data-action="remove" aria-label="Remove ${escapeHtml(item.name)} from cart">
-            <img src="/img/trash-icon.svg" alt="" aria-hidden="true" />
-          </button>
+          <div class="cart-card__actions">
+            <a
+              class="cart-card__icon-btn"
+              href="${productHref}"
+              aria-label="Edit ${escapeHtml(item.name)} on product page"
+            >
+              <img src="/img/edit-icon.svg" alt="" aria-hidden="true" width="20" height="20" />
+            </a>
+            <button
+              type="button"
+              class="cart-card__icon-btn"
+              data-action="remove"
+              aria-label="Remove ${escapeHtml(item.name)} from cart"
+            >
+              <img src="/img/trash-icon.svg" alt="" aria-hidden="true" width="20" height="20" />
+            </button>
+          </div>
         </div>
 
-        <div class="cart-card__size-grid">
-          ${Object.entries(item.quantities)
-            .map(
-              ([size, quantity]) => `
-                <div class="size-card">
-                  <span class="size-card__label">${escapeHtml(size)}</span>
-                  <div class="qty-control">
-                    <button type="button" data-action="decrease" data-size="${escapeHtml(size)}" aria-label="Reduce ${escapeHtml(size)} quantity">
-                      -
-                    </button>
-                    <strong>${quantity}</strong>
-                    <button type="button" data-action="increase" data-size="${escapeHtml(size)}" aria-label="Increase ${escapeHtml(size)} quantity">
-                      +
-                    </button>
-                  </div>
-                </div>
-              `,
-            )
-            .join("")}
+        <div class="cart-card__summary">
+          ${renderCartItemSummary(item, sizes)}
         </div>
       </div>
     </article>
@@ -203,17 +250,6 @@ async function handleCartClick(event) {
     removeProduct(slug, store.site.sizes);
     await refreshQuote();
     showToast("Item removed from your cart.", "success");
-    return;
-  }
-
-  if (action === "increase" || action === "decrease") {
-    const size = target.dataset.size;
-    const currentItem = quote?.items.find((entry) => entry.slug === slug);
-    const currentQuantity = currentItem?.quantities?.[size] || 0;
-    const nextQuantity = action === "increase" ? currentQuantity + 1 : currentQuantity - 1;
-
-    updateSizeQuantity(slug, size, nextQuantity, store.site.sizes);
-    await refreshQuote();
   }
 }
 

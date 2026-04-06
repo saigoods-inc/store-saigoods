@@ -19,6 +19,9 @@ export async function initSite({
   return store;
 }
 
+const TOAST_VISIBLE_MS = 3200;
+const TOAST_REMOVE_MS = 220;
+
 export function showToast(message, tone = "default") {
   const toastStack = document.querySelector("[data-toast-stack]");
 
@@ -31,14 +34,54 @@ export function showToast(message, tone = "default") {
   toast.textContent = message;
   toastStack.append(toast);
 
+  let hideTimeoutId = null;
+  let removeTimeoutId = null;
+
+  function clearTimers() {
+    if (hideTimeoutId !== null) {
+      window.clearTimeout(hideTimeoutId);
+      hideTimeoutId = null;
+    }
+    if (removeTimeoutId !== null) {
+      window.clearTimeout(removeTimeoutId);
+      removeTimeoutId = null;
+    }
+  }
+
+  function startRemoveAfterFade() {
+    removeTimeoutId = window.setTimeout(() => {
+      removeTimeoutId = null;
+      toast.remove();
+    }, TOAST_REMOVE_MS);
+  }
+
+  function dismiss() {
+    clearTimers();
+    toast.classList.remove("is-visible");
+    startRemoveAfterFade();
+  }
+
+  function scheduleDismiss() {
+    clearTimers();
+    hideTimeoutId = window.setTimeout(() => {
+      hideTimeoutId = null;
+      dismiss();
+    }, TOAST_VISIBLE_MS);
+  }
+
+  toast.addEventListener("mouseenter", () => {
+    clearTimers();
+  });
+
+  toast.addEventListener("mouseleave", () => {
+    scheduleDismiss();
+  });
+
   requestAnimationFrame(() => {
     toast.classList.add("is-visible");
   });
 
-  window.setTimeout(() => {
-    toast.classList.remove("is-visible");
-    window.setTimeout(() => toast.remove(), 220);
-  }, 3200);
+  scheduleDismiss();
 }
 
 export function setButtonBusy(button, busy, busyLabel) {

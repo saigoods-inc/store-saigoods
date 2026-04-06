@@ -22,6 +22,43 @@
       "shortName": "Standard Series",
       "priceCents": 4599,
       "currency": "usd",
+      "boxesPerCase": 10,
+      "bundles": [
+        { "id": "box_1", "label": "1 box", "kind": "box", "units": 1, "priceCents": 2599 },
+        { "id": "box_5", "label": "5 boxes", "kind": "box", "units": 5, "priceCents": 4299 },
+        {
+          "id": "case_1",
+          "label": "1 case",
+          "kind": "case",
+          "units": 1,
+          "priceCents": 6499,
+          "badge": "popular"
+        },
+        {
+          "id": "case_5",
+          "label": "5 cases",
+          "kind": "case",
+          "units": 5,
+          "priceCents": 31299,
+          "saveCents": 1196
+        },
+        {
+          "id": "case_10",
+          "label": "10 cases",
+          "kind": "case",
+          "units": 10,
+          "priceCents": 62199,
+          "saveCents": 2791
+        },
+        {
+          "id": "case_20",
+          "label": "20 cases",
+          "kind": "case",
+          "units": 20,
+          "priceCents": 124199,
+          "saveCents": 5781
+        }
+      ],
       "cardImage": "/img/nitrile-sale-page.png",
       "heroBadge": "Most Popular",
       "subtext": "Powder-free blue examination gloves built for consistent, everyday protection in clinical, janitorial, and hygiene workflows.",
@@ -76,6 +113,43 @@
       "shortName": "General Purpose",
       "priceCents": 4899,
       "currency": "usd",
+      "boxesPerCase": 10,
+      "bundles": [
+        { "id": "box_1", "label": "1 box", "kind": "box", "units": 1, "priceCents": 2769 },
+        { "id": "box_5", "label": "5 boxes", "kind": "box", "units": 5, "priceCents": 4580 },
+        {
+          "id": "case_1",
+          "label": "1 case",
+          "kind": "case",
+          "units": 1,
+          "priceCents": 6923,
+          "badge": "popular"
+        },
+        {
+          "id": "case_5",
+          "label": "5 cases",
+          "kind": "case",
+          "units": 5,
+          "priceCents": 33344,
+          "saveCents": 1274
+        },
+        {
+          "id": "case_10",
+          "label": "10 cases",
+          "kind": "case",
+          "units": 10,
+          "priceCents": 66264,
+          "saveCents": 2971
+        },
+        {
+          "id": "case_20",
+          "label": "20 cases",
+          "kind": "case",
+          "units": 20,
+          "priceCents": 132306,
+          "saveCents": 6164
+        }
+      ],
       "cardImage": "/img/nitrile-general-sale-page.png",
       "heroBadge": "Versatile Pick",
       "subtext": "A 5 mil black nitrile glove for shop floors, industrial handling, food prep, sanitation, and front-of-house presentation.",
@@ -132,6 +206,43 @@
       "shortName": "Heavy Duty",
       "priceCents": 10599,
       "currency": "usd",
+      "boxesPerCase": 10,
+      "bundles": [
+        { "id": "box_1", "label": "1 box", "kind": "box", "units": 1, "priceCents": 5992 },
+        { "id": "box_5", "label": "5 boxes", "kind": "box", "units": 5, "priceCents": 9909 },
+        {
+          "id": "case_1",
+          "label": "1 case",
+          "kind": "case",
+          "units": 1,
+          "priceCents": 14978,
+          "badge": "popular"
+        },
+        {
+          "id": "case_5",
+          "label": "5 cases",
+          "kind": "case",
+          "units": 5,
+          "priceCents": 72140,
+          "saveCents": 2755
+        },
+        {
+          "id": "case_10",
+          "label": "10 cases",
+          "kind": "case",
+          "units": 10,
+          "priceCents": 143361,
+          "saveCents": 6429
+        },
+        {
+          "id": "case_20",
+          "label": "20 cases",
+          "kind": "case",
+          "units": 20,
+          "priceCents": 286262,
+          "saveCents": 13318
+        }
+      ],
       "cardImage": "/img/nitrile-heavy-duty-sale-page.png",
       "heroBadge": "Max Protection",
       "subtext": "An 8 mil heavy-duty glove for mechanics, industrial teams, manufacturing, and demanding handling conditions.",

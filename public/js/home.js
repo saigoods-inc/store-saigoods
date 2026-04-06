@@ -1,6 +1,5 @@
-import { getStore, searchProducts } from "./catalog.js";
-import { mergeProductQuantities } from "./cart-store.js";
-import { escapeHtml, initSite, showToast } from "./site.js";
+import { formatCurrency, getStore, searchProducts } from "./catalog.js";
+import { escapeHtml, initSite } from "./site.js";
 
 const productGrid = document.querySelector("[data-product-grid]");
 const introRoot = document.querySelector("[data-product-intros]");
@@ -9,6 +8,16 @@ const searchMeta = document.querySelector("[data-search-meta]");
 const currentUrl = new URL(window.location.href);
 let activeQuery = currentUrl.searchParams.get("search")?.trim() || "";
 let store;
+
+/** Index catalog only — mirrors the 1-case bundle (`case_1`); PDP uses full bundle + size selection. */
+function catalogCardPriceLabel(product) {
+  const case1 = product.bundles?.find((b) => b.id === "case_1");
+  const cents = Number(case1?.priceCents);
+  if (case1 && Number.isFinite(cents) && cents > 0) {
+    return `${formatCurrency(cents)} per case`;
+  }
+  return `${formatCurrency(product.priceCents)} per case`;
+}
 
 document.addEventListener("DOMContentLoaded", init);
 
@@ -22,7 +31,6 @@ async function init() {
 
   renderIntroPanels(store.products);
   applySearch(activeQuery);
-  productGrid.addEventListener("click", handleCatalogClick);
 }
 
 function handleSearch(query) {
@@ -67,14 +75,11 @@ function renderCatalog(products) {
 
           <div class="product-card__body">
             <h3>${escapeHtml(product.name)}</h3>
-            <p class="product-card__price">$${(product.priceCents / 100).toFixed(2)}</p>
+            <p class="product-card__price">${catalogCardPriceLabel(product)}</p>
             <p class="product-card__copy">${escapeHtml(product.subtext)}</p>
 
             <div class="product-card__actions">
-              <button class="button button--primary" type="button" data-action="add" data-slug="${escapeHtml(product.slug)}">
-                Add to cart
-              </button>
-              <a class="button button--secondary" href="/product.html?slug=${encodeURIComponent(product.slug)}">
+              <a class="button button--primary" href="/product.html?slug=${encodeURIComponent(product.slug)}">
                 View product
               </a>
             </div>
@@ -149,18 +154,6 @@ function renderIntroPanels(products) {
       `;
     })
     .join("");
-}
-
-function handleCatalogClick(event) {
-  const button = event.target.closest("[data-action='add']");
-
-  if (!button || !store) {
-    return;
-  }
-
-  const { slug } = button.dataset;
-  mergeProductQuantities(slug, { Medium: 1 }, store.site.sizes);
-  showToast("Added 1 medium case to your cart.", "success");
 }
 
 function syncUrl() {
