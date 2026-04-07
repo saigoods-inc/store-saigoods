@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { enrichCartQuoteApiResponse } from "./lib/cart-api-response.js";
+import { buildCheckoutTaxWarnings } from "./lib/checkout-tax.js";
 import { buildFullCheckoutQuote, formatShippingAddressForOrder } from "./lib/checkout-totals.js";
 import { parseCheckoutPayBody } from "./lib/checkout-validation.js";
 import { createPendingOrder } from "./lib/orders.js";
@@ -90,14 +91,9 @@ const server = createServer(async (req, res) => {
         return sendJson(res, 400, { error: "Your cart is empty." });
       }
 
-      const quote = buildFullCheckoutQuote(items, body.address || {});
-      const warnings = [];
-
-      if (quote.destinationState && !quote.taxRateConfigured) {
-        warnings.push(
-          `No tax rate in CHECKOUT_STATE_TAX_BPS for ${quote.destinationState}. Tax is $0 until you add that state.`,
-        );
-      }
+      const addr = body.address || {};
+      const quote = await buildFullCheckoutQuote(items, addr);
+      const warnings = buildCheckoutTaxWarnings(quote, addr);
 
       return sendJson(res, 200, { ...quote, warnings });
     }
@@ -111,7 +107,7 @@ const server = createServer(async (req, res) => {
       }
 
       try {
-        const quote = buildFullCheckoutQuote(parsed.items, parsed.address);
+        const quote = await buildFullCheckoutQuote(parsed.items, parsed.address);
         const pending = await createPendingOrder({
           quote,
           customer: {

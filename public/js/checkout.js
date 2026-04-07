@@ -83,7 +83,7 @@ function renderCheckoutShell(miniQuote) {
     <section class="page-heading">
       <h1>Checkout</h1>
       <p class="checkout-lead">
-        Enter your shipping address once. We calculate shipping (from ZIP) and sales tax (from state) on our server, then you pay the total here.
+        Enter your shipping address once. Shipping is free; we calculate sales tax (from state) on our server, then you pay the total here.
       </p>
     </section>
 

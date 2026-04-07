@@ -16,7 +16,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    const quote = buildFullCheckoutQuote(parsed.items, parsed.address);
+    const quote = await buildFullCheckoutQuote(parsed.items, parsed.address);
     const customer = {
       name: parsed.name,
       email: parsed.email,

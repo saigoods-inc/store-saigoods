@@ -683,9 +683,8 @@ button {
 }
 
 .button--secondary {
-  background: rgba(255, 255, 255, 0.92);
+  background: #f0f0f0;
   color: var(--text);
-  box-shadow: 0 14px 28px rgba(39, 35, 29, 0.08);
 }
 
 .button--full {
@@ -1582,6 +1581,11 @@ button {
 @media (max-width: 900px) {
   .checkout-layout {
     grid-template-columns: 1fr;
+  }
+
+  /* Stack with order summary first (DOM stays form → summary for wide screens). */
+  .checkout-layout .checkout-summary {
+    order: -1;
   }
 }
 
