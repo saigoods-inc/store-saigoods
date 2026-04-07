@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Orders — SAI Goods (staff)</title>
+    <link rel="stylesheet" href="/css/admin-orders.css" />
+  </head>
+  <body class="admin-page">
+    <div id="admin-login" class="admin-login" hidden>
+      <div class="admin-login__box">
+        <h1>Staff login</h1>
+        <p class="admin-muted">Sign in with your Supabase account to manage orders.</p>
+        <form id="login-form">
+          <label>
+            Email
+            <input type="email" name="email" autocomplete="username" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" autocomplete="current-password" required />
+          </label>
+          <p id="login-error" class="admin-error" role="alert" hidden></p>
+          <button type="submit" class="admin-btn admin-btn--primary">Sign in</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="admin-app" class="admin-app" hidden>
+      <header class="admin-header">
+        <div>
+          <h1>Orders</h1>
+          <p class="admin-muted">Fulfillment queue — update status as you pack and ship.</p>
+        </div>
+        <div class="admin-header__actions">
+          <span id="admin-user-email" class="admin-muted"></span>
+          <button type="button" id="admin-logout" class="admin-btn">Sign out</button>
+        </div>
+      </header>
+
+      <div class="admin-toolbar">
+        <label class="admin-filter">
+          <span>Show</span>
+          <select id="filter-status">
+            <option value="">All orders</option>
+            <option value="awaiting_payment">Awaiting payment</option>
+            <option value="paid">Paid</option>
+            <option value="ready_to_ship">Ready to ship</option>
+            <option value="shipped">Shipped</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </label>
+        <button type="button" id="admin-refresh" class="admin-btn">Refresh</button>
+      </div>
+
+      <p id="admin-load-error" class="admin-error" role="alert" hidden></p>
+      <div id="admin-loading" class="admin-loading" hidden>Loading orders…</div>
+
+      <div class="admin-table-wrap">
+        <table class="admin-table" id="orders-table">
+          <thead>
+            <tr>
+              <th>Order</th>
+              <th>Customer</th>
+              <th>Payment</th>
+              <th>Order status</th>
+              <th>Products to ship</th>
+              <th>Created</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="orders-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="order-modal" class="admin-modal" hidden aria-modal="true" role="dialog">
+      <div class="admin-modal__backdrop" data-close-modal></div>
+      <div class="admin-modal__panel">
+        <button type="button" class="admin-modal__close" data-close-modal aria-label="Close">&times;</button>
+        <div id="order-modal-body"></div>
+      </div>
+    </div>
+
+    <script type="module" src="/js/admin-orders.js"></script>
+  </body>
+</html>

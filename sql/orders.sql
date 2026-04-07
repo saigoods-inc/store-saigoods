@@ -6,6 +6,8 @@ create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
   order_ref text not null unique,
   status text not null default 'pending',
+  order_status text not null default 'awaiting_payment'
+    check (order_status in ('awaiting_payment', 'paid', 'ready_to_ship', 'shipped', 'cancelled')),
   customer_name text,
   customer_email text,
   customer_phone text,

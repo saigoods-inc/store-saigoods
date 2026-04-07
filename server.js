@@ -239,6 +239,19 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 405, { error: "Method not allowed." });
     }
 
+    if (pathname === "/api/supabase-public-config") {
+      const supabaseUrl = process.env.SUPABASE_URL?.trim();
+      const supabaseAnonKey = process.env.SUPABASE_ANON_KEY?.trim();
+      if (!supabaseUrl || !supabaseAnonKey) {
+        return sendJson(res, 503, { error: "Supabase public configuration is not set." });
+      }
+      return sendJson(res, 200, { supabaseUrl, supabaseAnonKey });
+    }
+
+    if (pathname === "/admin/orders" || pathname === "/admin/orders/" || pathname === "/admin/orders.html") {
+      return serveFile(res, path.join(publicDir, "admin", "orders.html"), req.method);
+    }
+
     if (pathname === "/" || pathname === "/index.html") {
       return serveFile(res, path.join(publicDir, "index.html"), req.method);
     }
