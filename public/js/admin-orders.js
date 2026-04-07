@@ -149,7 +149,11 @@ async function init() {
     if (error) {
       errEl.textContent = error.message;
       errEl.hidden = false;
+      return;
     }
+    showApp();
+    document.getElementById("admin-user-email").textContent = email;
+    await loadOrders();
   });
 
   document.getElementById("admin-logout")?.addEventListener("click", async () => {
@@ -171,11 +175,10 @@ async function loadOrders() {
   errEl.hidden = true;
   loading.hidden = false;
 
+  // Use * so we don’t fail if optional columns (e.g. payment_id) aren’t migrated yet.
   const { data, error } = await supabase
     .from("orders")
-    .select(
-      "id, order_ref, status, order_status, customer_name, customer_email, customer_phone, customer_address, items, created_at, payment_id, subtotal_cents, shipping_cents, tax_cents, total_cents",
-    )
+    .select("*")
     .order("created_at", { ascending: false });
 
   loading.hidden = true;

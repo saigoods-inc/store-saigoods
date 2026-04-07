@@ -22,6 +22,12 @@ body.admin-page {
   line-height: 1.45;
 }
 
+/* Flex layouts override the default [hidden] display; force hide when toggled off. */
+.admin-login[hidden],
+.admin-app[hidden] {
+  display: none !important;
+}
+
 .admin-muted {
   color: var(--admin-muted);
   margin: 0.25rem 0 0;
