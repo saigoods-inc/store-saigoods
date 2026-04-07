@@ -103,6 +103,36 @@ body.admin-page {
   gap: 0.75rem;
 }
 
+.admin-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--admin-card);
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+}
+
+.admin-nav__link {
+  font-size: 13px;
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  color: var(--admin-muted);
+  text-decoration: none;
+}
+
+.admin-nav__link:hover {
+  color: var(--admin-text);
+  background: var(--admin-bg);
+}
+
+.admin-nav__link.is-active {
+  color: var(--admin-text);
+  background: var(--admin-bg);
+  font-weight: 600;
+}
+
 .admin-toolbar {
   display: flex;
   flex-wrap: wrap;

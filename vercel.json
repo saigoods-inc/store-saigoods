@@ -2,7 +2,9 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "outputDirectory": "public",
   "rewrites": [
-    { "source": "/admin/orders", "destination": "/admin/orders.html" }
+    { "source": "/admin/orders", "destination": "/admin/orders.html" },
+    { "source": "/admin/tax", "destination": "/admin/tax.html" },
+    { "source": "/admin/nexus", "destination": "/admin/nexus.html" }
   ],
   "functions": {
     "api/**/*.js": {

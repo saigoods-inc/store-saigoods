@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    assertReportsAuthorized(req);
+    await assertReportsAuthorized(req);
     const summary = await fetchTaxSummaryTnRows();
     res.status(200).json({
       generated_at: new Date().toISOString(),

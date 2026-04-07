@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
+import { fetchSupabasePublicConfig, renderAdminNav } from "./admin-shared.js";
 
 /** Staff can only set these fulfillment statuses (payment column shows payment state). */
 const FULFILLMENT_OPTIONS = [
@@ -58,18 +59,36 @@ function fulfillmentLabel(value) {
   return row ? row[1] : value;
 }
 
-function formatSizeQuantities(it) {
-  if (!it.quantities || typeof it.quantities !== "object") {
-    return "";
-  }
+/**
+ * Cases + boxes per glove size (from cart `quantities` / `boxQuantities`).
+ * Bundle checkout spreads units across sizes — this is what to pick for packing.
+ */
+function formatPerSizePackBreakdown(it) {
+  const q = it.quantities && typeof it.quantities === "object" ? it.quantities : {};
+  const bq = it.boxQuantities && typeof it.boxQuantities === "object" ? it.boxQuantities : {};
+  const keys = new Set([...Object.keys(q), ...Object.keys(bq)]);
+  const ordered = [
+    ...siteSizes.filter((s) => keys.has(s)),
+    ...[...keys].filter((s) => !siteSizes.includes(s)),
+  ];
+
   const parts = [];
-  for (const sz of siteSizes) {
-    const n = Math.floor(Number(it.quantities[sz]) || 0);
-    if (n > 0) {
-      parts.push(`${sz}: ${n}`);
+  for (const sz of ordered) {
+    const cases = Math.floor(Number(q[sz]) || 0);
+    const boxes = Math.floor(Number(bq[sz]) || 0);
+    if (cases < 1 && boxes < 1) {
+      continue;
     }
+    const bits = [];
+    if (cases > 0) {
+      bits.push(`${cases} case(s)`);
+    }
+    if (boxes > 0) {
+      bits.push(`${boxes} box(es)`);
+    }
+    parts.push(`${sz}: ${bits.join(" + ")}`);
   }
-  return parts.length ? `Sizes — ${parts.join(", ")}` : "";
+  return parts.join(" · ");
 }
 
 function describeLineItems(items) {
@@ -83,6 +102,8 @@ function describeLineItems(items) {
     const pieces = [];
     const bundleLines = Array.isArray(it.bundleLines) ? it.bundleLines : [];
 
+    const packBySize = formatPerSizePackBreakdown(it);
+
     if (bundleLines.length) {
       for (const bl of bundleLines) {
         const id = String(bl?.id || "").trim();
@@ -93,27 +114,30 @@ function describeLineItems(items) {
       }
     }
 
-    const sizeLine = formatSizeQuantities(it);
-    if (sizeLine) {
-      pieces.push(sizeLine);
-    }
-
     const cases = Number(it.lineCases);
     const boxes = Number(it.lineBoxCount);
-    if (Number.isFinite(cases) && cases > 0) {
-      pieces.push(`${cases} case(s)`);
-    }
-    if (Number.isFinite(boxes) && boxes > 0) {
-      pieces.push(`${boxes} box(es)`);
+    if (!packBySize) {
+      if (Number.isFinite(cases) && cases > 0) {
+        pieces.push(`${cases} case(s) total`);
+      }
+      if (Number.isFinite(boxes) && boxes > 0) {
+        pieces.push(`${boxes} box(es) total`);
+      }
     }
 
-    if (!pieces.length) {
+    if (!packBySize && !pieces.length) {
       const total = it.lineTotalFormatted || "";
       pieces.push(total ? `Total ${total}` : "—");
     }
 
-    const html = `<strong>${escapeHtml(name)}</strong><br /><span class="admin-muted">${escapeHtml(pieces.join(" · "))}</span>`;
-    const text = `${name}\n${pieces.join("\n")}`;
+    let html = `<strong>${escapeHtml(name)}</strong>`;
+    if (packBySize) {
+      html += `<br /><strong>Pack by size</strong> — ${escapeHtml(packBySize)}`;
+    }
+    if (pieces.length) {
+      html += `<br /><span class="admin-muted">${escapeHtml(pieces.join(" · "))}</span>`;
+    }
+    const text = `${name}${packBySize ? `\nPack by size — ${packBySize}` : ""}\n${pieces.join("\n")}`;
     return { html, text };
   });
 
@@ -124,15 +148,6 @@ function describeLineItems(items) {
 function badgeClass(orderStatus) {
   const k = String(orderStatus || "awaiting_payment").replace(/[^a-z_]/gi, "_");
   return `admin-badge admin-badge--${k}`;
-}
-
-async function loadSupabasePublicConfig() {
-  const res = await fetch("/api/supabase-public-config");
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data.error || "Could not load configuration.");
-  }
-  return data;
 }
 
 async function loadCatalog() {
@@ -209,7 +224,7 @@ function bindOrdersTableEvents() {
 async function init() {
   let config;
   try {
-    config = await loadSupabasePublicConfig();
+    config = await fetchSupabasePublicConfig();
   } catch (e) {
     document.getElementById("admin-load-error").textContent =
       e.message || "Add SUPABASE_URL and SUPABASE_ANON_KEY to the server environment.";
@@ -233,6 +248,7 @@ async function init() {
   if (session?.user) {
     showApp();
     document.getElementById("admin-user-email").textContent = session.user.email || "";
+    renderAdminNav("orders");
     await loadCatalog();
     bindOrdersTableEvents();
     await loadOrders();
@@ -244,6 +260,7 @@ async function init() {
     if (event === "SIGNED_IN" && session?.user) {
       document.getElementById("admin-user-email").textContent = session.user.email || "";
       showApp();
+      renderAdminNav("orders");
       await loadCatalog();
       bindOrdersTableEvents();
       await loadOrders();
@@ -270,6 +287,7 @@ async function init() {
     }
     showApp();
     document.getElementById("admin-user-email").textContent = email;
+    renderAdminNav("orders");
     await loadCatalog();
     bindOrdersTableEvents();
     await loadOrders();

@@ -93,7 +93,7 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/api/nexus-summary" && req.method === "GET") {
       try {
-        assertReportsAuthorized(req);
+        await assertReportsAuthorized(req);
         const summary = await fetchNexusSummaryRows();
         return sendJson(res, 200, {
           generated_at: new Date().toISOString(),
@@ -111,7 +111,7 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/api/tax-summary" && req.method === "GET") {
       try {
-        assertReportsAuthorized(req);
+        await assertReportsAuthorized(req);
         const summary = await fetchTaxSummaryTnRows();
         return sendJson(res, 200, {
           generated_at: new Date().toISOString(),
@@ -250,6 +250,14 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/admin/orders" || pathname === "/admin/orders/" || pathname === "/admin/orders.html") {
       return serveFile(res, path.join(publicDir, "admin", "orders.html"), req.method);
+    }
+
+    if (pathname === "/admin/tax" || pathname === "/admin/tax/" || pathname === "/admin/tax.html") {
+      return serveFile(res, path.join(publicDir, "admin", "tax.html"), req.method);
+    }
+
+    if (pathname === "/admin/nexus" || pathname === "/admin/nexus/" || pathname === "/admin/nexus.html") {
+      return serveFile(res, path.join(publicDir, "admin", "nexus.html"), req.method);
     }
 
     if (pathname === "/" || pathname === "/index.html") {
