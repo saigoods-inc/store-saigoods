@@ -1,4 +1,4 @@
-import { formatCartUnitLabel, getCartQuote } from "./catalog.js";
+import { formatCartUnitLabel, formatSizeLineText, getCartQuote } from "./catalog.js";
 import { clearCart, getCart } from "./cart-store.js";
 import { escapeHtml, initSite, setButtonBusy, showToast } from "./site.js";
 
@@ -88,9 +88,6 @@ function renderCheckoutShell(miniQuote) {
   root.innerHTML = `
     <section class="page-heading">
       <h1>Checkout</h1>
-      <p class="checkout-lead">
-        Enter your shipping address once. Shipping is free. We collect Tennessee sales tax on orders shipped to TN only; other states show $0 tax for now.
-      </p>
     </section>
 
     <section class="checkout-layout">
@@ -182,7 +179,7 @@ function renderCheckoutShell(miniQuote) {
     </section>
   `;
 
-  renderLineItems(miniQuote);
+  renderLineItems(miniQuote, store.site.sizes);
   const sumSub = document.getElementById("sum-sub");
   if (sumSub && miniQuote?.subtotalFormatted) {
     sumSub.textContent = miniQuote.subtotalFormatted;
@@ -360,7 +357,30 @@ async function runEstimate(options = {}) {
   }
 }
 
-function renderLineItems(miniQuote) {
+function renderCheckoutSizeHtml(item, sizes) {
+  const sizeOrder =
+    Array.isArray(sizes) && sizes.length
+      ? sizes
+      : [
+          ...new Set([
+            ...Object.keys(item.quantities || {}),
+            ...Object.keys(item.boxQuantities || {}),
+          ]),
+        ];
+
+  const rows = sizeOrder
+    .map((size) => formatSizeLineText(size, item.quantities, item.boxQuantities))
+    .filter(Boolean)
+    .map((line) => `<li>${escapeHtml(line)}</li>`);
+
+  if (!rows.length) {
+    return "";
+  }
+
+  return `<ul class="checkout-line__sizes">${rows.join("")}</ul>`;
+}
+
+function renderLineItems(miniQuote, sizes) {
   const el = document.getElementById("checkout-lines");
   if (!el) {
     return;
@@ -370,7 +390,8 @@ function renderLineItems(miniQuote) {
     .map((item) => {
       const name = escapeHtml(item.name || item.slug);
       const meta = `${escapeHtml(formatCartUnitLabel(item))} · ${escapeHtml(item.lineTotalFormatted)}`;
-      return `<div class="checkout-line"><div class="checkout-line__name">${name}</div><div class="checkout-line__meta">${meta}</div></div>`;
+      const sizesHtml = renderCheckoutSizeHtml(item, sizes);
+      return `<div class="checkout-line"><div class="checkout-line__name">${name}</div><div class="checkout-line__meta">${meta}</div>${sizesHtml}</div>`;
     })
     .join("");
   el.innerHTML = rows || "<p>Your cart items</p>";

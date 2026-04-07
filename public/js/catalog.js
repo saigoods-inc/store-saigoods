@@ -49,6 +49,26 @@ export function formatCaseLabel(count) {
   return `${count} case${count === 1 ? "" : "s"}`;
 }
 
+/**
+ * One size row: "Small: 3 cases 2 boxes" (omits zero parts).
+ * @returns {string|null}
+ */
+export function formatSizeLineText(size, quantities, boxQuantities) {
+  const c = Math.floor(Number(quantities?.[size]) || 0);
+  const b = Math.floor(Number(boxQuantities?.[size]) || 0);
+  if (c < 1 && b < 1) {
+    return null;
+  }
+  const parts = [];
+  if (c > 0) {
+    parts.push(`${c} case${c === 1 ? "" : "s"}`);
+  }
+  if (b > 0) {
+    parts.push(`${b} box${b === 1 ? "" : "es"}`);
+  }
+  return `${size}: ${parts.join(" ")}`;
+}
+
 /** Cart / quote line: cases and/or boxes. */
 export function formatCartUnitLabel(item) {
   const c = Math.floor(Number(item?.lineCases) || 0);

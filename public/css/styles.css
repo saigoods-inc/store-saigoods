@@ -1567,6 +1567,19 @@ button {
   color: var(--muted);
 }
 
+.checkout-line__sizes {
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: var(--fs-body-secondary);
+  line-height: 1.5;
+}
+
+.checkout-line__sizes li {
+  margin: 0.2rem 0;
+}
+
 .checkout-totals .summary-card__row--total {
   margin-top: 0.35rem;
   padding-top: 0.65rem;

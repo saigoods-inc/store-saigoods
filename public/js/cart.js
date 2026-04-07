@@ -1,4 +1,4 @@
-import { createCheckout, formatCartUnitLabel, getCartQuote } from "./catalog.js";
+import { createCheckout, formatCartUnitLabel, formatSizeLineText, getCartQuote } from "./catalog.js";
 import { clearCart, getCart, removeProduct } from "./cart-store.js";
 import { escapeHtml, initSite, setButtonBusy, showToast } from "./site.js";
 
@@ -109,23 +109,12 @@ function renderCart() {
   `;
 }
 
-/**
- * One line per size: "Small: 5 cases 2 boxes" (omits zero parts).
- */
 function combinedSizeLineHtml(size, quantities, boxQuantities) {
-  const c = Math.floor(Number(quantities?.[size]) || 0);
-  const b = Math.floor(Number(boxQuantities?.[size]) || 0);
-  if (c < 1 && b < 1) {
+  const line = formatSizeLineText(size, quantities, boxQuantities);
+  if (!line) {
     return null;
   }
-  const parts = [];
-  if (c > 0) {
-    parts.push(`${c} case${c === 1 ? "" : "s"}`);
-  }
-  if (b > 0) {
-    parts.push(`${b} box${b === 1 ? "" : "es"}`);
-  }
-  return `${escapeHtml(size)}: ${parts.join(" ")}`;
+  return escapeHtml(line);
 }
 
 function renderOrderBreakdown(currentQuote, sizes) {
