@@ -187,7 +187,9 @@ function renderCheckoutShell(miniQuote) {
   if (sumSub && miniQuote?.subtotalFormatted) {
     sumSub.textContent = miniQuote.subtotalFormatted;
   }
-  void runEstimate({ validateContact: false });
+  // Initial estimate on load should not complain about missing contact/address.
+  // Keep Shipping / Estimated tax as "—" until the shopper clicks "Update shipping & tax".
+  void runEstimate({ validateContact: false, requireAddress: false, initialSummary: true });
 }
 
 function readAddressFromForm() {
@@ -289,6 +291,8 @@ function applyContactValidationErrors() {
 
 async function runEstimate(options = {}) {
   const validateContact = options.validateContact === true;
+  const requireAddress = options.requireAddress === true;
+  const initialSummary = options.initialSummary === true;
   const address = readAddressFromForm();
   const sumShip = document.getElementById("sum-ship");
   const sumTax = document.getElementById("sum-tax");
@@ -300,6 +304,15 @@ async function runEstimate(options = {}) {
   clearShippingSectionError();
 
   if (validateContact && !applyContactValidationErrors()) {
+    return;
+  }
+
+  if (
+    requireAddress &&
+    (!address.line1 || !address.city || !address.state || !address.postalCode)
+  ) {
+    setAddressFieldsError(true);
+    showShippingSectionError("Please complete your shipping address.");
     return;
   }
 
@@ -316,8 +329,13 @@ async function runEstimate(options = {}) {
 
     latestEstimate = data;
     sumSub.textContent = data.subtotalFormatted;
-    sumShip.textContent = data.shippingFormatted;
-    sumTax.textContent = data.taxFormatted;
+    if (initialSummary) {
+      sumShip.textContent = "—";
+      sumTax.textContent = "—";
+    } else {
+      sumShip.textContent = data.shippingFormatted;
+      sumTax.textContent = data.taxFormatted;
+    }
     sumTotal.textContent = data.totalFormatted;
 
     if (warningsEl) {
@@ -397,7 +415,7 @@ function wireEvents() {
       emailInput?.classList.add("checkout-input--error");
     }
 
-    void runEstimate({ validateContact: false });
+    void runEstimate({ validateContact: false, requireAddress: true });
   });
 
   document.getElementById("checkout-pay")?.addEventListener("click", async () => {
