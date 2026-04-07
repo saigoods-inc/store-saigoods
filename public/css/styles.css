@@ -1447,8 +1447,142 @@ button {
 }
 
 .page--product .footer,
-.page--cart .footer {
+.page--cart .footer,
+.page--checkout .footer {
   background: #fafafa;
+}
+
+/* Embedded Square Web Payments checkout */
+.checkout-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.checkout-form {
+  padding: 0.25rem 0 2rem;
+}
+
+.checkout-section-title {
+  margin: 1.35rem 0 0.65rem;
+  font-size: var(--fs-title-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+.checkout-section-title:first-of-type {
+  margin-top: 0;
+}
+
+.checkout-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1rem;
+}
+
+.checkout-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: var(--fs-small);
+  color: var(--text);
+}
+
+.checkout-field--full {
+  grid-column: 1 / -1;
+}
+
+.checkout-field input,
+.checkout-field select {
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.65rem;
+  border: 1px solid var(--line);
+  font-size: var(--fs-body);
+  background: #fff;
+}
+
+.checkout-optional {
+  color: var(--muted);
+  font-weight: var(--font-weight-thin);
+}
+
+.checkout-lead {
+  margin: 0.5rem 0 0;
+  max-width: 42rem;
+  color: var(--muted);
+  font-size: var(--fs-body);
+  line-height: var(--leading-relaxed);
+}
+
+.checkout-card-hint {
+  margin: 0 0 0.5rem;
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+
+.sq-card-container {
+  min-height: 5.5rem;
+  margin: 0.35rem 0 1.1rem;
+}
+
+.checkout-lines {
+  margin-bottom: 1rem;
+}
+
+.checkout-line {
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.checkout-line:last-child {
+  border-bottom: 0;
+}
+
+.checkout-line__name {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--fs-body);
+}
+
+.checkout-line__meta {
+  margin-top: 0.15rem;
+  font-size: var(--fs-body-secondary);
+  color: var(--muted);
+}
+
+.checkout-totals .summary-card__row--total {
+  margin-top: 0.35rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-body);
+}
+
+.checkout-warnings {
+  margin-top: 0.75rem;
+}
+
+.checkout-footnote {
+  margin-top: 1.25rem;
+  font-size: var(--fs-small);
+}
+
+.checkout-footnote a {
+  color: var(--muted);
+}
+
+.checkout-loading {
+  padding: 2.5rem;
+  text-align: center;
+  color: var(--muted);
+}
+
+#checkout-update-totals {
+  margin: 1rem 0 0.25rem;
+}
+
+@media (max-width: 900px) {
+  .checkout-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 .footer__content {

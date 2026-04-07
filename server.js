@@ -3,8 +3,13 @@ import { access, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { enrichCartQuoteApiResponse } from "./lib/cart-api-response.js";
+import { buildFullCheckoutQuote, formatShippingAddressForOrder } from "./lib/checkout-totals.js";
+import { parseCheckoutPayBody } from "./lib/checkout-validation.js";
+import { createPendingOrder } from "./lib/orders.js";
 import { buildQuote } from "./lib/quote.js";
 import { resolveShippingZip } from "./lib/shipping.js";
+import { createCardPayment } from "./lib/square.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -59,7 +64,86 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/cart/quote" && req.method === "POST") {
       const body = await readJsonBody(req);
       const quote = buildQuote(body.items, { omitShippingEstimate: true });
-      return sendJson(res, 200, quote);
+      return sendJson(res, 200, enrichCartQuoteApiResponse(quote));
+    }
+
+    if (pathname === "/api/square-config" && req.method === "GET") {
+      const squareApplicationId = process.env.SQUARE_APPLICATION_ID?.trim() || null;
+      const squareLocationId = process.env.SQUARE_LOCATION_ID?.trim() || null;
+
+      if (!squareApplicationId || !squareLocationId) {
+        return sendJson(res, 503, {
+          error: "Embedded checkout is not configured.",
+          squareApplicationId: null,
+          squareLocationId: null,
+        });
+      }
+
+      return sendJson(res, 200, { squareApplicationId, squareLocationId });
+    }
+
+    if (pathname === "/api/checkout-estimate" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const items = Array.isArray(body.items) ? body.items : [];
+
+      if (!items.length) {
+        return sendJson(res, 400, { error: "Your cart is empty." });
+      }
+
+      const quote = buildFullCheckoutQuote(items, body.address || {});
+      const warnings = [];
+
+      if (quote.destinationState && !quote.taxRateConfigured) {
+        warnings.push(
+          `No tax rate in CHECKOUT_STATE_TAX_BPS for ${quote.destinationState}. Tax is $0 until you add that state.`,
+        );
+      }
+
+      return sendJson(res, 200, { ...quote, warnings });
+    }
+
+    if (pathname === "/api/checkout-pay" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const parsed = parseCheckoutPayBody(body);
+
+      if (parsed.error) {
+        return sendJson(res, 400, { error: parsed.error });
+      }
+
+      try {
+        const quote = buildFullCheckoutQuote(parsed.items, parsed.address);
+        const pending = await createPendingOrder({
+          quote,
+          customer: {
+            name: parsed.name,
+            email: parsed.email,
+            phone: parsed.phone,
+            address: formatShippingAddressForOrder(parsed.address),
+          },
+        });
+        const { paymentId } = await createCardPayment({
+          sourceId: parsed.sourceId,
+          amountCents: quote.totalCents,
+          locationId: process.env.SQUARE_LOCATION_ID?.trim(),
+          orderId: pending.id,
+          buyerEmail: parsed.email,
+          idempotencyKey: `saigoods-pay-${pending.id}`,
+        });
+
+        return sendJson(res, 200, {
+          success: true,
+          paymentId,
+          orderId: pending.id,
+          orderRef: pending.order_ref,
+          totalFormatted: quote.totalFormatted,
+        });
+      } catch (error) {
+        console.error(error);
+
+        return sendJson(res, error.statusCode || 500, {
+          error: error.message || "Payment could not be completed.",
+        });
+      }
     }
 
     if (pathname === "/api/checkout" && req.method === "POST") {
@@ -103,6 +187,10 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/cart.html") {
       return serveFile(res, path.join(publicDir, "cart.html"), req.method);
+    }
+
+    if (pathname === "/checkout.html") {
+      return serveFile(res, path.join(publicDir, "checkout.html"), req.method);
     }
 
     if (pathname.startsWith("/css/")) {

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Checkout | SAI Goods Store</title>
+    <meta
+      name="description"
+      content="Enter your shipping address, review tax and total, and pay securely with Square."
+    />
+    <link rel="stylesheet" href="/css/styles.css" />
+  </head>
+  <body class="page--checkout">
+    <div class="site-frame">
+      <header data-site-header></header>
+
+      <main class="section section--tight">
+        <div class="shell">
+          <div data-checkout-root>
+            <p class="checkout-loading">Loading checkout…</p>
+          </div>
+        </div>
+      </main>
+
+      <footer data-site-footer></footer>
+    </div>
+
+    <div class="toast-stack" data-toast-stack aria-live="polite" aria-atomic="true"></div>
+    <script type="module" src="/js/checkout.js"></script>
+  </body>
+</html>

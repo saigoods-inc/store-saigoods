@@ -80,19 +80,29 @@ function renderCart() {
           ${renderOrderBreakdown(quote, store.site.sizes)}
         </div>
 
-        <button
-          class="button button--primary button--full"
-          type="button"
-          data-action="checkout"
-          ${!quote.squareReady || isCheckingOut ? "disabled" : ""}
-        >
-          Proceed to checkout
-        </button>
+        ${
+          quote.useEmbeddedCheckout
+            ? `<a
+                class="button button--primary button--full"
+                href="/checkout.html"
+                ${!quote.squareReady ? 'aria-disabled="true" tabindex="-1" style="pointer-events:none;opacity:0.6"' : ""}
+              >
+                Proceed to checkout
+              </a>`
+            : `<button
+                class="button button--primary button--full"
+                type="button"
+                data-action="checkout"
+                ${!quote.squareReady || isCheckingOut ? "disabled" : ""}
+              >
+                Proceed to checkout
+              </button>`
+        }
 
         ${
           quote.squareReady
             ? ""
-            : `<p class="summary-card__note">Checkout is not fully configured yet. Add Square and email environment variables on the server to enable live payments.</p>`
+            : `<p class="summary-card__note">Checkout is not fully configured yet. Add Square (including <strong>SQUARE_APPLICATION_ID</strong> for on-site pay), Supabase, and related environment variables on the server.</p>`
         }
       </aside>
     </section>
