@@ -224,9 +224,13 @@ function isValidEmail(email) {
 }
 
 function clearCheckoutInputErrors() {
-  root.querySelectorAll(".checkout-input--error").forEach((el) => {
-    el.classList.remove("checkout-input--error");
-  });
+  const selectors = ['[name="line1"]', '[name="city"]', '[name="state"]', '[name="postalCode"]'];
+  for (const sel of selectors) {
+    const input = root.querySelector(sel);
+    if (input?.classList?.contains("checkout-input--error")) {
+      input.classList.remove("checkout-input--error");
+    }
+  }
 }
 
 function clearShippingSectionError() {
@@ -266,6 +270,12 @@ function applyContactValidationErrors() {
   const nameInput = root.querySelector('[name="name"]');
   const emailInput = root.querySelector('[name="email"]');
   let ok = true;
+  if (nameInput?.classList?.contains("checkout-input--error")) {
+    nameInput.classList.remove("checkout-input--error");
+  }
+  if (emailInput?.classList?.contains("checkout-input--error")) {
+    emailInput.classList.remove("checkout-input--error");
+  }
   if (!contact.name) {
     nameInput?.classList.add("checkout-input--error");
     ok = false;
@@ -376,7 +386,18 @@ function wireCheckoutFieldClearErrors() {
 
 function wireEvents() {
   document.getElementById("checkout-update-totals")?.addEventListener("click", () => {
-    void runEstimate({ validateContact: true });
+    const contact = readContactFromForm();
+    const nameInput = root.querySelector('[name="name"]');
+    const emailInput = root.querySelector('[name="email"]');
+
+    if (!contact.name) {
+      nameInput?.classList.add("checkout-input--error");
+    }
+    if (!contact.email || !isValidEmail(contact.email)) {
+      emailInput?.classList.add("checkout-input--error");
+    }
+
+    void runEstimate({ validateContact: false });
   });
 
   document.getElementById("checkout-pay")?.addEventListener("click", async () => {
