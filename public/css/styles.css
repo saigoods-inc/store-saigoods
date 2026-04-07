@@ -1500,6 +1500,25 @@ button {
   background: #fff;
 }
 
+.checkout-field input.checkout-input--error,
+.checkout-field select.checkout-input--error {
+  border: 1px solid rgba(255, 0, 0, 0.5);
+}
+
+.checkout-field-required {
+  color: #b42318;
+  font-weight: var(--font-weight-semibold);
+  margin-right: 0.15em;
+}
+
+.checkout-shipping-error {
+  margin: 0 0 0.65rem;
+  font-size: var(--fs-small);
+  font-style: italic;
+  line-height: var(--leading-normal);
+  color: #b42318;
+}
+
 .checkout-optional {
   color: var(--muted);
   font-weight: var(--font-weight-thin);

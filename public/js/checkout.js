@@ -62,6 +62,7 @@ async function init() {
   renderCheckoutShell(miniQuote);
   await initSquareCard(config.squareApplicationId, config.squareLocationId);
   wireEvents();
+  wireCheckoutFieldClearErrors();
 }
 
 function loadSquareWebSdk() {
@@ -97,12 +98,12 @@ function renderCheckoutShell(miniQuote) {
         <h2 class="checkout-section-title">Contact</h2>
         <div class="checkout-field-grid">
           <label class="checkout-field checkout-field--full">
-            <span>Full name</span>
-            <input type="text" name="name" autocomplete="name" required />
+            <span><span class="checkout-field-required" aria-hidden="true">*</span> Full name</span>
+            <input type="text" name="name" autocomplete="name" required aria-required="true" />
           </label>
           <label class="checkout-field">
-            <span>Email</span>
-            <input type="email" name="email" autocomplete="email" required />
+            <span><span class="checkout-field-required" aria-hidden="true">*</span> Email</span>
+            <input type="email" name="email" autocomplete="email" required aria-required="true" />
           </label>
           <label class="checkout-field">
             <span>Phone <span class="checkout-optional">(optional)</span></span>
@@ -111,6 +112,7 @@ function renderCheckoutShell(miniQuote) {
         </div>
 
         <h2 class="checkout-section-title">Shipping address</h2>
+        <p id="checkout-shipping-error" class="checkout-shipping-error" role="alert" hidden></p>
         <div class="checkout-field-grid">
           <label class="checkout-field checkout-field--full">
             <span>Street address</span>
@@ -185,7 +187,7 @@ function renderCheckoutShell(miniQuote) {
   if (sumSub && miniQuote?.subtotalFormatted) {
     sumSub.textContent = miniQuote.subtotalFormatted;
   }
-  void runEstimate();
+  void runEstimate({ validateContact: false });
 }
 
 function readAddressFromForm() {
@@ -207,13 +209,89 @@ function readContactFromForm() {
   };
 }
 
-async function runEstimate() {
+/** Basic email shape: local@domain.tld (requires @ and a dot in the domain). */
+function isValidEmail(email) {
+  const s = email.trim();
+  if (!s.includes("@")) {
+    return false;
+  }
+  const parts = s.split("@");
+  if (parts.length !== 2) {
+    return false;
+  }
+  const domain = parts[1];
+  return Boolean(domain && domain.includes("."));
+}
+
+function clearCheckoutInputErrors() {
+  root.querySelectorAll(".checkout-input--error").forEach((el) => {
+    el.classList.remove("checkout-input--error");
+  });
+}
+
+function clearShippingSectionError() {
+  const el = document.getElementById("checkout-shipping-error");
+  if (!el) {
+    return;
+  }
+  el.hidden = true;
+  el.textContent = "";
+}
+
+function showShippingSectionError(message) {
+  const el = document.getElementById("checkout-shipping-error");
+  if (!el) {
+    return;
+  }
+  el.textContent = message;
+  el.hidden = false;
+}
+
+function setAddressFieldsError(on) {
+  const selectors = ['[name="line1"]', '[name="city"]', '[name="state"]', '[name="postalCode"]'];
+  for (const sel of selectors) {
+    const input = root.querySelector(sel);
+    if (!input) {
+      continue;
+    }
+    input.classList.toggle("checkout-input--error", on);
+  }
+}
+
+/**
+ * @returns {boolean} true if name and email are present and email is valid.
+ */
+function applyContactValidationErrors() {
+  const contact = readContactFromForm();
+  const nameInput = root.querySelector('[name="name"]');
+  const emailInput = root.querySelector('[name="email"]');
+  let ok = true;
+  if (!contact.name) {
+    nameInput?.classList.add("checkout-input--error");
+    ok = false;
+  }
+  if (!contact.email || !isValidEmail(contact.email)) {
+    emailInput?.classList.add("checkout-input--error");
+    ok = false;
+  }
+  return ok;
+}
+
+async function runEstimate(options = {}) {
+  const validateContact = options.validateContact === true;
   const address = readAddressFromForm();
   const sumShip = document.getElementById("sum-ship");
   const sumTax = document.getElementById("sum-tax");
   const sumTotal = document.getElementById("sum-total");
   const sumSub = document.getElementById("sum-sub");
   const warningsEl = document.getElementById("checkout-warnings");
+
+  clearCheckoutInputErrors();
+  clearShippingSectionError();
+
+  if (validateContact && !applyContactValidationErrors()) {
+    return;
+  }
 
   try {
     const res = await fetch("/api/checkout-estimate", {
@@ -245,7 +323,8 @@ async function runEstimate() {
       }
     }
   } catch (e) {
-    showToast(e.message, "error");
+    setAddressFieldsError(true);
+    showShippingSectionError(e.message || "Could not verify shipping address.");
     sumShip.textContent = "—";
     sumTax.textContent = "—";
     sumTotal.textContent = "—";
@@ -275,9 +354,29 @@ async function initSquareCard(applicationId, locationId) {
   await cardInstance.attach("#sq-card-container");
 }
 
+function wireCheckoutFieldClearErrors() {
+  root.addEventListener("input", (e) => {
+    const t = e.target;
+    if (!t?.classList?.contains("checkout-input--error")) {
+      return;
+    }
+    t.classList.remove("checkout-input--error");
+    if (t.matches?.('[name="line1"], [name="city"], [name="postalCode"]')) {
+      clearShippingSectionError();
+    }
+  });
+  root.addEventListener("change", (e) => {
+    const t = e.target;
+    if (t?.name === "state" && t.classList.contains("checkout-input--error")) {
+      t.classList.remove("checkout-input--error");
+      clearShippingSectionError();
+    }
+  });
+}
+
 function wireEvents() {
   document.getElementById("checkout-update-totals")?.addEventListener("click", () => {
-    void runEstimate();
+    void runEstimate({ validateContact: true });
   });
 
   document.getElementById("checkout-pay")?.addEventListener("click", async () => {
@@ -285,17 +384,21 @@ function wireEvents() {
     const contact = readContactFromForm();
     const address = readAddressFromForm();
 
-    if (!contact.email?.includes("@")) {
-      showToast("Please enter a valid email.", "error");
+    clearCheckoutInputErrors();
+    clearShippingSectionError();
+
+    if (!applyContactValidationErrors()) {
       return;
     }
     if (!address.line1 || !address.city || !address.state || !address.postalCode) {
-      showToast("Please complete your shipping address.", "error");
+      setAddressFieldsError(true);
+      showShippingSectionError("Please complete your shipping address.");
       return;
     }
 
     if (!latestEstimate) {
-      showToast('Click "Update shipping & tax" first, or fix any address errors.', "error");
+      setAddressFieldsError(true);
+      showShippingSectionError('Click "Update shipping & tax" first, or fix any address errors.');
       return;
     }
 
