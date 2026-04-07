@@ -1555,6 +1555,20 @@ button {
   font-size: var(--fs-body);
 }
 
+.checkout-totals .summary-card__row--tax-alert,
+.checkout-totals .summary-card__row--tax-alert strong {
+  color: #b42318;
+}
+
+.checkout-tax-address-hint {
+  margin: -0.1rem 0 0.45rem;
+  font-size: var(--fs-small);
+  font-style: italic;
+  font-weight: var(--font-weight-thin);
+  line-height: var(--leading-normal);
+  color: #b42318;
+}
+
 .checkout-warnings {
   margin-top: 0.75rem;
 }

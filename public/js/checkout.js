@@ -30,16 +30,21 @@ async function init() {
   try {
     const res = await fetch("/api/square-config");
     config = await res.json();
-    if (!res.ok || !config.squareApplicationId) {
-      throw new Error(config.error || "Square embedded checkout is not configured.");
+    if (!res.ok) {
+      throw new Error(config.error || "Checkout is not configured.");
+    }
+    if (!config.squareApplicationId) {
+      throw new Error("Square embedded checkout is not configured.");
     }
   } catch (e) {
+    const setupNote =
+      "Add <strong>SQUARE_APPLICATION_ID</strong> (and your other Square keys) in the server environment, then redeploy.";
     root.innerHTML = `
       <div class="empty-state empty-state--wide">
         <h2>Checkout unavailable</h2>
         <p>${escapeHtml(e.message || "Could not load payment configuration.")}</p>
         <p class="summary-card__note">
-          Add <strong>SQUARE_APPLICATION_ID</strong> (and your other Square keys) in the server environment, then redeploy.
+          ${setupNote}
         </p>
         <a class="button button--secondary" href="/cart.html">Back to cart</a>
       </div>
@@ -83,7 +88,7 @@ function renderCheckoutShell(miniQuote) {
     <section class="page-heading">
       <h1>Checkout</h1>
       <p class="checkout-lead">
-        Enter your shipping address once. Shipping is free; we calculate sales tax (from state) on our server, then you pay the total here.
+        Enter your shipping address once. Shipping is free. We collect Tennessee sales tax on orders shipped to TN only; other states show $0 tax for now.
       </p>
     </section>
 
@@ -161,7 +166,7 @@ function renderCheckoutShell(miniQuote) {
             <span>Shipping</span>
             <strong id="sum-ship">—</strong>
           </div>
-          <div class="summary-card__row">
+          <div class="summary-card__row summary-card__row--tax">
             <span>Estimated tax</span>
             <strong id="sum-tax">—</strong>
           </div>
@@ -228,14 +233,8 @@ async function runEstimate() {
     sumTotal.textContent = data.totalFormatted;
 
     if (warningsEl) {
-      const w = Array.isArray(data.warnings) ? data.warnings : [];
-      if (w.length) {
-        warningsEl.hidden = false;
-        warningsEl.innerHTML = w.map((x) => `<p class="summary-card__note">${escapeHtml(x)}</p>`).join("");
-      } else {
-        warningsEl.hidden = true;
-        warningsEl.innerHTML = "";
-      }
+      warningsEl.hidden = true;
+      warningsEl.innerHTML = "";
     }
   } catch (e) {
     showToast(e.message, "error");

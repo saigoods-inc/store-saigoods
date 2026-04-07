@@ -1,4 +1,3 @@
-import { buildCheckoutTaxWarnings } from "../lib/checkout-tax.js";
 import { buildFullCheckoutQuote } from "../lib/checkout-totals.js";
 
 export default async function handler(req, res) {
@@ -16,9 +15,8 @@ export default async function handler(req, res) {
 
     const addr = req.body?.address || {};
     const quote = await buildFullCheckoutQuote(items, addr);
-    const warnings = buildCheckoutTaxWarnings(quote, addr);
 
-    res.status(200).json({ ...quote, warnings });
+    res.status(200).json({ ...quote, warnings: [] });
   } catch (error) {
     console.error(error);
     res.status(error.statusCode || 500).json({ error: error.message || "Estimate failed." });

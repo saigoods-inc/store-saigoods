@@ -4,11 +4,15 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { enrichCartQuoteApiResponse } from "./lib/cart-api-response.js";
-import { buildCheckoutTaxWarnings } from "./lib/checkout-tax.js";
 import { buildFullCheckoutQuote, formatShippingAddressForOrder } from "./lib/checkout-totals.js";
 import { parseCheckoutPayBody } from "./lib/checkout-validation.js";
-import { createPendingOrder } from "./lib/orders.js";
+import {
+  createPendingOrder,
+  fetchNexusSummaryRows,
+  fetchTaxSummaryTnRows,
+} from "./lib/orders.js";
 import { buildQuote } from "./lib/quote.js";
+import { assertReportsAuthorized } from "./lib/reports-auth.js";
 import { resolveShippingZip } from "./lib/shipping.js";
 import { createCardPayment } from "./lib/square.js";
 
@@ -80,7 +84,47 @@ const server = createServer(async (req, res) => {
         });
       }
 
-      return sendJson(res, 200, { squareApplicationId, squareLocationId });
+      return sendJson(res, 200, {
+        squareApplicationId,
+        squareLocationId,
+      });
+    }
+
+    if (pathname === "/api/nexus-summary" && req.method === "GET") {
+      try {
+        assertReportsAuthorized(req);
+        const summary = await fetchNexusSummaryRows();
+        return sendJson(res, 200, {
+          generated_at: new Date().toISOString(),
+          currency: "USD",
+          amounts_in: "cents",
+          summary,
+        });
+      } catch (error) {
+        console.error(error);
+        return sendJson(res, error.statusCode || 500, {
+          error: error.message || "Could not load nexus summary.",
+        });
+      }
+    }
+
+    if (pathname === "/api/tax-summary" && req.method === "GET") {
+      try {
+        assertReportsAuthorized(req);
+        const summary = await fetchTaxSummaryTnRows();
+        return sendJson(res, 200, {
+          generated_at: new Date().toISOString(),
+          currency: "USD",
+          amounts_in: "cents",
+          note: "Tennessee (TN) paid orders only; months are UTC.",
+          summary,
+        });
+      } catch (error) {
+        console.error(error);
+        return sendJson(res, error.statusCode || 500, {
+          error: error.message || "Could not load tax summary.",
+        });
+      }
     }
 
     if (pathname === "/api/checkout-estimate" && req.method === "POST") {
@@ -93,9 +137,8 @@ const server = createServer(async (req, res) => {
 
       const addr = body.address || {};
       const quote = await buildFullCheckoutQuote(items, addr);
-      const warnings = buildCheckoutTaxWarnings(quote, addr);
 
-      return sendJson(res, 200, { ...quote, warnings });
+      return sendJson(res, 200, { ...quote, warnings: [] });
     }
 
     if (pathname === "/api/checkout-pay" && req.method === "POST") {
@@ -108,6 +151,7 @@ const server = createServer(async (req, res) => {
 
       try {
         const quote = await buildFullCheckoutQuote(parsed.items, parsed.address);
+
         const pending = await createPendingOrder({
           quote,
           customer: {
@@ -115,6 +159,7 @@ const server = createServer(async (req, res) => {
             email: parsed.email,
             phone: parsed.phone,
             address: formatShippingAddressForOrder(parsed.address),
+            shippingState: parsed.address.state,
           },
         });
         const { paymentId } = await createCardPayment({

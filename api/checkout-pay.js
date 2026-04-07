@@ -22,6 +22,7 @@ export default async function handler(req, res) {
       email: parsed.email,
       phone: parsed.phone,
       address: formatShippingAddressForOrder(parsed.address),
+      shippingState: parsed.address.state,
     };
 
     const pending = await createPendingOrder({ quote, customer });

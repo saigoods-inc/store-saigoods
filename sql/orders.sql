@@ -1,5 +1,6 @@
 -- Run this in Supabase: SQL Editor → New query → paste → Run.
 -- Required for checkout + Square webhooks.
+-- After this, run orders_nexus_tax.sql for reporting columns + RPCs (or merge manually).
 
 create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
@@ -16,11 +17,20 @@ create table if not exists public.orders (
   total_cents integer not null default 0,
   provider text not null default 'square',
   payment_id text,
+  state text,
+  amount integer not null default 0,
+  tax_collected integer not null default 0,
   created_at timestamptz not null default now()
 );
 
+comment on column public.orders.amount is 'Pretax order total (subtotal + shipping), cents.';
+comment on column public.orders.tax_collected is 'Sales tax collected, cents (TN nexus).';
+comment on column public.orders.state is 'Shipping destination state, 2-letter US.';
+
 create index if not exists orders_status_idx on public.orders (status);
 create index if not exists orders_customer_email_idx on public.orders (customer_email);
+create index if not exists orders_state_idx on public.orders (state);
+create index if not exists orders_created_at_idx on public.orders (created_at desc);
 
 alter table public.orders enable row level security;
 
