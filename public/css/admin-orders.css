@@ -279,6 +279,32 @@ body.admin-page {
   font-weight: 600;
 }
 
+.admin-pack-line {
+  margin-bottom: 0.65rem;
+}
+
+.admin-pack-line:last-child {
+  margin-bottom: 0;
+}
+
+.admin-pack-line__sub {
+  padding-left: 1rem;
+  margin-top: 0.15rem;
+  color: var(--admin-text);
+  font-size: 13px;
+}
+
+.admin-modal__line-items {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.admin-modal__line-items .admin-pack-line + .admin-pack-line {
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--admin-border);
+}
+
 .admin-modal {
   position: fixed;
   inset: 0;

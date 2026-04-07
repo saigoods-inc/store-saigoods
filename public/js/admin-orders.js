@@ -60,10 +60,10 @@ function fulfillmentLabel(value) {
 }
 
 /**
- * Cases + boxes per glove size (from cart `quantities` / `boxQuantities`).
- * Bundle checkout spreads units across sizes — this is what to pick for packing.
+ * Per-size case/box counts for packing (from `quantities` / `boxQuantities`).
+ * @returns {string[]} e.g. ["Small: 2 cases 2 boxes", "Medium: 3 cases"]
  */
-function formatPerSizePackBreakdown(it) {
+function formatSizeRows(it) {
   const q = it.quantities && typeof it.quantities === "object" ? it.quantities : {};
   const bq = it.boxQuantities && typeof it.boxQuantities === "object" ? it.boxQuantities : {};
   const keys = new Set([...Object.keys(q), ...Object.keys(bq)]);
@@ -72,23 +72,110 @@ function formatPerSizePackBreakdown(it) {
     ...[...keys].filter((s) => !siteSizes.includes(s)),
   ];
 
-  const parts = [];
+  const rows = [];
   for (const sz of ordered) {
     const cases = Math.floor(Number(q[sz]) || 0);
     const boxes = Math.floor(Number(bq[sz]) || 0);
     if (cases < 1 && boxes < 1) {
       continue;
     }
-    const bits = [];
+    const parts = [];
     if (cases > 0) {
-      bits.push(`${cases} case(s)`);
+      parts.push(`${cases} ${cases === 1 ? "case" : "cases"}`);
     }
     if (boxes > 0) {
-      bits.push(`${boxes} box(es)`);
+      parts.push(`${boxes} ${boxes === 1 ? "box" : "boxes"}`);
     }
-    parts.push(`${sz}: ${bits.join(" + ")}`);
+    rows.push(`${sz}: ${parts.join(" ")}`);
   }
-  return parts.join(" · ");
+  return rows;
+}
+
+/** When there is no bundle breakdown and no per-size maps — line totals or price. */
+function formatFallbackInventory(it) {
+  const q = it.quantities && typeof it.quantities === "object" ? it.quantities : {};
+  const bq = it.boxQuantities && typeof it.boxQuantities === "object" ? it.boxQuantities : {};
+  if (Object.keys(q).length || Object.keys(bq).length) {
+    return null;
+  }
+
+  const pieces = [];
+  const cases = Number(it.lineCases);
+  const boxes = Number(it.lineBoxCount);
+  if (Number.isFinite(cases) && cases > 0) {
+    pieces.push(`${cases} case(s) total`);
+  }
+  if (Number.isFinite(boxes) && boxes > 0) {
+    pieces.push(`${boxes} box(es) total`);
+  }
+  if (pieces.length) {
+    return pieces.join("\n");
+  }
+  const total = it.lineTotalFormatted || "";
+  return total ? `Total: ${total}` : null;
+}
+
+/**
+ * Staff-facing pack list: Product / Bundle / Size blocks.
+ * @returns {{ text: string, html: string }}
+ */
+function buildLineItemPack(it) {
+  const name = it.name || it.slug || "Product";
+  const slug = it.slug || "";
+
+  const bundleLines = Array.isArray(it.bundleLines) ? it.bundleLines : [];
+  const bundleRows = [];
+  for (const bl of bundleLines) {
+    const id = String(bl?.id || "").trim();
+    const qty = Math.floor(Number(bl?.qty) || 0);
+    if (!id || qty < 1) {
+      continue;
+    }
+    const label = bundleLabelBySlugId.get(`${slug}:${id}`) || id;
+    bundleRows.push(`${label} x ${qty}`);
+  }
+
+  const sizeRows = formatSizeRows(it);
+
+  const textLines = [`Product: ${name}`];
+  if (bundleRows.length) {
+    textLines.push("Bundle:");
+    bundleRows.forEach((r) => textLines.push(`  ${r}`));
+  }
+  if (sizeRows.length) {
+    textLines.push("Size:");
+    sizeRows.forEach((r) => textLines.push(`  ${r}`));
+  }
+  if (!bundleRows.length && !sizeRows.length) {
+    const fb = formatFallbackInventory(it);
+    if (fb) {
+      textLines.push(fb);
+    }
+  }
+
+  const text = textLines.join("\n");
+
+  const htmlParts = [
+    `<div class="admin-pack-line"><div><strong>Product:</strong> ${escapeHtml(name)}</div>`,
+  ];
+  if (bundleRows.length) {
+    htmlParts.push(`<div><strong>Bundle:</strong></div>`);
+    bundleRows.forEach((r) => htmlParts.push(`<div class="admin-pack-line__sub">${escapeHtml(r)}</div>`));
+  }
+  if (sizeRows.length) {
+    htmlParts.push(`<div><strong>Size:</strong></div>`);
+    sizeRows.forEach((r) => htmlParts.push(`<div class="admin-pack-line__sub">${escapeHtml(r)}</div>`));
+  }
+  if (!bundleRows.length && !sizeRows.length) {
+    const fb = formatFallbackInventory(it);
+    if (fb) {
+      htmlParts.push(`<div class="admin-pack-line__sub">${escapeHtml(fb)}</div>`);
+    }
+  }
+  htmlParts.push(`</div>`);
+  const html = htmlParts.join("");
+
+  return { text, html };
 }
 
 function describeLineItems(items) {
@@ -96,51 +183,7 @@ function describeLineItems(items) {
     return { lines: [], text: "—" };
   }
 
-  const lines = items.map((it) => {
-    const name = it.name || it.slug || "Product";
-    const slug = it.slug || "";
-    const pieces = [];
-    const bundleLines = Array.isArray(it.bundleLines) ? it.bundleLines : [];
-
-    const packBySize = formatPerSizePackBreakdown(it);
-
-    if (bundleLines.length) {
-      for (const bl of bundleLines) {
-        const id = String(bl?.id || "").trim();
-        const qty = Math.floor(Number(bl?.qty) || 0);
-        if (!id || qty < 1) continue;
-        const label = bundleLabelBySlugId.get(`${slug}:${id}`) || id;
-        pieces.push(`${label} × ${qty}`);
-      }
-    }
-
-    const cases = Number(it.lineCases);
-    const boxes = Number(it.lineBoxCount);
-    if (!packBySize) {
-      if (Number.isFinite(cases) && cases > 0) {
-        pieces.push(`${cases} case(s) total`);
-      }
-      if (Number.isFinite(boxes) && boxes > 0) {
-        pieces.push(`${boxes} box(es) total`);
-      }
-    }
-
-    if (!packBySize && !pieces.length) {
-      const total = it.lineTotalFormatted || "";
-      pieces.push(total ? `Total ${total}` : "—");
-    }
-
-    let html = `<strong>${escapeHtml(name)}</strong>`;
-    if (packBySize) {
-      html += `<br /><strong>Pack by size</strong> — ${escapeHtml(packBySize)}`;
-    }
-    if (pieces.length) {
-      html += `<br /><span class="admin-muted">${escapeHtml(pieces.join(" · "))}</span>`;
-    }
-    const text = `${name}${packBySize ? `\nPack by size — ${packBySize}` : ""}\n${pieces.join("\n")}`;
-    return { html, text };
-  });
-
+  const lines = items.map((it) => buildLineItemPack(it));
   const text = lines.map((l) => l.text).join("\n\n");
   return { lines, text };
 }
@@ -404,8 +447,7 @@ function renderTable() {
 }
 
 function openModal(row) {
-  const os = normalizeFulfillment(row);
-  const { text: itemsText } = describeLineItems(row.items);
+  const { lines: itemLines } = describeLineItems(row.items);
   const fmt = (cents) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
       (Number(cents) || 0) / 100,
@@ -432,7 +474,9 @@ function openModal(row) {
     </div>
     <div class="admin-modal__section">
       <h3>Line items (pack these)</h3>
-      <pre>${escapeHtml(itemsText)}</pre>
+      <div class="admin-modal__line-items">${
+        itemLines.length ? itemLines.map((l) => l.html).join("") : `<p class="admin-muted">—</p>`
+      }</div>
     </div>
     <div class="admin-modal__section">
       <h3>Totals</h3>
