@@ -1,3 +1,4 @@
+import { validateShippingAddressForCheckout } from "../lib/address-validation.js";
 import { buildFullCheckoutQuote, formatShippingAddressForOrder } from "../lib/checkout-totals.js";
 import { parseCheckoutPayBody } from "../lib/checkout-validation.js";
 import { createPendingOrder } from "../lib/orders.js";
@@ -13,6 +14,12 @@ export default async function handler(req, res) {
     const parsed = parseCheckoutPayBody(req.body || {});
     if (parsed.error) {
       res.status(400).json({ error: parsed.error });
+      return;
+    }
+
+    const addrCheck = await validateShippingAddressForCheckout(parsed.address);
+    if (!addrCheck.ok) {
+      res.status(400).json({ error: addrCheck.error });
       return;
     }
 

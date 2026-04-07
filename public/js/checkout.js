@@ -233,8 +233,16 @@ async function runEstimate() {
     sumTotal.textContent = data.totalFormatted;
 
     if (warningsEl) {
-      warningsEl.hidden = true;
-      warningsEl.innerHTML = "";
+      const w = Array.isArray(data.warnings) ? data.warnings : [];
+      if (w.length) {
+        warningsEl.hidden = false;
+        warningsEl.innerHTML = w
+          .map((x) => `<p class="summary-card__note">${escapeHtml(x)}</p>`)
+          .join("");
+      } else {
+        warningsEl.hidden = true;
+        warningsEl.innerHTML = "";
+      }
     }
   } catch (e) {
     showToast(e.message, "error");

@@ -4,8 +4,9 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { enrichCartQuoteApiResponse } from "./lib/cart-api-response.js";
+import { validateShippingAddressForCheckout } from "./lib/address-validation.js";
 import { buildFullCheckoutQuote, formatShippingAddressForOrder } from "./lib/checkout-totals.js";
-import { parseCheckoutPayBody } from "./lib/checkout-validation.js";
+import { parseCheckoutPayBody, parseEstimateAddressBody } from "./lib/checkout-validation.js";
 import {
   createPendingOrder,
   fetchNexusSummaryRows,
@@ -135,10 +136,25 @@ const server = createServer(async (req, res) => {
         return sendJson(res, 400, { error: "Your cart is empty." });
       }
 
-      const addr = body.address || {};
-      const quote = await buildFullCheckoutQuote(items, addr);
+      const parsed = parseEstimateAddressBody(body);
+      if (parsed.error) {
+        return sendJson(res, 400, { error: parsed.error });
+      }
 
-      return sendJson(res, 200, { ...quote, warnings: [] });
+      const quote = await buildFullCheckoutQuote(items, parsed.address);
+      const warnings = [];
+
+      if (!parsed.partial) {
+        const v = await validateShippingAddressForCheckout(parsed.address);
+        if (!v.ok) {
+          return sendJson(res, 400, { error: v.error });
+        }
+        if (v.warning) {
+          warnings.push(v.warning);
+        }
+      }
+
+      return sendJson(res, 200, { ...quote, warnings });
     }
 
     if (pathname === "/api/checkout-pay" && req.method === "POST") {
@@ -150,6 +166,11 @@ const server = createServer(async (req, res) => {
       }
 
       try {
+        const addrCheck = await validateShippingAddressForCheckout(parsed.address);
+        if (!addrCheck.ok) {
+          return sendJson(res, 400, { error: addrCheck.error });
+        }
+
         const quote = await buildFullCheckoutQuote(parsed.items, parsed.address);
 
         const pending = await createPendingOrder({
