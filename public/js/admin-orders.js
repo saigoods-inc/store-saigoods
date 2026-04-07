@@ -1,8 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
 
-const STATUS_OPTIONS = [
-  ["awaiting_payment", "Awaiting payment"],
-  ["paid", "Paid"],
+/** Staff can only set these fulfillment statuses (payment column shows payment state). */
+const FULFILLMENT_OPTIONS = [
   ["ready_to_ship", "Ready to ship"],
   ["shipped", "Shipped"],
   ["cancelled", "Cancelled"],
@@ -10,6 +9,10 @@ const STATUS_OPTIONS = [
 
 let supabase = null;
 let ordersCache = [];
+
+/** slug:bundleId -> label (from /api/products). */
+const bundleLabelBySlugId = new Map();
+let siteSizes = ["Small", "Medium", "Large", "X Large"];
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -34,33 +37,87 @@ function formatDate(iso) {
   }
 }
 
-function normalizeOrderStatus(row) {
-  const s = row.order_status;
-  if (s && STATUS_OPTIONS.some(([v]) => v === s)) return s;
-  if (row.status === "paid") return "paid";
+/** True if payment is not complete — staff cannot set fulfillment yet. */
+function isPaymentAwaiting(row) {
+  return String(row.status || "").toLowerCase() !== "paid";
+}
+
+/**
+ * Normalized fulfillment key for filters + dropdown (maps legacy `paid` → ready_to_ship).
+ */
+function normalizeFulfillment(row) {
+  const os = row.order_status;
+  if (os === "paid") return "ready_to_ship";
+  if (FULFILLMENT_OPTIONS.some(([v]) => v === os)) return os;
+  if (os === "awaiting_payment") return "awaiting_payment";
   return "awaiting_payment";
+}
+
+function fulfillmentLabel(value) {
+  const row = FULFILLMENT_OPTIONS.find(([v]) => v === value);
+  return row ? row[1] : value;
+}
+
+function formatSizeQuantities(it) {
+  if (!it.quantities || typeof it.quantities !== "object") {
+    return "";
+  }
+  const parts = [];
+  for (const sz of siteSizes) {
+    const n = Math.floor(Number(it.quantities[sz]) || 0);
+    if (n > 0) {
+      parts.push(`${sz}: ${n}`);
+    }
+  }
+  return parts.length ? `Sizes — ${parts.join(", ")}` : "";
 }
 
 function describeLineItems(items) {
   if (!Array.isArray(items) || !items.length) {
     return { lines: [], text: "—" };
   }
+
   const lines = items.map((it) => {
     const name = it.name || it.slug || "Product";
+    const slug = it.slug || "";
+    const pieces = [];
+    const bundleLines = Array.isArray(it.bundleLines) ? it.bundleLines : [];
+
+    if (bundleLines.length) {
+      for (const bl of bundleLines) {
+        const id = String(bl?.id || "").trim();
+        const qty = Math.floor(Number(bl?.qty) || 0);
+        if (!id || qty < 1) continue;
+        const label = bundleLabelBySlugId.get(`${slug}:${id}`) || id;
+        pieces.push(`${label} × ${qty}`);
+      }
+    }
+
+    const sizeLine = formatSizeQuantities(it);
+    if (sizeLine) {
+      pieces.push(sizeLine);
+    }
+
     const cases = Number(it.lineCases);
-    const qty = Number.isFinite(cases) ? cases : 0;
-    const bundle = Array.isArray(it.bundleLines) && it.bundleLines.length ? " (bundle)" : "";
-    return { html: `<strong>${escapeHtml(name)}</strong> — ${qty} case(s)${escapeHtml(bundle)}` };
+    const boxes = Number(it.lineBoxCount);
+    if (Number.isFinite(cases) && cases > 0) {
+      pieces.push(`${cases} case(s)`);
+    }
+    if (Number.isFinite(boxes) && boxes > 0) {
+      pieces.push(`${boxes} box(es)`);
+    }
+
+    if (!pieces.length) {
+      const total = it.lineTotalFormatted || "";
+      pieces.push(total ? `Total ${total}` : "—");
+    }
+
+    const html = `<strong>${escapeHtml(name)}</strong><br /><span class="admin-muted">${escapeHtml(pieces.join(" · "))}</span>`;
+    const text = `${name}\n${pieces.join("\n")}`;
+    return { html, text };
   });
-  const text = items
-    .map((it) => {
-      const name = it.name || it.slug || "Product";
-      const cases = Number(it.lineCases);
-      const qty = Number.isFinite(cases) ? cases : 0;
-      const bundle = Array.isArray(it.bundleLines) && it.bundleLines.length ? " (bundle)" : "";
-      return `${name} — ${qty} case(s)${bundle}`;
-    })
-    .join("\n");
+
+  const text = lines.map((l) => l.text).join("\n\n");
   return { lines, text };
 }
 
@@ -69,18 +126,35 @@ function badgeClass(orderStatus) {
   return `admin-badge admin-badge--${k}`;
 }
 
-function statusLabel(value) {
-  const row = STATUS_OPTIONS.find(([v]) => v === value);
-  return row ? row[1] : value;
-}
-
-async function loadPublicConfig() {
+async function loadSupabasePublicConfig() {
   const res = await fetch("/api/supabase-public-config");
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(data.error || "Could not load configuration.");
   }
   return data;
+}
+
+async function loadCatalog() {
+  try {
+    const res = await fetch("/api/products");
+    if (!res.ok) return;
+    const data = await res.json();
+    if (Array.isArray(data.site?.sizes)) {
+      siteSizes = data.site.sizes;
+    }
+    bundleLabelBySlugId.clear();
+    for (const p of data.products || []) {
+      const slug = p.slug;
+      for (const b of p.bundles || []) {
+        if (b?.id) {
+          bundleLabelBySlugId.set(`${slug}:${b.id}`, b.label || b.id);
+        }
+      }
+    }
+  } catch {
+    // Catalog is optional; bundle ids still show raw.
+  }
 }
 
 function showLogin() {
@@ -93,10 +167,49 @@ function showApp() {
   document.getElementById("admin-app").hidden = false;
 }
 
+function bindOrdersTableEvents() {
+  const table = document.getElementById("orders-table");
+  if (!table || table.dataset.delegationBound === "1") {
+    return;
+  }
+  table.dataset.delegationBound = "1";
+
+  table.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-detail-id]");
+    if (!btn) return;
+    e.preventDefault();
+    const id = btn.getAttribute("data-detail-id");
+    const row = ordersCache.find((r) => String(r.id) === String(id));
+    if (row) openModal(row);
+  });
+
+  table.addEventListener("change", (e) => {
+    const sel = e.target.closest("[data-order-status-select]");
+    if (!sel) return;
+    const tr = sel.closest("tr");
+    const orderId = tr?.dataset.orderId;
+    if (!orderId || !supabase) return;
+
+    const next = sel.value;
+    void (async () => {
+      const prev = sel.dataset.prevValue ?? sel.value;
+      const { error } = await supabase.from("orders").update({ order_status: next }).eq("id", orderId);
+      if (error) {
+        alert(error.message);
+        sel.value = prev;
+        return;
+      }
+      const row = ordersCache.find((r) => String(r.id) === String(orderId));
+      if (row) row.order_status = next;
+      sel.dataset.prevValue = next;
+    })();
+  });
+}
+
 async function init() {
   let config;
   try {
-    config = await loadPublicConfig();
+    config = await loadSupabasePublicConfig();
   } catch (e) {
     document.getElementById("admin-load-error").textContent =
       e.message || "Add SUPABASE_URL and SUPABASE_ANON_KEY to the server environment.";
@@ -120,6 +233,8 @@ async function init() {
   if (session?.user) {
     showApp();
     document.getElementById("admin-user-email").textContent = session.user.email || "";
+    await loadCatalog();
+    bindOrdersTableEvents();
     await loadOrders();
   } else {
     showLogin();
@@ -129,6 +244,8 @@ async function init() {
     if (event === "SIGNED_IN" && session?.user) {
       document.getElementById("admin-user-email").textContent = session.user.email || "";
       showApp();
+      await loadCatalog();
+      bindOrdersTableEvents();
       await loadOrders();
     }
     if (event === "SIGNED_OUT") {
@@ -153,6 +270,8 @@ async function init() {
     }
     showApp();
     document.getElementById("admin-user-email").textContent = email;
+    await loadCatalog();
+    bindOrdersTableEvents();
     await loadOrders();
   });
 
@@ -160,7 +279,10 @@ async function init() {
     await supabase.auth.signOut();
   });
 
-  document.getElementById("admin-refresh")?.addEventListener("click", () => loadOrders());
+  document.getElementById("admin-refresh")?.addEventListener("click", async () => {
+    await loadCatalog();
+    await loadOrders();
+  });
 
   document.getElementById("filter-status")?.addEventListener("change", () => renderTable());
 
@@ -175,7 +297,6 @@ async function loadOrders() {
   errEl.hidden = true;
   loading.hidden = false;
 
-  // Use * so we don’t fail if optional columns (e.g. payment_id) aren’t migrated yet.
   const { data, error } = await supabase
     .from("orders")
     .select("*")
@@ -198,7 +319,19 @@ async function loadOrders() {
 function getFilteredOrders() {
   const filter = document.getElementById("filter-status")?.value || "";
   if (!filter) return ordersCache;
-  return ordersCache.filter((r) => normalizeOrderStatus(r) === filter);
+  return ordersCache.filter((r) => {
+    if (filter === "awaiting_payment") {
+      return isPaymentAwaiting(r);
+    }
+    const fk = normalizeFulfillment(r);
+    return fk === filter;
+  });
+}
+
+function currentFulfillmentSelectValue(row) {
+  const fk = normalizeFulfillment(row);
+  if (FULFILLMENT_OPTIONS.some(([v]) => v === fk)) return fk;
+  return "ready_to_ship";
 }
 
 function renderTable() {
@@ -209,35 +342,36 @@ function renderTable() {
     .map((row) => {
       const id = row.id;
       const orderRef = row.order_ref || "—";
-      const os = normalizeOrderStatus(row);
+      const os = normalizeFulfillment(row);
       const { lines } = describeLineItems(row.items);
       const itemsCell =
         lines.length === 0
           ? "—"
           : `<ul class="admin-order-items">${lines.map((l) => `<li>${l.html}</li>`).join("")}</ul>`;
 
-      const selectHtml = STATUS_OPTIONS.map(
+      const awaiting = isPaymentAwaiting(row);
+      const selectHtml = FULFILLMENT_OPTIONS.map(
         ([value, label]) =>
-          `<option value="${escapeHtml(value)}" ${value === os ? "selected" : ""}>${escapeHtml(label)}</option>`,
+          `<option value="${escapeHtml(value)}" ${value === currentFulfillmentSelectValue(row) ? "selected" : ""}>${escapeHtml(label)}</option>`,
       ).join("");
 
+      const statusCell = awaiting
+        ? `<span class="admin-muted">Awaiting payment</span><p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;">Payment must complete before fulfillment status can be set.</p>`
+        : `<select class="admin-status-select" data-order-status-select aria-label="Fulfillment status" data-prev-value="${escapeHtml(currentFulfillmentSelectValue(row))}">${selectHtml}</select>`;
+
       return `
-        <tr data-order-id="${escapeHtml(id)}">
+        <tr data-order-id="${escapeHtml(String(id))}">
           <td>
             <div class="admin-order-ref">${escapeHtml(orderRef)}</div>
-            <div class="admin-order-id">${escapeHtml(id)}</div>
+            <div class="admin-order-id">${escapeHtml(String(id))}</div>
           </td>
           <td>${escapeHtml(row.customer_name || "—")}<br /><span class="admin-muted">${escapeHtml(row.customer_email || "")}</span></td>
           <td><span class="${badgeClass(row.status === "paid" ? "paid" : "awaiting_payment")}">${escapeHtml(formatPaymentStatus(row.status))}</span></td>
-          <td>
-            <select class="admin-status-select" data-order-status-select aria-label="Order status">
-              ${selectHtml}
-            </select>
-          </td>
+          <td>${statusCell}</td>
           <td>${itemsCell}</td>
           <td>${escapeHtml(formatDate(row.created_at))}</td>
           <td>
-            <button type="button" class="admin-btn admin-btn--small" data-detail-id="${escapeHtml(id)}">Details</button>
+            <button type="button" class="admin-btn admin-btn--small" data-detail-id="${escapeHtml(String(id))}">Details</button>
           </td>
         </tr>
       `;
@@ -245,37 +379,14 @@ function renderTable() {
     .join("");
 
   tbody.querySelectorAll("[data-order-status-select]").forEach((sel) => {
-    const tr = sel.closest("tr");
-    const orderId = tr?.dataset.orderId;
     sel.addEventListener("focus", () => {
       sel.dataset.prevValue = sel.value;
-    });
-    sel.addEventListener("change", async () => {
-      const prev = sel.dataset.prevValue ?? sel.value;
-      const next = sel.value;
-      const { error } = await supabase.from("orders").update({ order_status: next }).eq("id", orderId);
-      if (error) {
-        alert(error.message);
-        sel.value = prev;
-        return;
-      }
-      const row = ordersCache.find((r) => r.id === orderId);
-      if (row) row.order_status = next;
-      sel.dataset.prevValue = next;
-    });
-  });
-
-  tbody.querySelectorAll("[data-detail-id]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = btn.getAttribute("data-detail-id");
-      const row = ordersCache.find((r) => r.id === id);
-      if (row) openModal(row);
     });
   });
 }
 
 function openModal(row) {
-  const os = normalizeOrderStatus(row);
+  const os = normalizeFulfillment(row);
   const { text: itemsText } = describeLineItems(row.items);
   const fmt = (cents) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
@@ -286,8 +397,8 @@ function openModal(row) {
   body.innerHTML = `
     <h2>${escapeHtml(row.order_ref || "Order")}</h2>
     <div class="admin-modal__section">
-      <h3>Order status</h3>
-      <p><span class="${badgeClass(os)}">${escapeHtml(statusLabel(os))}</span></p>
+      <h3>Fulfillment</h3>
+      <p><span class="${badgeClass(isPaymentAwaiting(row) ? "awaiting_payment" : currentFulfillmentSelectValue(row))}">${escapeHtml(isPaymentAwaiting(row) ? "Awaiting payment" : fulfillmentLabel(currentFulfillmentSelectValue(row)))}</span></p>
     </div>
     <div class="admin-modal__section">
       <h3>Payment</h3>
