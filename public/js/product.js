@@ -394,7 +394,7 @@ function renderBundleCard(b, err) {
       <div class="bundle-card__row">
         <button type="button" class="bundle-card__main" data-action="bundle-select" data-bundle-id="${id}" aria-label="Select ${escapeHtml(b.label)}">
           <span class="bundle-card__title">${escapeHtml(b.label)}</span>
-          <span class="bundle-card__price">${formatCurrency(b.priceCents)}/pack</span>
+          <span class="bundle-card__price">${formatCurrency(b.priceCents)}/bundle</span>
         </button>
         <div class="bundle-card__stepper qty-control qty-control--round">
           <button type="button" data-action="bundle-decrease" data-bundle-id="${id}" aria-label="Decrease ${escapeHtml(b.label)} packs">−</button>

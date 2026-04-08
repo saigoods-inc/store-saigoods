@@ -146,8 +146,8 @@ function renderCheckoutShell(miniQuote, options = {}) {
             <input type="email" name="email" autocomplete="email" required aria-required="true" />
           </label>
           <label class="checkout-field">
-            <span>Phone <span class="checkout-optional">(optional)</span></span>
-            <input type="tel" name="phone" autocomplete="tel" />
+            <span><span class="checkout-field-required" aria-hidden="true">*</span> Phone</span>
+            <input type="tel" name="phone" autocomplete="tel" required aria-required="true" />
           </label>
         </div>
 
@@ -253,6 +253,21 @@ function readContactFromForm() {
   };
 }
 
+/** Order summary: show "Free" when shipping is $0. */
+function shippingDisplayFromEstimate(data) {
+  const cents = Math.max(0, Math.round(Number(data?.shippingCents) || 0));
+  if (cents === 0) {
+    return "Free";
+  }
+  return data.shippingFormatted || "—";
+}
+
+/** US-oriented: at least 10 digits (ignores formatting). */
+function isValidPhone(phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  return digits.length >= 10;
+}
+
 /** Basic email shape: local@domain.tld (requires @ and a dot in the domain). */
 function isValidEmail(email) {
   const s = email.trim();
@@ -307,12 +322,13 @@ function setAddressFieldsError(on) {
 }
 
 /**
- * @returns {boolean} true if name and email are present and email is valid.
+ * @returns {boolean} true if name, email, and phone are valid.
  */
 function applyContactValidationErrors() {
   const contact = readContactFromForm();
   const nameInput = root.querySelector('[name="name"]');
   const emailInput = root.querySelector('[name="email"]');
+  const phoneInput = root.querySelector('[name="phone"]');
   let ok = true;
   if (nameInput?.classList?.contains("checkout-input--error")) {
     nameInput.classList.remove("checkout-input--error");
@@ -320,12 +336,19 @@ function applyContactValidationErrors() {
   if (emailInput?.classList?.contains("checkout-input--error")) {
     emailInput.classList.remove("checkout-input--error");
   }
+  if (phoneInput?.classList?.contains("checkout-input--error")) {
+    phoneInput.classList.remove("checkout-input--error");
+  }
   if (!contact.name) {
     nameInput?.classList.add("checkout-input--error");
     ok = false;
   }
   if (!contact.email || !isValidEmail(contact.email)) {
     emailInput?.classList.add("checkout-input--error");
+    ok = false;
+  }
+  if (!contact.phone || !isValidPhone(contact.phone)) {
+    phoneInput?.classList.add("checkout-input--error");
     ok = false;
   }
   return ok;
@@ -375,7 +398,7 @@ async function runEstimate(options = {}) {
       sumShip.textContent = "—";
       sumTax.textContent = "—";
     } else {
-      sumShip.textContent = data.shippingFormatted;
+      sumShip.textContent = shippingDisplayFromEstimate(data);
       sumTax.textContent = data.taxFormatted;
     }
     sumTotal.textContent = data.totalFormatted;
@@ -596,17 +619,9 @@ function wireCheckoutFieldClearErrors() {
 
 function wireEvents() {
   document.getElementById("checkout-update-totals")?.addEventListener("click", () => {
-    const contact = readContactFromForm();
-    const nameInput = root.querySelector('[name="name"]');
-    const emailInput = root.querySelector('[name="email"]');
-
-    if (!contact.name) {
-      nameInput?.classList.add("checkout-input--error");
+    if (!applyContactValidationErrors()) {
+      return;
     }
-    if (!contact.email || !isValidEmail(contact.email)) {
-      emailInput?.classList.add("checkout-input--error");
-    }
-
     void runEstimate({ validateContact: false, requireAddress: true });
   });
 
@@ -651,7 +666,7 @@ function wireEvents() {
           items,
           address,
           email: contact.email,
-          phone: contact.phone || undefined,
+          phone: contact.phone,
           name: contact.name || undefined,
           sourceId: tokenResult.token,
         }),
