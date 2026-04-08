@@ -19,6 +19,9 @@ let boxBySize = {};
 /** When true, show bundle total mismatch styling (only set after failed Add to cart / Checkout). */
 let bundleSubmitAttempted = false;
 
+/** Which bundle's size dropdown is open (`bundle.id`), or null. */
+let openBundleDropdownId = null;
+
 document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
@@ -46,6 +49,7 @@ async function init() {
   hydrateProductStateFromCart();
   renderProduct();
   productRoot.addEventListener("click", handleProductClick);
+  document.addEventListener("click", onClickOutsideOpenBundle, false);
 }
 
 /**
@@ -76,6 +80,24 @@ function hydrateProductStateFromCart() {
   }
 
   bundleSubmitAttempted = false;
+  openBundleDropdownId = null;
+}
+
+function onClickOutsideOpenBundle(e) {
+  if (openBundleDropdownId === null) {
+    return;
+  }
+  // Clicks on cart/checkout are handled by handleProductClick on the product root first, but the
+  // event still bubbles here. Those actions may open the bundle panel for validation — do not close.
+  if (e.target.closest('[data-action="add-to-cart"], [data-action="checkout"]')) {
+    return;
+  }
+  const card = e.target.closest("[data-bundle-id]");
+  if (card && card.dataset.bundleId === openBundleDropdownId) {
+    return;
+  }
+  openBundleDropdownId = null;
+  renderProduct();
 }
 
 function computeRequiredUnits() {
@@ -101,6 +123,30 @@ function computeRequiredUnits() {
 
 function sumChannel(map) {
   return Object.values(map).reduce((s, n) => s + (Math.floor(Number(n)) || 0), 0);
+}
+
+/**
+ * Ordered "2 Small • 1 Medium" from a size map; each segment is wrapped so multi-word
+ * sizes (e.g. "X Large") never break mid-phrase—wraps happen between segments only.
+ */
+function formatChannelSizeSummaryHtml(map) {
+  const sizes = store.site.sizes;
+  const segments = [];
+  for (const size of sizes) {
+    const q = Math.floor(Number(map[size])) || 0;
+    if (q > 0) {
+      segments.push(`${q} ${size}`);
+    }
+  }
+  if (segments.length === 0) {
+    return "";
+  }
+  return segments
+    .map(
+      (seg) =>
+        `<span class="bundle-card__size-summary-seg">${escapeHtml(seg)}</span>`,
+    )
+    .join('<span class="bundle-card__size-summary-sep" aria-hidden="true">•</span>');
 }
 
 /** Round-robin distribution of `total` units across `sizes` (used when bundle requirements change). */
@@ -133,20 +179,30 @@ function applyBundleDelta(bundleId, delta) {
   bundleSubmitAttempted = false;
   const sizes = store.site.sizes;
   const prevReq = computeRequiredUnits();
-  const nextQ = Math.max(0, Math.floor((bundleQty[bundleId] || 0) + delta));
+  const prevQ = Math.floor(bundleQty[bundleId] || 0);
+  const nextQ = Math.max(0, prevQ + delta);
   bundleQty = { ...bundleQty, [bundleId]: nextQ };
+  if (nextQ < 1) {
+    if (openBundleDropdownId === bundleId) {
+      openBundleDropdownId = null;
+    }
+  } else {
+    openBundleDropdownId = bundleId;
+  }
   const nextReq = computeRequiredUnits();
   applyBundleRequirementDeltas(prevReq, nextReq, sizes);
 }
 
 function selectBundleCard(bundleId) {
   if ((bundleQty[bundleId] || 0) >= 1) {
+    openBundleDropdownId = bundleId;
     return;
   }
   bundleSubmitAttempted = false;
   const sizes = store.site.sizes;
   const prevReq = computeRequiredUnits();
   bundleQty = { ...bundleQty, [bundleId]: 1 };
+  openBundleDropdownId = bundleId;
   const nextReq = computeRequiredUnits();
   applyBundleRequirementDeltas(prevReq, nextReq, sizes);
 }
@@ -191,7 +247,87 @@ function showCaseColumn() {
   );
 }
 
-function renderBundleCard(b) {
+/**
+ * First bundle card to focus when allocation is invalid: box channel before case if both mismatch.
+ * @returns {string|null} bundle id
+ */
+function bundleIdToOpenForAllocationMismatch() {
+  if (!product) {
+    return null;
+  }
+  const bundleList = product.bundles || [];
+  const reqUnits = computeRequiredUnits();
+  const sumBoxes = sumChannel(boxBySize);
+  const sumCases = sumChannel(caseBySize);
+  const boxMismatch =
+    showBoxColumn() && reqUnits.reqBox > 0 && sumBoxes !== reqUnits.reqBox;
+  const caseMismatch =
+    showCaseColumn() && reqUnits.reqCase > 0 && sumCases !== reqUnits.reqCase;
+
+  if (boxMismatch) {
+    const b = bundleList.find(
+      (x) => String(x.kind).toLowerCase() === "box" && (bundleQty[x.id] || 0) > 0,
+    );
+    if (b) {
+      return b.id;
+    }
+  }
+  if (caseMismatch) {
+    const b = bundleList.find(
+      (x) => String(x.kind).toLowerCase() === "case" && (bundleQty[x.id] || 0) > 0,
+    );
+    if (b) {
+      return b.id;
+    }
+  }
+  return null;
+}
+
+function scrollBundleCardIntoView(bundleId) {
+  if (!bundleId || !productRoot) {
+    return;
+  }
+  const prefersReduced =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const idStr = String(bundleId);
+  const run = () => {
+    let card = null;
+    for (const el of productRoot.querySelectorAll("[data-bundle-id]")) {
+      if (el.dataset.bundleId === idStr) {
+        card = el;
+        break;
+      }
+    }
+    if (!card) {
+      return;
+    }
+    card.scrollIntoView({
+      behavior: prefersReduced ? "auto" : "smooth",
+      block: "nearest",
+      inline: "nearest",
+    });
+  };
+  requestAnimationFrame(() => {
+    requestAnimationFrame(run);
+  });
+}
+
+function focusBundleForAllocationError() {
+  const id = bundleIdToOpenForAllocationMismatch();
+  if (id) {
+    openBundleDropdownId = id;
+  }
+  renderProduct();
+  if (id) {
+    scrollBundleCardIntoView(id);
+  }
+}
+
+/**
+ * @param {{ showBoxError: boolean, showCaseError: boolean, boxHint: string, caseHint: string }} err
+ */
+function renderBundleCard(b, err) {
   const id = escapeHtml(b.id);
   const qty = Math.floor(bundleQty[b.id] || 0);
   const selected = qty > 0 ? " is-selected" : "";
@@ -203,6 +339,54 @@ function renderBundleCard(b) {
   const badgeSave = saveCents
     ? `<span class="bundle-card__badge bundle-card__badge--save">Save ${formatCurrency(saveCents)}</span>`
     : "";
+
+  const kind = String(b.kind).toLowerCase();
+  const showExpand = qty > 0 && openBundleDropdownId === b.id;
+  let panelInner = "";
+  if (showExpand) {
+    if (kind === "box" && showBoxColumn()) {
+      panelInner = renderSizeColumn("Boxes Bundle", "box", boxBySize, {
+        invalid: err.showBoxError,
+        hint: err.boxHint,
+        hideHeader: true,
+      });
+    } else if (kind === "case" && showCaseColumn()) {
+      panelInner = renderSizeColumn("Carton Bundle", "case", caseBySize, {
+        invalid: err.showCaseError,
+        hint: err.caseHint,
+        hideHeader: true,
+      });
+    } else {
+      panelInner = `<p class="inline-note inline-note--muted">Use bundle packs above to select sizes.</p>`;
+    }
+  }
+
+  const expandBlock =
+    showExpand && panelInner
+      ? `
+      <div class="bundle-card__expand">
+        <div class="bundle-card__expand-panel-inner" aria-hidden="false">
+          <div class="bundle-card__size-grid">
+            ${panelInner}
+          </div>
+        </div>
+      </div>
+    `
+      : "";
+
+  const mapForKind =
+    kind === "box" ? boxBySize : kind === "case" ? caseBySize : null;
+  const summaryHtml =
+    mapForKind &&
+    qty > 0 &&
+    !showExpand &&
+    ((kind === "box" && showBoxColumn()) || (kind === "case" && showCaseColumn()))
+      ? formatChannelSizeSummaryHtml(mapForKind)
+      : "";
+  const collapsedSummaryBlock =
+    summaryHtml !== ""
+      ? `<p class="bundle-card__size-summary">${summaryHtml}</p>`
+      : "";
 
   return `
     <div class="bundle-card${selected}" data-bundle-id="${id}">
@@ -218,22 +402,33 @@ function renderBundleCard(b) {
           <button type="button" data-action="bundle-increase" data-bundle-id="${id}" aria-label="Increase ${escapeHtml(b.label)} packs">+</button>
         </div>
       </div>
+      ${collapsedSummaryBlock}
+      ${expandBlock}
     </div>
   `;
 }
 
-function renderSizeColumn(title, channel, map, { invalid = false, hint = "" } = {}) {
+function renderSizeColumn(title, channel, map, { invalid = false, hint = "", hideHeader = false } = {}) {
   const sizes = store.site.sizes;
+  const { reqBox, reqCase } = computeRequiredUnits();
+  const req = channel === "box" ? reqBox : reqCase;
+  const total = sumChannel(map);
+  const plusDisabled = req < 1 || total >= req;
+
   const errClass = invalid ? " size-bundle-column--invalid" : "";
   const errMsg =
     invalid && hint
       ? `<p class="size-bundle-column__error" role="alert">${escapeHtml(hint)}</p>`
       : "";
+  const headerHtml =
+    hideHeader || !String(title || "").trim()
+      ? ""
+      : `<div class="size-bundle-column__header">${escapeHtml(title)}</div>`;
 
   return `
     <div class="size-bundle-column${errClass}" data-channel="${channel}">
       ${errMsg}
-      <div class="size-bundle-column__header">${escapeHtml(title)}</div>
+      ${headerHtml}
       <div class="size-bundle-column__rows">
         ${sizes
           .map(
@@ -243,7 +438,9 @@ function renderSizeColumn(title, channel, map, { invalid = false, hint = "" } = 
             <div class="qty-control qty-control--round">
               <button type="button" data-action="size-step" data-channel="${channel}" data-size="${escapeHtml(size)}" data-delta="-1" aria-label="Decrease ${escapeHtml(size)} ${channel} count">−</button>
               <strong>${map[size] || 0}</strong>
-              <button type="button" data-action="size-step" data-channel="${channel}" data-size="${escapeHtml(size)}" data-delta="1" aria-label="Increase ${escapeHtml(size)} ${channel} count">+</button>
+              <button type="button" data-action="size-step" data-channel="${channel}" data-size="${escapeHtml(size)}" data-delta="1" aria-label="Increase ${escapeHtml(size)} ${channel} count"${
+                plusDisabled ? " disabled" : ""
+              }>+</button>
             </div>
           </div>
         `,
@@ -285,45 +482,23 @@ function renderProduct() {
   const canClickActions =
     hasAnyBundleSelection() && subtotal > 0 && hasSizeSelection;
 
+  const err = { showBoxError, showCaseError, boxHint, caseHint };
   const bundleSection =
     bundles.length > 0
       ? `
         <div class="detail-block detail-block--bundles">
           <h3>Bundle &amp; Price</h3>
           <div class="bundle-grid">
-            ${bundles.map(renderBundleCard).join("")}
+            ${bundles.map((b) => renderBundleCard(b, err)).join("")}
           </div>
+          ${
+            !hasAnyBundleSelection()
+              ? `<p class="inline-note inline-note--muted product-bundle-hint">Select a bundle, then choose sizes in the panel below it.</p>`
+              : ""
+          }
         </div>
       `
       : "";
-
-  const sizeSectionInner = (() => {
-    const boxCol = showBoxColumn();
-    const caseCol = showCaseColumn();
-    if (!boxCol && !caseCol) {
-      return `<p class="inline-note inline-note--muted">Select a bundle above to choose sizes.</p>`;
-    }
-    return `
-      <div class="size-bundle-grid">
-        ${
-          boxCol
-            ? renderSizeColumn("Boxes Bundle", "box", boxBySize, {
-                invalid: showBoxError,
-                hint: boxHint,
-              })
-            : ""
-        }
-        ${
-          caseCol
-            ? renderSizeColumn("Carton Bundle", "case", caseBySize, {
-                invalid: showCaseError,
-                hint: caseHint,
-              })
-            : ""
-        }
-      </div>
-    `;
-  })();
 
   productRoot.innerHTML = `
     <section class="product-layout">
@@ -375,11 +550,6 @@ function renderProduct() {
 
         ${bundleSection}
 
-        <div class="detail-block">
-          <h3>Size &amp; Quantity</h3>
-          ${sizeSectionInner}
-        </div>
-
         <div class="selection-summary">
           <div class="selection-summary__subtotal-row">
             <span class="selection-summary__subtotal-label">Subtotal</span>
@@ -422,6 +592,19 @@ function handleSizeStep(channel, size, delta) {
   bundleSubmitAttempted = false;
   const map = channel === "box" ? { ...boxBySize } : { ...caseBySize };
   const cur = Math.floor(map[size]) || 0;
+  const { reqBox, reqCase } = computeRequiredUnits();
+  const req = channel === "box" ? reqBox : reqCase;
+  const prevTotal = sumChannel(map);
+
+  if (delta > 0) {
+    if (req < 1) {
+      return;
+    }
+    if (prevTotal + delta > req) {
+      return;
+    }
+  }
+
   const nextVal = Math.max(0, cur + delta);
   map[size] = nextVal;
 
@@ -479,7 +662,7 @@ async function handleProductClick(event) {
   if (action === "add-to-cart") {
     if (!allocationValid()) {
       bundleSubmitAttempted = true;
-      renderProduct();
+      focusBundleForAllocationError();
       showToast(
         "Adjust box and case totals above to match your bundle packs before adding to cart.",
         "error",
@@ -511,7 +694,7 @@ async function handleProductClick(event) {
   if (action === "checkout") {
     if (!allocationValid()) {
       bundleSubmitAttempted = true;
-      renderProduct();
+      focusBundleForAllocationError();
       showToast(
         "Adjust box and case totals above to match your bundle packs before checkout.",
         "error",

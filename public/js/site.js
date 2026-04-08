@@ -188,7 +188,7 @@ function renderFooter(site) {
 
               <address class="contact">
                 <div class="contact__label">Phone</div>
-                <a href="tel:+16153756575" class="contact__value">${escapeHtml(site.phone)}</a>
+                <a href="tel:+16152437512" class="contact__value">${escapeHtml(site.phone)}</a>
               </address>
             </div>
           </div>

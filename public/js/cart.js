@@ -67,7 +67,7 @@ function renderCart() {
         <h2>Order Summary</h2>
         <div class="summary-card__rows">
           <div class="summary-card__row">
-            <span>Shipping units (cases&nbsp;eq.)</span>
+            <span title="Full cases plus boxes, combined into one number for shipping (boxes count toward the next full case).">Shipping units</span>
             <strong>${quote.totalCases}</strong>
           </div>
           <div class="summary-card__row">

@@ -23,9 +23,13 @@ const __dirname = path.dirname(__filename);
 
 loadDotEnv();
 
-const storeData = JSON.parse(
-  readFileSync(path.join(__dirname, "data", "store.json"), "utf8"),
-);
+const storeJsonPath = path.join(__dirname, "data", "store.json");
+
+function readStoreData() {
+  return JSON.parse(readFileSync(storeJsonPath, "utf8"));
+}
+
+const storeData = readStoreData();
 
 const productMap = new Map(storeData.products.map((product) => [product.slug, product]));
 const knownSizes = storeData.site.sizes;
@@ -54,7 +58,8 @@ const server = createServer(async (req, res) => {
     const { pathname } = requestUrl;
 
     if (pathname === "/api/products" && req.method === "GET") {
-      return sendJson(res, 200, storeData);
+      // Always read from disk so site metadata (phone, address, etc.) updates without restarting Node.
+      return sendJson(res, 200, readStoreData());
     }
 
     if (pathname.startsWith("/api/products/") && req.method === "GET") {

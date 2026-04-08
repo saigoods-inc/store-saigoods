@@ -973,6 +973,11 @@ button {
   line-height: 1;
 }
 
+.qty-control button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .qty-control strong {
   min-width: 1.2rem;
   font-size: var(--fs-body);
@@ -1050,6 +1055,8 @@ button {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
+  /* Independent row heights: expanding one card must not stretch the sibling in the same row. */
+  align-items: start;
 }
 
 .bundle-card {
@@ -1059,15 +1066,14 @@ button {
   padding: 0.85rem 0.75rem 0.75rem;
   background: #f0f0f0e8;
   border-radius: 0.65rem;
-  border: 2px solid transparent;
+  border: 1px solid transparent;
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
 }
 
 .bundle-card.is-selected {
-  border-color: rgba(201, 97, 66, 0.45);
-  box-shadow: 0 0 0 1px rgba(201, 97, 66, 0.12);
+  border-color: #71717a;
 }
 
 .bundle-card__badges {
@@ -1108,6 +1114,7 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+  padding-right: 0.5rem;
 }
 
 .bundle-card__main {
@@ -1138,6 +1145,51 @@ button {
 
 .bundle-card__stepper {
   flex-shrink: 0;
+}
+
+.bundle-card__size-summary {
+  margin: 0.45rem 0 0;
+  padding: 6px 2px 0;
+  font-size: var(--fs-body-secondary);
+  color: var(--muted);
+  line-height: var(--leading-snug);
+  letter-spacing: 0.01em;
+  text-transform: lowercase;
+  border-top: 1px solid #2d2d2d15;
+}
+
+.bundle-card__size-summary-seg {
+  white-space: nowrap;
+}
+
+.bundle-card__size-summary-sep {
+  display: inline-block;
+  padding: 0 0.4rem;
+  font-weight: var(--font-weight-normal);
+  font-size: 0.68em;
+  vertical-align: 0.06em;
+}
+
+.bundle-card__expand {
+  margin-top: 0.55rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.bundle-card__expand-panel-inner {
+  min-width: 0;
+}
+
+.bundle-card__size-grid {
+  padding-top: 0.15rem;
+}
+
+.bundle-card__size-grid .size-bundle-column {
+  max-width: 100%;
+}
+
+.product-bundle-hint {
+  margin-top: 0.75rem;
 }
 
 .size-bundle-grid {
@@ -1187,8 +1239,8 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.65rem 0.85rem;
-  background: #f4f4f4e0;
+  padding: 0.65rem 0.5rem;
+  background: #fafafa;
   border-radius: 0.5rem;
 }
 
