@@ -8,6 +8,7 @@ import { validateShippingAddressForCheckout } from "./lib/address-validation.js"
 import { buildFullCheckoutQuote, formatShippingAddressForOrder } from "./lib/checkout-totals.js";
 import { parseCheckoutPayBody, parseEstimateAddressBody } from "./lib/checkout-validation.js";
 import {
+  cancelPendingOrderAfterPaymentFailure,
   createPendingOrder,
   fetchNexusSummaryRows,
   fetchTaxSummaryTnRows,
@@ -179,39 +180,47 @@ const server = createServer(async (req, res) => {
 
         const quote = await buildFullCheckoutQuote(parsed.items, parsed.address);
 
-        const pending = await createPendingOrder({
-          quote,
-          customer: {
-            name: parsed.name,
-            email: parsed.email,
-            phone: parsed.phone,
-            address: formatShippingAddressForOrder(parsed.address),
-            shippingState: parsed.address.state,
-          },
-        });
-        const { paymentId } = await createCardPayment({
-          sourceId: parsed.sourceId,
-          amountCents: quote.totalCents,
-          locationId: process.env.SQUARE_LOCATION_ID?.trim(),
-          orderId: pending.id,
-          buyerEmail: parsed.email,
-          idempotencyKey: `saigoods-pay-${pending.id}`,
-        });
+        let pending = null;
+        try {
+          pending = await createPendingOrder({
+            quote,
+            customer: {
+              name: parsed.name,
+              email: parsed.email,
+              phone: parsed.phone,
+              address: formatShippingAddressForOrder(parsed.address),
+              shippingState: parsed.address.state,
+            },
+          });
+          const { paymentId } = await createCardPayment({
+            sourceId: parsed.sourceId,
+            amountCents: quote.totalCents,
+            locationId: process.env.SQUARE_LOCATION_ID?.trim(),
+            orderId: pending.id,
+            buyerEmail: parsed.email,
+            idempotencyKey: `saigoods-pay-${pending.id}`,
+          });
 
-        void sendResendOrderConfirmation({
-          pending,
-          quote,
-          customerEmail: parsed.email,
-          customerName: parsed.name,
-        }).catch((err) => console.error("Resend order confirmation failed:", err));
+          void sendResendOrderConfirmation({
+            pending,
+            quote,
+            customerEmail: parsed.email,
+            customerName: parsed.name,
+          }).catch((err) => console.error("Resend order confirmation failed:", err));
 
-        return sendJson(res, 200, {
-          success: true,
-          paymentId,
-          orderId: pending.id,
-          orderRef: pending.order_ref,
-          totalFormatted: quote.totalFormatted,
-        });
+          return sendJson(res, 200, {
+            success: true,
+            paymentId,
+            orderId: pending.id,
+            orderRef: pending.order_ref,
+            totalFormatted: quote.totalFormatted,
+          });
+        } catch (payError) {
+          if (pending?.id) {
+            await cancelPendingOrderAfterPaymentFailure(pending.id);
+          }
+          throw payError;
+        }
       } catch (error) {
         console.error(error);
 

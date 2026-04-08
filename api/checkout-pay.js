@@ -1,7 +1,7 @@
 import { validateShippingAddressForCheckout } from "../lib/address-validation.js";
 import { buildFullCheckoutQuote, formatShippingAddressForOrder } from "../lib/checkout-totals.js";
 import { parseCheckoutPayBody } from "../lib/checkout-validation.js";
-import { createPendingOrder } from "../lib/orders.js";
+import { cancelPendingOrderAfterPaymentFailure, createPendingOrder } from "../lib/orders.js";
 import { sendResendOrderConfirmation } from "../lib/resend-order-confirmation.js";
 import { createCardPayment } from "../lib/square.js";
 
@@ -33,32 +33,40 @@ export default async function handler(req, res) {
       shippingState: parsed.address.state,
     };
 
-    const pending = await createPendingOrder({ quote, customer });
-    const locationId = process.env.SQUARE_LOCATION_ID?.trim();
+    let pending = null;
+    try {
+      pending = await createPendingOrder({ quote, customer });
+      const locationId = process.env.SQUARE_LOCATION_ID?.trim();
 
-    const { paymentId } = await createCardPayment({
-      sourceId: parsed.sourceId,
-      amountCents: quote.totalCents,
-      locationId,
-      orderId: pending.id,
-      buyerEmail: parsed.email,
-      idempotencyKey: `saigoods-pay-${pending.id}`,
-    });
+      const { paymentId } = await createCardPayment({
+        sourceId: parsed.sourceId,
+        amountCents: quote.totalCents,
+        locationId,
+        orderId: pending.id,
+        buyerEmail: parsed.email,
+        idempotencyKey: `saigoods-pay-${pending.id}`,
+      });
 
-    void sendResendOrderConfirmation({
-      pending,
-      quote,
-      customerEmail: parsed.email,
-      customerName: parsed.name,
-    }).catch((err) => console.error("Resend order confirmation failed:", err));
+      void sendResendOrderConfirmation({
+        pending,
+        quote,
+        customerEmail: parsed.email,
+        customerName: parsed.name,
+      }).catch((err) => console.error("Resend order confirmation failed:", err));
 
-    res.status(200).json({
-      success: true,
-      paymentId,
-      orderId: pending.id,
-      orderRef: pending.order_ref,
-      totalFormatted: quote.totalFormatted,
-    });
+      res.status(200).json({
+        success: true,
+        paymentId,
+        orderId: pending.id,
+        orderRef: pending.order_ref,
+        totalFormatted: quote.totalFormatted,
+      });
+    } catch (payError) {
+      if (pending?.id) {
+        await cancelPendingOrderAfterPaymentFailure(pending.id);
+      }
+      throw payError;
+    }
   } catch (error) {
     console.error(error);
     res
