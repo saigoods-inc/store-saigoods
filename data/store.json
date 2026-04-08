@@ -24,7 +24,7 @@
       "currency": "usd",
       "boxesPerCase": 10,
       "bundles": [
-        { "id": "box_1", "label": "1 box", "kind": "box", "units": 1, "priceCents": 2599 },
+        { "id": "box_1", "label": "1 box", "kind": "box", "units": 1, "priceCents": 399 },
         { "id": "box_5", "label": "5 boxes", "kind": "box", "units": 5, "priceCents": 4299 },
         {
           "id": "case_1",
@@ -115,7 +115,7 @@
       "currency": "usd",
       "boxesPerCase": 10,
       "bundles": [
-        { "id": "box_1", "label": "1 box", "kind": "box", "units": 1, "priceCents": 2769 },
+        { "id": "box_1", "label": "1 box", "kind": "box", "units": 1, "priceCents": 399 },
         { "id": "box_5", "label": "5 boxes", "kind": "box", "units": 5, "priceCents": 4580 },
         {
           "id": "case_1",
@@ -208,7 +208,7 @@
       "currency": "usd",
       "boxesPerCase": 10,
       "bundles": [
-        { "id": "box_1", "label": "1 box", "kind": "box", "units": 1, "priceCents": 5992 },
+        { "id": "box_1", "label": "1 box", "kind": "box", "units": 1, "priceCents": 399 },
         { "id": "box_5", "label": "5 boxes", "kind": "box", "units": 5, "priceCents": 9909 },
         {
           "id": "case_1",
