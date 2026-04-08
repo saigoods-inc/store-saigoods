@@ -8,7 +8,7 @@
   ],
   "functions": {
     "api/**/*.js": {
-      "includeFiles": ["data/**", "lib/email-templates/**"]
+      "includeFiles": "data/**"
     }
   }
 }
