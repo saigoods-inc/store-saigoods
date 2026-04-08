@@ -233,34 +233,47 @@ function bindOrdersTableEvents() {
   table.dataset.delegationBound = "1";
 
   table.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-detail-id]");
-    if (!btn) return;
-    e.preventDefault();
-    const id = btn.getAttribute("data-detail-id");
-    const row = ordersCache.find((r) => String(r.id) === String(id));
-    if (row) openModal(row);
-  });
+    const detailBtn = e.target.closest("[data-detail-id]");
+    if (detailBtn) {
+      e.preventDefault();
+      const id = detailBtn.getAttribute("data-detail-id");
+      const row = ordersCache.find((r) => String(r.id) === String(id));
+      if (row) openModal(row);
+      return;
+    }
 
-  table.addEventListener("change", (e) => {
-    const sel = e.target.closest("[data-order-status-select]");
-    if (!sel) return;
-    const tr = sel.closest("tr");
-    const orderId = tr?.dataset.orderId;
-    if (!orderId || !supabase) return;
+    const confirmBtn = e.target.closest("[data-order-status-confirm]");
+    if (confirmBtn) {
+      e.preventDefault();
+      const tr = confirmBtn.closest("tr");
+      const orderId = tr?.dataset.orderId;
+      if (!orderId || !supabase) return;
 
-    const next = sel.value;
-    void (async () => {
-      const prev = sel.dataset.prevValue ?? sel.value;
-      const { error } = await supabase.from("orders").update({ order_status: next }).eq("id", orderId);
-      if (error) {
-        alert(error.message);
-        sel.value = prev;
-        return;
-      }
-      const row = ordersCache.find((r) => String(r.id) === String(orderId));
-      if (row) row.order_status = next;
-      sel.dataset.prevValue = next;
-    })();
+      const sel = tr.querySelector("[data-order-status-select]");
+      if (!sel) return;
+
+      void (async () => {
+        const next = sel.value;
+        const prev = sel.dataset.prevValue ?? sel.value;
+        confirmBtn.disabled = true;
+        const originalText = confirmBtn.textContent;
+        confirmBtn.textContent = "Saving…";
+
+        const { error } = await supabase.from("orders").update({ order_status: next }).eq("id", orderId);
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = originalText;
+
+        if (error) {
+          alert(error.message);
+          sel.value = prev;
+          return;
+        }
+
+        const row = ordersCache.find((r) => String(r.id) === String(orderId));
+        if (row) row.order_status = next;
+        sel.dataset.prevValue = next;
+      })();
+    }
   });
 }
 
@@ -418,7 +431,9 @@ function renderTable() {
 
       const statusCell = awaiting
         ? `<span class="admin-muted">Awaiting payment</span><p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;">Payment must complete before fulfillment status can be set.</p>`
-        : `<select class="admin-status-select" data-order-status-select aria-label="Fulfillment status" data-prev-value="${escapeHtml(currentFulfillmentSelectValue(row))}">${selectHtml}</select>`;
+        : `<div class="admin-status-actions"><select class="admin-status-select" data-order-status-select aria-label="Fulfillment status" data-prev-value="${escapeHtml(
+            currentFulfillmentSelectValue(row),
+          )}">${selectHtml}</select><button type="button" class="admin-btn admin-btn--small admin-status-confirm" data-order-status-confirm>Update</button></div>`;
 
       return `
         <tr data-order-id="${escapeHtml(String(id))}">

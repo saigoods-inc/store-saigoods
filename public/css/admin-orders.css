@@ -234,6 +234,16 @@ body.admin-page {
   min-width: 9.5rem;
 }
 
+.admin-status-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.admin-status-confirm {
+  white-space: nowrap;
+}
+
 .admin-badge {
   display: inline-block;
   padding: 0.15rem 0.45rem;
