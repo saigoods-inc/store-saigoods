@@ -1,5 +1,6 @@
 import { markOrderPaid } from "../lib/orders.js";
 import { sendCustomerEmail, sendVendorEmail } from "../lib/email.js";
+import { isResendCustomerEmailEnabled } from "../lib/resend-order-confirmation.js";
 import {
   extractBuyerContactFromPayment,
   formatPaymentShippingAddress,
@@ -120,7 +121,11 @@ export default async function handler(req, res) {
       totalFormatted: formatCurrency(order.total_cents),
     };
 
-    await Promise.all([sendCustomerEmail(orderForEmail), sendVendorEmail(orderForEmail)]);
+    const emailTasks = [sendVendorEmail(orderForEmail)];
+    if (!isResendCustomerEmailEnabled()) {
+      emailTasks.push(sendCustomerEmail(orderForEmail));
+    }
+    await Promise.all(emailTasks);
 
     res.status(200).json({ ok: true });
   } catch (error) {

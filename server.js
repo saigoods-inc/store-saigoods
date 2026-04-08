@@ -15,6 +15,7 @@ import {
 import { buildQuote } from "./lib/quote.js";
 import { assertReportsAuthorized } from "./lib/reports-auth.js";
 import { resolveShippingZip } from "./lib/shipping.js";
+import { sendResendOrderConfirmation } from "./lib/resend-order-confirmation.js";
 import { createCardPayment } from "./lib/square.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -191,6 +192,13 @@ const server = createServer(async (req, res) => {
           buyerEmail: parsed.email,
           idempotencyKey: `saigoods-pay-${pending.id}`,
         });
+
+        void sendResendOrderConfirmation({
+          pending,
+          quote,
+          customerEmail: parsed.email,
+          customerName: parsed.name,
+        }).catch((err) => console.error("Resend order confirmation failed:", err));
 
         return sendJson(res, 200, {
           success: true,

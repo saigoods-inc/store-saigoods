@@ -2,6 +2,7 @@ import { validateShippingAddressForCheckout } from "../lib/address-validation.js
 import { buildFullCheckoutQuote, formatShippingAddressForOrder } from "../lib/checkout-totals.js";
 import { parseCheckoutPayBody } from "../lib/checkout-validation.js";
 import { createPendingOrder } from "../lib/orders.js";
+import { sendResendOrderConfirmation } from "../lib/resend-order-confirmation.js";
 import { createCardPayment } from "../lib/square.js";
 
 export default async function handler(req, res) {
@@ -43,6 +44,13 @@ export default async function handler(req, res) {
       buyerEmail: parsed.email,
       idempotencyKey: `saigoods-pay-${pending.id}`,
     });
+
+    void sendResendOrderConfirmation({
+      pending,
+      quote,
+      customerEmail: parsed.email,
+      customerName: parsed.name,
+    }).catch((err) => console.error("Resend order confirmation failed:", err));
 
     res.status(200).json({
       success: true,
