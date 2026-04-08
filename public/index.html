@@ -14,6 +14,26 @@
     <div class="site-frame">
       <header data-site-header></header>
 
+      <div class="announcement-bar" role="region" aria-label="Announcement" data-announcement-bar>
+        <div class="announcement-bar__marquee" aria-hidden="true">
+          <!-- No whitespace between spans: avoids stray flex gaps that break the seamless loop -->
+          <div class="announcement-bar__track">
+            <span class="announcement-bar__text">Live in Hardin County, TN? Give us a call for special local pricing at (901) 279-9888!</span><span class="announcement-bar__text">Live in Hardin County, TN? Give us a call for special local pricing at (901) 279-9888!</span><span class="announcement-bar__text">Live in Hardin County, TN? Give us a call for special local pricing at (901) 279-9888!</span><span class="announcement-bar__text">Live in Hardin County, TN? Give us a call for special local pricing at (901) 279-9888!</span><span class="announcement-bar__text">Live in Hardin County, TN? Give us a call for special local pricing at (901) 279-9888!</span><span class="announcement-bar__text">Live in Hardin County, TN? Give us a call for special local pricing at (901) 279-9888!</span>
+          </div>
+        </div>
+        <p class="announcement-bar__sr-only">
+          Live in Hardin County, TN? Give us a call for special local pricing at (901) 279-9888!
+        </p>
+        <button
+          type="button"
+          class="announcement-bar__close"
+          aria-label="Close announcement"
+          data-announcement-close
+        >
+          ×
+        </button>
+      </div>
+
       <main>
         <section id="hero" class="hero">
           <div class="shell hero__grid">

@@ -224,6 +224,114 @@ button {
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
+/* Full-width announcement bar (home) — below navbar; when stuck, leaves 3rem inset from viewport top */
+.announcement-bar {
+  position: sticky;
+  top: 0.75rem;
+  z-index: 21;
+  width: 100%;
+  max-width: 100vw;
+  overflow: hidden;
+  background: #FFF4CC;
+}
+
+.announcement-bar__marquee {
+  overflow: hidden;
+  padding: 0.8rem 2.1rem 0.7rem 0;
+}
+
+.announcement-bar__track {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  width: max-content;
+  white-space: nowrap;
+  /* N identical segments; move by exactly one segment width for a seamless loop */
+  animation: announcement-marquee 14s linear infinite;
+  will-change: transform;
+}
+
+.announcement-bar__text {
+  display: inline-block;
+  flex-shrink: 0;
+  padding-right: 0;
+  font-size: var(--fs-body);
+  font-weight: var(--font-weight-normal);
+  color: #333333;
+  line-height: 1.55;
+}
+
+/* Bullet between each repeated segment (included in segment width for seamless loop) */
+.announcement-bar__text::after {
+  content: "•";
+  display: inline-block;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  color: #333333;
+  font-weight: var(--font-weight-medium);
+}
+
+.announcement-bar__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.announcement-bar__close {
+  position: absolute;
+  top: 50%;
+  right: 2rem;
+  transform: translateY(-50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.2rem;
+  background: #ffffff90;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+@keyframes announcement-marquee {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    /* Must match the number of .announcement-bar__text segments in index.html (6) */
+    transform: translate3d(calc(-100% / 6), 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .announcement-bar__track {
+    animation: none;
+    justify-content: center;
+    width: 100%;
+    transform: none;
+    text-align: center;
+  }
+
+  .announcement-bar__text {
+    padding-right: 0;
+  }
+
+  .announcement-bar__track .announcement-bar__text:not(:first-child) {
+    display: none;
+  }
+}
+
 .navbar {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

@@ -21,7 +21,34 @@ function catalogCardPriceLabel(product) {
 
 document.addEventListener("DOMContentLoaded", init);
 
+/** Persists for this tab only: survives refresh, clears when the tab is closed. */
+const ANNOUNCEMENT_SESSION_KEY = "saigoods-announcement-dismissed";
+
+function initAnnouncementBar() {
+  const bar = document.querySelector("[data-announcement-bar]");
+  if (!bar) return;
+
+  try {
+    if (sessionStorage.getItem(ANNOUNCEMENT_SESSION_KEY) === "1") {
+      bar.hidden = true;
+    }
+  } catch {
+    // ignore (e.g. storage disabled)
+  }
+
+  const closeBtn = bar.querySelector("[data-announcement-close]");
+  closeBtn?.addEventListener("click", () => {
+    bar.hidden = true;
+    try {
+      sessionStorage.setItem(ANNOUNCEMENT_SESSION_KEY, "1");
+    } catch {
+      // ignore
+    }
+  });
+}
+
 async function init() {
+  initAnnouncementBar();
   store = await initSite({
     page: "home",
     searchValue: activeQuery,
