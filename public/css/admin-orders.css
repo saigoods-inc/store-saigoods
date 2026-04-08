@@ -235,6 +235,7 @@ body.admin-page {
 }
 
 .admin-status-actions {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -242,6 +243,43 @@ body.admin-page {
 
 .admin-status-confirm {
   white-space: nowrap;
+}
+
+.admin-status-warning {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 3;
+  width: 220px;
+  padding: 0.5rem;
+  background: #fff;
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.12);
+}
+
+.admin-status-warning__text {
+  margin: 0 0 0.45rem;
+  font-size: 12px;
+  color: var(--admin-text);
+}
+
+.admin-status-warning__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.admin-status-warning__continue {
+  width: auto;
+}
+
+.admin-order-row--shipped td {
+  background: #ecfdf3;
+}
+
+.admin-order-row--cancelled td {
+  background: #fff4e8;
 }
 
 .admin-badge {

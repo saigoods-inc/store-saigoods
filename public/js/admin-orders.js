@@ -10,6 +10,7 @@ const FULFILLMENT_OPTIONS = [
 
 let supabase = null;
 let ordersCache = [];
+const statusLockByOrderId = new Map();
 
 /** slug:bundleId -> label (from /api/products). */
 const bundleLabelBySlugId = new Map();
@@ -225,6 +226,26 @@ function showApp() {
   document.getElementById("admin-app").hidden = false;
 }
 
+function applyRowStatusTheme(tr, statusValue, locked) {
+  if (!tr) return;
+  tr.classList.toggle("admin-order-row--shipped", locked && statusValue === "shipped");
+  tr.classList.toggle("admin-order-row--cancelled", locked && statusValue === "cancelled");
+}
+
+function setStatusRowLocked(tr, locked) {
+  if (!tr) return;
+  const sel = tr.querySelector("[data-order-status-select]");
+  const btn = tr.querySelector("[data-order-status-confirm]");
+  const popup = tr.querySelector("[data-order-edit-warning]");
+  if (!sel || !btn) return;
+
+  sel.disabled = locked;
+  btn.textContent = locked ? "Edit" : "Update";
+  btn.dataset.mode = locked ? "edit" : "update";
+  if (popup) popup.hidden = true;
+  applyRowStatusTheme(tr, sel.value, locked);
+}
+
 function bindOrdersTableEvents() {
   const table = document.getElementById("orders-table");
   if (!table || table.dataset.delegationBound === "1") {
@@ -251,6 +272,13 @@ function bindOrdersTableEvents() {
 
       const sel = tr.querySelector("[data-order-status-select]");
       if (!sel) return;
+      const mode = confirmBtn.dataset.mode || "update";
+
+      if (mode === "edit") {
+        const popup = tr.querySelector("[data-order-edit-warning]");
+        if (popup) popup.hidden = false;
+        return;
+      }
 
       void (async () => {
         const next = sel.value;
@@ -272,7 +300,27 @@ function bindOrdersTableEvents() {
         const row = ordersCache.find((r) => String(r.id) === String(orderId));
         if (row) row.order_status = next;
         sel.dataset.prevValue = next;
+        statusLockByOrderId.set(String(orderId), true);
+        setStatusRowLocked(tr, true);
       })();
+    }
+
+    const cancelEditBtn = e.target.closest("[data-order-edit-cancel]");
+    if (cancelEditBtn) {
+      e.preventDefault();
+      const popup = cancelEditBtn.closest("[data-order-edit-warning]");
+      if (popup) popup.hidden = true;
+      return;
+    }
+
+    const continueEditBtn = e.target.closest("[data-order-edit-continue]");
+    if (continueEditBtn) {
+      e.preventDefault();
+      const tr = continueEditBtn.closest("tr");
+      const orderId = tr?.dataset.orderId;
+      if (!tr || !orderId) return;
+      statusLockByOrderId.set(String(orderId), false);
+      setStatusRowLocked(tr, false);
     }
   });
 }
@@ -387,6 +435,7 @@ async function loadOrders() {
   }
 
   ordersCache = Array.isArray(data) ? data : [];
+  statusLockByOrderId.clear();
   renderTable();
 }
 
@@ -433,10 +482,18 @@ function renderTable() {
         ? `<span class="admin-muted">Awaiting payment</span><p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;">Payment must complete before fulfillment status can be set.</p>`
         : `<div class="admin-status-actions"><select class="admin-status-select" data-order-status-select aria-label="Fulfillment status" data-prev-value="${escapeHtml(
             currentFulfillmentSelectValue(row),
-          )}">${selectHtml}</select><button type="button" class="admin-btn admin-btn--small admin-status-confirm" data-order-status-confirm>Update</button></div>`;
+          )}">${selectHtml}</select><button type="button" class="admin-btn admin-btn--small admin-status-confirm" data-order-status-confirm data-mode="update">Update</button><div class="admin-status-warning" data-order-edit-warning hidden><p class="admin-status-warning__text">Unlock this row to edit status?</p><div class="admin-status-warning__actions"><button type="button" class="admin-btn admin-btn--small" data-order-edit-cancel>Cancel</button><button type="button" class="admin-btn admin-btn--small admin-btn--primary admin-status-warning__continue" data-order-edit-continue>Continue</button></div></div></div>`;
+
+      const locked = statusLockByOrderId.get(String(id)) === true;
+      const rowClasses = [
+        locked && os === "shipped" ? "admin-order-row--shipped" : "",
+        locked && os === "cancelled" ? "admin-order-row--cancelled" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
 
       return `
-        <tr data-order-id="${escapeHtml(String(id))}">
+        <tr data-order-id="${escapeHtml(String(id))}" class="${rowClasses}">
           <td>
             <div class="admin-order-ref">${escapeHtml(orderRef)}</div>
             <div class="admin-order-id">${escapeHtml(String(id))}</div>
@@ -458,6 +515,12 @@ function renderTable() {
     sel.addEventListener("focus", () => {
       sel.dataset.prevValue = sel.value;
     });
+  });
+
+  tbody.querySelectorAll("tr[data-order-id]").forEach((tr) => {
+    const id = tr.dataset.orderId;
+    const locked = statusLockByOrderId.get(String(id)) === true;
+    setStatusRowLocked(tr, locked);
   });
 }
 
