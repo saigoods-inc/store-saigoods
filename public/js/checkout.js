@@ -182,8 +182,9 @@ function renderCheckoutShell(miniQuote, options = {}) {
         <div class="checkout-discount-block">
           <h2 class="checkout-section-title">Discount code <span class="checkout-optional">(optional)</span></h2>
           <p id="checkout-discount-warning" class="checkout-discount-warning">
-            The discount only applies to orders shipped to an eligible address.
+            This discount only applies to orders shipped to an eligible address.
           </p>
+          <p id="checkout-discount-error" class="checkout-discount-error" role="alert" hidden></p>
           <label class="checkout-field checkout-field--full">
             <span>Code</span>
             <input
@@ -192,8 +193,7 @@ function renderCheckoutShell(miniQuote, options = {}) {
               autocomplete="off"
               autocapitalize="characters"
               spellcheck="false"
-              placeholder="e.g. HC-7F3K2"
-              aria-describedby="checkout-discount-warning"
+              aria-describedby="checkout-discount-warning checkout-discount-error"
             />
           </label>
           <button type="button" class="button button--secondary button--full checkout-confirm-address" id="checkout-update-totals">
@@ -305,7 +305,13 @@ function isValidEmail(email) {
 }
 
 function clearCheckoutInputErrors() {
-  const selectors = ['[name="line1"]', '[name="city"]', '[name="state"]', '[name="postalCode"]'];
+  const selectors = [
+    '[name="line1"]',
+    '[name="city"]',
+    '[name="state"]',
+    '[name="postalCode"]',
+    '[name="discountCode"]',
+  ];
   for (const sel of selectors) {
     const input = root.querySelector(sel);
     if (input?.classList?.contains("checkout-input--error")) {
@@ -321,6 +327,37 @@ function clearShippingSectionError() {
   }
   el.hidden = true;
   el.textContent = "";
+}
+
+function clearDiscountSectionError() {
+  const el = document.getElementById("checkout-discount-error");
+  if (!el) {
+    return;
+  }
+  el.hidden = true;
+  el.textContent = "";
+}
+
+/** API messages about discount codes / eligibility — show under the discount block, not shipping. */
+function isDiscountFlowError(message) {
+  return /discount/i.test(String(message || ""));
+}
+
+function showDiscountSectionError(message) {
+  const el = document.getElementById("checkout-discount-error");
+  if (!el) {
+    return;
+  }
+  const staticLine =
+    "This discount only applies to orders shipped to an eligible address.";
+  const m = String(message || "").trim();
+  if (m === staticLine) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  el.textContent = m;
+  el.hidden = false;
 }
 
 function showShippingSectionError(message) {
@@ -341,6 +378,10 @@ function setAddressFieldsError(on) {
     }
     input.classList.toggle("checkout-input--error", on);
   }
+}
+
+function setDiscountInputError(on) {
+  root.querySelector('[name="discountCode"]')?.classList.toggle("checkout-input--error", on);
 }
 
 /**
@@ -389,6 +430,7 @@ async function runEstimate(options = {}) {
 
   clearCheckoutInputErrors();
   clearShippingSectionError();
+  clearDiscountSectionError();
 
   if (validateContact && !applyContactValidationErrors()) {
     return;
@@ -451,9 +493,22 @@ async function runEstimate(options = {}) {
         warningsEl.innerHTML = "";
       }
     }
+
+    clearDiscountSectionError();
   } catch (e) {
-    setAddressFieldsError(true);
-    showShippingSectionError(e.message || "Could not verify shipping address.");
+    const msg = e.message || "Could not verify shipping address.";
+    const discountErr = isDiscountFlowError(msg);
+    if (discountErr) {
+      showDiscountSectionError(msg);
+      if (msg.includes("eligible address")) {
+        setAddressFieldsError(true);
+      } else {
+        setDiscountInputError(true);
+      }
+    } else {
+      setAddressFieldsError(true);
+      showShippingSectionError(msg);
+    }
     sumShip.textContent = "—";
     sumTax.textContent = "—";
     sumTotal.textContent = "—";
@@ -636,6 +691,9 @@ async function initSquareCard(applicationId, locationId) {
 function wireCheckoutFieldClearErrors() {
   root.addEventListener("input", (e) => {
     const t = e.target;
+    if (t?.name === "discountCode") {
+      clearDiscountSectionError();
+    }
     if (!t?.classList?.contains("checkout-input--error")) {
       return;
     }
@@ -668,6 +726,7 @@ function wireEvents() {
 
     clearCheckoutInputErrors();
     clearShippingSectionError();
+    clearDiscountSectionError();
 
     if (!applyContactValidationErrors()) {
       return;

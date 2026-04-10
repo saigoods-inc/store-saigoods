@@ -1649,6 +1649,17 @@ button {
   color: #b42318;
 }
 
+.checkout-discount-error {
+  margin: 0 0 0.65rem;
+  font-size: var(--fs-small);
+  line-height: var(--leading-normal);
+  color: #b42318;
+}
+
+.checkout-discount-error[hidden] {
+  display: none;
+}
+
 .checkout-discount-block .checkout-confirm-address {
   margin-top: 0.75rem;
 }
