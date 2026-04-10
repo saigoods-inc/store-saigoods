@@ -47,13 +47,14 @@ function escapeHtml(s) {
 }
 
 /**
- * @param {"orders" | "tax" | "nexus" | "discounts"} activeId
+ * @param {"orders" | "tax" | "nexus" | "discounts" | "manual-order"} activeId
  */
 export function renderAdminNav(activeId) {
   const el = document.getElementById("admin-nav");
   if (!el) return;
   const links = [
     ["orders", "/admin/orders.html", "Orders"],
+    ["manual-order", "/admin/manual-order.html", "Manual order"],
     ["discounts", "/admin/discount-codes.html", "Discount codes"],
     ["tax", "/admin/tax.html", "Sales tax (TN)"],
     ["nexus", "/admin/nexus.html", "Nexus by state"],
@@ -83,6 +84,29 @@ export async function fetchReportJson(path, accessToken) {
     headers.Authorization = `Bearer ${accessToken}`;
   }
   const res = await fetch(path, { headers });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || res.statusText || "Request failed.");
+  }
+  return data;
+}
+
+/**
+ * Authenticated POST for staff APIs (manual order, etc.).
+ * @param {string} path
+ * @param {string} [accessToken] Supabase session access JWT
+ * @param {object} body JSON body
+ */
+export async function fetchReportPost(path, accessToken, body) {
+  const headers = { "Content-Type": "application/json" };
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+  const res = await fetch(path, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body ?? {}),
+  });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(data.error || res.statusText || "Request failed.");

@@ -24,7 +24,7 @@ export default async function handler(req, res) {
     const { data, error } = await client
       .from("discount_codes")
       .select("code,is_used,used_at,used_by_order_id,created_at")
-      .order("code", { ascending: true });
+      .order("created_at", { ascending: false });
 
     if (error) {
       throw error;

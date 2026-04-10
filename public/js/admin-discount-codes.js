@@ -9,6 +9,8 @@ import {
 } from "./admin-shared.js";
 
 let supabase = null;
+/** @type {Array<{code:string,is_used:boolean,used_at?:string,used_by_order_id?:string,created_at?:string}>} */
+let codesCache = [];
 
 function showLogin() {
   document.getElementById("admin-login").hidden = false;
@@ -26,6 +28,81 @@ function escapeHtml(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function getFilterState() {
+  return {
+    status: document.getElementById("filter-code-status")?.value || "all",
+    search: (document.getElementById("filter-code-search")?.value || "").trim().toUpperCase(),
+    sort: document.getElementById("filter-code-sort")?.value || "newest",
+  };
+}
+
+function applyFiltersAndSort(rows) {
+  const { status, search, sort } = getFilterState();
+  let out = [...rows];
+
+  if (status === "unused") {
+    out = out.filter((r) => !r.is_used);
+  } else if (status === "used") {
+    out = out.filter((r) => r.is_used);
+  }
+
+  if (search) {
+    out = out.filter((r) => String(r.code || "").toUpperCase().includes(search));
+  }
+
+  out.sort((a, b) => {
+    const ca = String(a.code || "");
+    const cb = String(b.code || "");
+    const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+    switch (sort) {
+      case "oldest":
+        return ta - tb;
+      case "code_az":
+        return ca.localeCompare(cb);
+      case "code_za":
+        return cb.localeCompare(ca);
+      case "newest":
+      default:
+        return tb - ta;
+    }
+  });
+
+  return out;
+}
+
+function renderCodesTable() {
+  const tbody = document.getElementById("codes-tbody");
+  const rows = applyFiltersAndSort(codesCache);
+
+  if (!codesCache.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="admin-muted">No codes found. Run sql/discount_codes.sql in Supabase.</td></tr>`;
+    return;
+  }
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="admin-muted">No codes match your filters.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows
+    .map((r) => {
+      const used = Boolean(r.is_used);
+      const statusBadge = used
+        ? `<span class="admin-badge admin-badge--paid">Used</span>`
+        : `<span class="admin-badge admin-badge--awaiting_payment">Unused</span>`;
+      const at = r.used_at ? escapeHtml(new Date(r.used_at).toLocaleString()) : "—";
+      const oid = r.used_by_order_id ? escapeHtml(String(r.used_by_order_id)) : "—";
+      return `<tr>
+            <td><code>${escapeHtml(r.code)}</code></td>
+            <td>${statusBadge}</td>
+            <td>${at}</td>
+            <td>${oid}</td>
+          </tr>`;
+    })
+    .join("");
 }
 
 async function loadCodes() {
@@ -48,47 +125,14 @@ async function loadCodes() {
 
   try {
     const data = await fetchReportJson("/api/admin-discount-codes", session.access_token);
-    const rows = Array.isArray(data.codes) ? data.codes : [];
-
-    if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="4" class="admin-muted">No codes found. Run sql/discount_codes.sql in Supabase.</td></tr>`;
-    } else {
-      tbody.innerHTML = rows
-        .map((r) => {
-          const used = Boolean(r.is_used);
-          const status = used
-            ? `<span class="admin-badge admin-badge--paid">Used</span>`
-            : `<span class="admin-badge admin-badge--awaiting_payment">Unused</span>`;
-          const at = r.used_at ? escapeHtml(new Date(r.used_at).toLocaleString()) : "—";
-          const oid = r.used_by_order_id ? escapeHtml(String(r.used_by_order_id)) : "—";
-          return `<tr>
-            <td><code>${escapeHtml(r.code)}</code></td>
-            <td>${status}</td>
-            <td>${at}</td>
-            <td>${oid}</td>
-          </tr>`;
-        })
-        .join("");
-    }
-
-    window.__discountCodesCache = rows;
+    codesCache = Array.isArray(data.codes) ? data.codes : [];
+    renderCodesTable();
   } catch (e) {
     errEl.textContent = e.message || "Could not load discount codes.";
     errEl.hidden = false;
   }
 
   loading.hidden = true;
-}
-
-function copyText(text) {
-  void navigator.clipboard?.writeText(text).catch(() => {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    ta.remove();
-  });
 }
 
 async function init() {
@@ -165,35 +209,9 @@ async function init() {
 
   document.getElementById("admin-refresh")?.addEventListener("click", () => loadCodes());
 
-  document.getElementById("admin-copy-unused")?.addEventListener("click", () => {
-    const rows = window.__discountCodesCache || [];
-    const lines = rows.filter((r) => !r.is_used).map((r) => r.code);
-    if (!lines.length) {
-      alert("No unused codes.");
-      return;
-    }
-    copyText(lines.join("\n"));
-  });
-
-  document.getElementById("admin-copy-all")?.addEventListener("click", () => {
-    const rows = window.__discountCodesCache || [];
-    if (!rows.length) {
-      alert("No codes loaded.");
-      return;
-    }
-    const header = "code,is_used,used_at,used_by_order_id";
-    const body = rows
-      .map((r) =>
-        [
-          r.code,
-          r.is_used ? "1" : "0",
-          r.used_at || "",
-          r.used_by_order_id || "",
-        ].join(","),
-      )
-      .join("\n");
-    copyText(`${header}\n${body}`);
-  });
+  document.getElementById("filter-code-status")?.addEventListener("change", () => renderCodesTable());
+  document.getElementById("filter-code-search")?.addEventListener("input", () => renderCodesTable());
+  document.getElementById("filter-code-sort")?.addEventListener("change", () => renderCodesTable());
 }
 
 init();

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Manual order — SAI Goods (staff)</title>
+    <link rel="stylesheet" href="/css/admin-orders.css" />
+  </head>
+  <body class="admin-page">
+    <div id="admin-login" class="admin-login" hidden>
+      <div class="admin-login__box">
+        <h1>Staff login</h1>
+        <p class="admin-muted">Sign in to create phone orders and send Square payment links.</p>
+        <form id="login-form">
+          <label>
+            Email
+            <input type="email" name="email" autocomplete="username" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" autocomplete="current-password" required />
+          </label>
+          <p id="login-error" class="admin-error" role="alert" hidden></p>
+          <button type="submit" class="admin-btn admin-btn--primary">Sign in</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="admin-app" class="admin-app" hidden>
+      <header class="admin-header">
+        <div>
+          <h1>Manual order</h1>
+          <p class="admin-muted">
+            Same pricing, tax, and discount rules as website checkout. Save a draft, then email the customer a Square payment link.
+          </p>
+        </div>
+        <div class="admin-header__actions">
+          <span id="admin-user-email" class="admin-muted"></span>
+          <button type="button" id="admin-logout" class="admin-btn">Sign out</button>
+        </div>
+      </header>
+
+      <div id="admin-nav"></div>
+
+      <p id="admin-load-error" class="admin-error" role="alert" hidden></p>
+
+      <form id="manual-order-form" class="manual-order-form">
+        <section class="manual-order-section">
+          <h2>Customer</h2>
+          <div class="manual-order-grid">
+            <label>
+              Full name
+              <input type="text" name="cust_name" required autocomplete="name" />
+            </label>
+            <label>
+              Email
+              <input type="email" name="cust_email" required autocomplete="email" />
+            </label>
+            <label>
+              Phone
+              <input type="tel" name="cust_phone" required autocomplete="tel" />
+            </label>
+          </div>
+        </section>
+
+        <section class="manual-order-section">
+          <h2>Shipping address</h2>
+          <div class="manual-order-grid">
+            <label class="manual-order-full">
+              Street address
+              <input type="text" name="addr_line1" required autocomplete="address-line1" />
+            </label>
+            <label class="manual-order-full">
+              Apt, suite (optional)
+              <input type="text" name="addr_line2" autocomplete="address-line2" />
+            </label>
+            <label>
+              City
+              <input type="text" name="addr_city" required autocomplete="address-level2" />
+            </label>
+            <label>
+              State
+              <select name="addr_state" id="addr_state" required></select>
+            </label>
+            <label>
+              ZIP
+              <input type="text" name="addr_zip" required inputmode="numeric" autocomplete="postal-code" />
+            </label>
+          </div>
+        </section>
+
+        <section class="manual-order-section">
+          <h2>Line items (cases per size)</h2>
+          <p class="admin-muted" style="margin: 0 0 0.75rem">Enter case quantities. Leave blank or 0 for none.</p>
+          <div id="manual-products"></div>
+        </section>
+
+        <section class="manual-order-section">
+          <h2>Discount (optional)</h2>
+          <label>
+            Hardin promo code
+            <input type="text" name="discount_code" autocomplete="off" autocapitalize="characters" placeholder="HC-XXXXX" />
+          </label>
+        </section>
+
+        <div class="manual-order-actions">
+          <button type="button" class="admin-btn" id="btn-estimate">Calculate totals</button>
+          <button type="button" class="admin-btn admin-btn--primary" id="btn-save-draft">Save draft order</button>
+          <button type="button" class="admin-btn admin-btn--primary" id="btn-send-link" disabled>Send payment link email</button>
+        </div>
+
+        <div id="manual-preview" class="manual-order-preview" hidden>
+          <h3>Quote preview</h3>
+          <pre id="manual-preview-body"></pre>
+        </div>
+
+        <div id="manual-result" class="manual-order-result" hidden>
+          <h3>Order saved</h3>
+          <p id="manual-result-text"></p>
+        </div>
+      </form>
+    </div>
+
+    <script type="module" src="/js/admin-manual-order.js"></script>
+  </body>
+</html>

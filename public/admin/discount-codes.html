@@ -40,10 +40,29 @@
 
       <div id="admin-nav"></div>
 
-      <div class="admin-toolbar">
+      <div class="admin-toolbar admin-toolbar--wrap">
         <button type="button" id="admin-refresh" class="admin-btn">Refresh</button>
-        <button type="button" id="admin-copy-unused" class="admin-btn">Copy unused codes</button>
-        <button type="button" id="admin-copy-all" class="admin-btn">Copy all codes (CSV)</button>
+        <label class="admin-filter">
+          <span>Status</span>
+          <select id="filter-code-status">
+            <option value="all">All</option>
+            <option value="unused">Unused</option>
+            <option value="used">Used</option>
+          </select>
+        </label>
+        <label class="admin-filter admin-filter--grow">
+          <span>Search code</span>
+          <input type="search" id="filter-code-search" placeholder="Contains…" autocomplete="off" />
+        </label>
+        <label class="admin-filter">
+          <span>Sort</span>
+          <select id="filter-code-sort">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="code_az">Code A–Z</option>
+            <option value="code_za">Code Z–A</option>
+          </select>
+        </label>
       </div>
 
       <p id="admin-load-error" class="admin-error" role="alert" hidden></p>

@@ -1,3 +1,4 @@
+import { assertReportsAuthorized } from "../lib/reports-auth.js";
 import { computeCheckoutEstimate } from "../lib/checkout-estimate-logic.js";
 
 export default async function handler(req, res) {
@@ -7,7 +8,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    const json = await computeCheckoutEstimate(req.body || {});
+    await assertReportsAuthorized(req);
+    const json = await computeCheckoutEstimate(req.body || {}, { requireCompleteAddress: true });
     res.status(200).json(json);
   } catch (error) {
     console.error(error);

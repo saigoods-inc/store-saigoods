@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
 import {
   clearAdminSessionUser,
+  fetchReportPost,
   fetchSupabasePublicConfig,
   primeAdminSessionUser,
   renderAdminNav,
@@ -55,10 +56,35 @@ function isPaymentAwaiting(row) {
  */
 function normalizeFulfillment(row) {
   const os = row.order_status;
+  if (os === "draft" || os === "payment_link_sent") {
+    return os;
+  }
   if (os === "paid") return "ready_to_ship";
   if (FULFILLMENT_OPTIONS.some(([v]) => v === os)) return os;
   if (os === "awaiting_payment") return "awaiting_payment";
   return "awaiting_payment";
+}
+
+function paymentBadgeKey(row) {
+  if (String(row.status || "").toLowerCase() === "paid") {
+    return "paid";
+  }
+  if (row.order_status === "payment_link_sent" || (row.order_source === "manual" && row.order_status === "draft")) {
+    return "awaiting_payment";
+  }
+  return "awaiting_payment";
+}
+
+function formatPaymentColumnLabel(row) {
+  if (String(row.order_source) === "manual") {
+    if (row.order_status === "draft") {
+      return "Draft";
+    }
+    if (row.order_status === "payment_link_sent") {
+      return "Payment link sent";
+    }
+  }
+  return formatPaymentStatus(row.status);
 }
 
 function fulfillmentLabel(value) {
@@ -269,6 +295,37 @@ function bindOrdersTableEvents() {
       return;
     }
 
+    const sendLinkBtn = e.target.closest("[data-send-pay-link]");
+    if (sendLinkBtn) {
+      e.preventDefault();
+      const orderId = sendLinkBtn.getAttribute("data-send-pay-link");
+      if (!orderId || !supabase) {
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        sendLinkBtn.disabled = true;
+        try {
+          const result = await fetchReportPost("/api/admin-manual-order-send-link", session.access_token, {
+            orderId,
+          });
+          alert(result.warning || (result.emailed ? "Payment link emailed to the customer." : "Done."));
+          await loadOrders();
+        } catch (err) {
+          alert(err.message || "Failed to send payment link.");
+        } finally {
+          sendLinkBtn.disabled = false;
+        }
+      })();
+      return;
+    }
+
     const confirmBtn = e.target.closest("[data-order-status-confirm]");
     if (confirmBtn) {
       e.preventDefault();
@@ -458,6 +515,12 @@ function getFilteredOrders() {
   const filter = document.getElementById("filter-status")?.value || "";
   if (!filter) return ordersCache;
   return ordersCache.filter((r) => {
+    if (filter === "manual_draft") {
+      return String(r.order_source) === "manual" && r.order_status === "draft";
+    }
+    if (filter === "payment_link_sent") {
+      return r.order_status === "payment_link_sent";
+    }
     if (filter === "awaiting_payment") {
       return isPaymentAwaiting(r);
     }
@@ -493,11 +556,20 @@ function renderTable() {
           `<option value="${escapeHtml(value)}" ${value === currentFulfillmentSelectValue(row) ? "selected" : ""}>${escapeHtml(label)}</option>`,
       ).join("");
 
-      const statusCell = awaiting
-        ? `<span class="admin-muted">Awaiting payment</span><p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;">Payment must complete before fulfillment status can be set.</p>`
-        : `<div class="admin-status-actions"><select class="admin-status-select" data-order-status-select aria-label="Fulfillment status" data-prev-value="${escapeHtml(
-            currentFulfillmentSelectValue(row),
-          )}">${selectHtml}</select><button type="button" class="admin-btn admin-btn--small admin-status-confirm" data-order-status-confirm data-mode="update">Update</button><div class="admin-status-warning" data-order-edit-warning hidden><p class="admin-status-warning__text">Unlock this row to edit status?</p><div class="admin-status-warning__actions"><button type="button" class="admin-btn admin-btn--small" data-order-edit-cancel>Cancel</button><button type="button" class="admin-btn admin-btn--small admin-btn--primary admin-status-warning__continue" data-order-edit-continue>Continue</button></div></div></div>`;
+      const osRaw = String(row.order_status || "");
+      const manualPrePay =
+        String(row.order_source) === "manual" && (osRaw === "draft" || osRaw === "payment_link_sent");
+
+      const statusCell = manualPrePay
+        ? `<div>
+            <p class="admin-muted" style="margin:0">${osRaw === "draft" ? "Draft" : "Payment link sent"}</p>
+            <button type="button" class="admin-btn admin-btn--small" data-send-pay-link="${escapeHtml(String(id))}" style="margin-top:0.4rem">Email payment link</button>
+          </div>`
+        : awaiting
+          ? `<span class="admin-muted">Awaiting payment</span><p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;">Payment must complete before fulfillment status can be set.</p>`
+          : `<div class="admin-status-actions"><select class="admin-status-select" data-order-status-select aria-label="Fulfillment status" data-prev-value="${escapeHtml(
+              currentFulfillmentSelectValue(row),
+            )}">${selectHtml}</select><button type="button" class="admin-btn admin-btn--small admin-status-confirm" data-order-status-confirm data-mode="update">Update</button><div class="admin-status-warning" data-order-edit-warning hidden><p class="admin-status-warning__text">Unlock this row to edit status?</p><div class="admin-status-warning__actions"><button type="button" class="admin-btn admin-btn--small" data-order-edit-cancel>Cancel</button><button type="button" class="admin-btn admin-btn--small admin-btn--primary admin-status-warning__continue" data-order-edit-continue>Continue</button></div></div></div>`;
 
       const locked = statusLockByOrderId.get(String(id)) === true;
       const rowClasses = [
@@ -516,15 +588,21 @@ function renderTable() {
             }</div>`
           : "";
 
+      const manualTag =
+        String(row.order_source) === "manual"
+          ? `<div class="admin-order-tag admin-order-tag--manual" title="Created from staff dashboard">Phone / manual</div>`
+          : "";
+
       return `
         <tr data-order-id="${escapeHtml(String(id))}" class="${rowClasses}">
           <td>
             <div class="admin-order-ref">${escapeHtml(orderRef)}</div>
             <div class="admin-order-id">${escapeHtml(String(id))}</div>
+            ${manualTag}
             ${hardinTag}
           </td>
           <td>${escapeHtml(row.customer_name || "—")}<br /><span class="admin-muted">${escapeHtml(row.customer_email || "")}</span></td>
-          <td><span class="${badgeClass(row.status === "paid" ? "paid" : "awaiting_payment")}">${escapeHtml(formatPaymentStatus(row.status))}</span></td>
+          <td><span class="${badgeClass(paymentBadgeKey(row))}">${escapeHtml(formatPaymentColumnLabel(row))}</span></td>
           <td>${statusCell}</td>
           <td>${itemsCell}</td>
           <td>${escapeHtml(formatDate(row.created_at))}</td>
@@ -560,12 +638,25 @@ function openModal(row) {
   body.innerHTML = `
     <h2>${escapeHtml(row.order_ref || "Order")}</h2>
     <div class="admin-modal__section">
-      <h3>Fulfillment</h3>
-      <p><span class="${badgeClass(isPaymentAwaiting(row) ? "awaiting_payment" : currentFulfillmentSelectValue(row))}">${escapeHtml(isPaymentAwaiting(row) ? "Awaiting payment" : fulfillmentLabel(currentFulfillmentSelectValue(row)))}</span></p>
+      <h3>Fulfillment / workflow</h3>
+      <p><span class="${badgeClass(isPaymentAwaiting(row) ? "awaiting_payment" : currentFulfillmentSelectValue(row))}">${escapeHtml(
+        row.order_status === "draft"
+          ? "Draft"
+          : row.order_status === "payment_link_sent"
+            ? "Payment link sent"
+            : isPaymentAwaiting(row)
+              ? "Awaiting payment"
+              : fulfillmentLabel(currentFulfillmentSelectValue(row)),
+      )}</span></p>
     </div>
     <div class="admin-modal__section">
       <h3>Payment</h3>
-      <p>${escapeHtml(formatPaymentStatus(row.status))} · ID: ${escapeHtml(row.payment_id || "—")}</p>
+      <p>${escapeHtml(formatPaymentColumnLabel(row))} · ID: ${escapeHtml(row.payment_id || "—")}</p>
+      ${
+        row.payment_link_url
+          ? `<p class="admin-muted" style="margin-top:0.5rem;word-break:break-all">Payment link: ${escapeHtml(String(row.payment_link_url))}</p>`
+          : ""
+      }
     </div>
     ${
       row.is_hardin_discount === true

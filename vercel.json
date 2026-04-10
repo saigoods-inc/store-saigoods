@@ -5,7 +5,8 @@
     { "source": "/admin/orders", "destination": "/admin/orders.html" },
     { "source": "/admin/tax", "destination": "/admin/tax.html" },
     { "source": "/admin/nexus", "destination": "/admin/nexus.html" },
-    { "source": "/admin/discount-codes", "destination": "/admin/discount-codes.html" }
+    { "source": "/admin/discount-codes", "destination": "/admin/discount-codes.html" },
+    { "source": "/admin/manual-order", "destination": "/admin/manual-order.html" }
   ],
   "functions": {
     "api/**/*.js": {

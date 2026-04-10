@@ -9,6 +9,9 @@ import { buildQuote } from "./lib/quote.js";
 import { assertReportsAuthorized } from "./lib/reports-auth.js";
 import { resolveShippingZip } from "./lib/shipping.js";
 import adminDiscountCodesHandler from "./api/admin-discount-codes.js";
+import adminManualOrderCreateHandler from "./api/admin-manual-order-create.js";
+import adminManualOrderEstimateHandler from "./api/admin-manual-order-estimate.js";
+import adminManualOrderSendLinkHandler from "./api/admin-manual-order-send-link.js";
 import checkoutEstimateHandler from "./api/checkout-estimate.js";
 import checkoutPayHandler from "./api/checkout-pay.js";
 
@@ -164,6 +167,33 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === "/api/admin-manual-order-estimate" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminManualOrderEstimateHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-manual-order-create" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminManualOrderCreateHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-manual-order-send-link" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminManualOrderSendLinkHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
     if (pathname === "/api/checkout" && req.method === "POST") {
       const body = await readJsonBody(req);
       const shippingZip = resolveShippingZip(body.customer);
@@ -222,6 +252,14 @@ const server = createServer(async (req, res) => {
       pathname === "/admin/discount-codes.html"
     ) {
       return serveFile(res, path.join(publicDir, "admin", "discount-codes.html"), req.method);
+    }
+
+    if (
+      pathname === "/admin/manual-order" ||
+      pathname === "/admin/manual-order/" ||
+      pathname === "/admin/manual-order.html"
+    ) {
+      return serveFile(res, path.join(publicDir, "admin", "manual-order.html"), req.method);
     }
 
     if (pathname === "/" || pathname === "/index.html") {

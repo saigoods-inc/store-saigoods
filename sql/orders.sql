@@ -7,11 +7,24 @@ create table if not exists public.orders (
   order_ref text not null unique,
   status text not null default 'pending',
   order_status text not null default 'awaiting_payment'
-    check (order_status in ('awaiting_payment', 'paid', 'ready_to_ship', 'shipped', 'cancelled')),
+    check (
+      order_status in (
+        'draft',
+        'payment_link_sent',
+        'awaiting_payment',
+        'paid',
+        'ready_to_ship',
+        'shipped',
+        'cancelled'
+      )
+    ),
+  order_source text not null default 'web',
   customer_name text,
   customer_email text,
   customer_phone text,
   customer_address text,
+  shipping_address jsonb,
+  payment_link_url text,
   items jsonb not null default '[]'::jsonb,
   subtotal_cents integer not null default 0,
   shipping_cents integer not null default 0,
