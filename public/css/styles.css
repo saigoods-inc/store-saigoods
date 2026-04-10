@@ -1633,11 +1633,24 @@ button {
   margin-top: 0;
 }
 
-.checkout-discount-hint {
+.checkout-discount-block {
+  margin: 1.25rem 0 0;
+  padding-top: 0.25rem;
+}
+
+.checkout-discount-block .checkout-section-title {
+  margin-top: 0;
+}
+
+.checkout-discount-warning {
   margin: 0 0 0.65rem;
-  font-size: var(--fs-body-secondary);
-  color: var(--muted);
-  line-height: var(--leading-snug);
+  font-size: var(--fs-small);
+  line-height: var(--leading-normal);
+  color: #b42318;
+}
+
+.checkout-discount-block .checkout-confirm-address {
+  margin-top: 0.75rem;
 }
 
 .checkout-field-grid {

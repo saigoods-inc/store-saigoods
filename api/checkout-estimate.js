@@ -27,7 +27,7 @@ export default async function handler(req, res) {
     const normalizedCode = discountRaw ? normalizeDiscountCode(discountRaw) : null;
     if (discountRaw && !normalizedCode) {
       res.status(400).json({
-        error: "Enter a valid Hardin County discount code (format HC-XXXXX, letters and numbers only).",
+        error: "Enter a valid discount code (format HC-XXXXX, letters and numbers only).",
       });
       return;
     }
@@ -50,8 +50,7 @@ export default async function handler(req, res) {
 
       if (!isHardinCountyTnDelivery(parsed.address)) {
         res.status(400).json({
-          error:
-            "The Hardin County discount only applies to orders shipped to an address in Hardin County, Tennessee.",
+          error: "This discount only applies to orders shipped to an eligible address.",
         });
         return;
       }

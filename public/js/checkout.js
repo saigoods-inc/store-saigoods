@@ -179,25 +179,27 @@ function renderCheckoutShell(miniQuote, options = {}) {
           </label>
         </div>
 
-        <button type="button" class="button button--secondary" id="checkout-update-totals">
-          Update shipping &amp; tax
-        </button>
-
-        <h2 class="checkout-section-title">Hardin County discount <span class="checkout-optional">(optional)</span></h2>
-        <p class="checkout-discount-hint">
-          Eligible Hardin County, TN deliveries: enter your one-time code (format <strong>HC-XXXXX</strong>). Pricing is validated on our servers when you update totals and when you pay.
-        </p>
-        <label class="checkout-field checkout-field--full">
-          <span>Discount code</span>
-          <input
-            type="text"
-            name="discountCode"
-            autocomplete="off"
-            autocapitalize="characters"
-            spellcheck="false"
-            placeholder="e.g. HC-7F3K2"
-          />
-        </label>
+        <div class="checkout-discount-block">
+          <h2 class="checkout-section-title">Discount code <span class="checkout-optional">(optional)</span></h2>
+          <p id="checkout-discount-warning" class="checkout-discount-warning">
+            The discount only applies to orders shipped to an eligible address.
+          </p>
+          <label class="checkout-field checkout-field--full">
+            <span>Code</span>
+            <input
+              type="text"
+              name="discountCode"
+              autocomplete="off"
+              autocapitalize="characters"
+              spellcheck="false"
+              placeholder="e.g. HC-7F3K2"
+              aria-describedby="checkout-discount-warning"
+            />
+          </label>
+          <button type="button" class="button button--secondary button--full checkout-confirm-address" id="checkout-update-totals">
+            Confirm shipping address
+          </button>
+        </div>
 
         <h2 class="checkout-section-title">Payment</h2>
         <p class="checkout-card-hint">Card details are processed by Square. We never see your full card number.</p>
@@ -244,7 +246,7 @@ function renderCheckoutShell(miniQuote, options = {}) {
     sumSub.textContent = miniQuote.subtotalFormatted;
   }
   // Initial estimate on load should not complain about missing contact/address.
-  // Keep Shipping / Estimated tax as "—" until the shopper clicks "Update shipping & tax".
+  // Keep Shipping / Estimated tax as "—" until the shopper clicks "Confirm shipping address".
   if (!options.skipInitialEstimate) {
     void runEstimate({ validateContact: false, requireAddress: false, initialSummary: true });
   }
@@ -433,11 +435,11 @@ async function runEstimate(options = {}) {
       const w = Array.isArray(data.warnings) ? [...data.warnings] : [];
       if (data.hardinDiscountBlocked === "incomplete_address" && readDiscountCode()) {
         w.push(
-          'Complete your shipping address and click "Update shipping & tax" to apply your Hardin County discount code.',
+          'Complete your shipping address and click "Confirm shipping address" to apply a discount code.',
         );
       }
       if (data.hardinDiscountApplied) {
-        w.push("Hardin County discount pricing is applied to this order summary.");
+        w.push("Promotional pricing from your discount code is applied to this order summary.");
       }
       if (w.length) {
         warningsEl.hidden = false;
@@ -678,7 +680,7 @@ function wireEvents() {
 
     if (!latestEstimate) {
       setAddressFieldsError(true);
-      showShippingSectionError('Click "Update shipping & tax" first, or fix any address errors.');
+      showShippingSectionError('Click "Confirm shipping address" first, or fix any address errors.');
       return;
     }
 
