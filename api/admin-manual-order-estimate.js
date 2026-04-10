@@ -9,7 +9,10 @@ export default async function handler(req, res) {
 
   try {
     await assertReportsAuthorized(req);
-    const json = await computeCheckoutEstimate(req.body || {}, { requireCompleteAddress: true });
+    const json = await computeCheckoutEstimate(req.body || {}, {
+      requireCompleteAddress: true,
+      adminLocalDiscount: true,
+    });
     res.status(200).json(json);
   } catch (error) {
     console.error(error);

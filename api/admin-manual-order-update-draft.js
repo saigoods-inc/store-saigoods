@@ -1,9 +1,13 @@
 import { formatShippingAddressForOrder } from "../lib/checkout-totals.js";
 import { computeCheckoutEstimate } from "../lib/checkout-estimate-logic.js";
-import { createManualOrderDraft } from "../lib/orders.js";
+import { updateManualOrderDraft } from "../lib/orders.js";
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
 
-function parseCreateBody(body) {
+function parseBody(body) {
+  const orderId = String(body?.orderId ?? "").trim();
+  if (!orderId) {
+    return { error: "orderId is required." };
+  }
   const name = String(body?.name || "").trim();
   const email = String(body?.email || "").trim();
   const phone = String(body?.phone || "").trim();
@@ -27,6 +31,7 @@ function parseCreateBody(body) {
   }
   const applyEligibleLocalDiscount = body?.applyEligibleLocalDiscount === true;
   return {
+    orderId,
     name,
     email,
     phone,
@@ -51,7 +56,7 @@ export default async function handler(req, res) {
 
   try {
     await assertReportsAuthorized(req);
-    const parsed = parseCreateBody(req.body || {});
+    const parsed = parseBody(req.body || {});
     if (parsed.error) {
       res.status(400).json({ error: parsed.error });
       return;
@@ -81,7 +86,7 @@ export default async function handler(req, res) {
       shippingState: parsed.address.state,
     };
 
-    const order = await createManualOrderDraft({
+    const order = await updateManualOrderDraft(parsed.orderId, {
       quote,
       customer,
       hardinDiscount,
@@ -96,6 +101,6 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error(error);
-    res.status(error.statusCode || 500).json({ error: error.message || "Could not create order." });
+    res.status(error.statusCode || 500).json({ error: error.message || "Could not update draft." });
   }
 }

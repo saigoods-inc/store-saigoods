@@ -45,8 +45,22 @@
       <p id="admin-load-error" class="admin-error" role="alert" hidden></p>
 
       <form id="manual-order-form" class="manual-order-form">
+        <section class="manual-order-section manual-order-section--drafts">
+          <div class="manual-order-section-head">
+            <h2>Saved drafts</h2>
+            <button type="button" class="admin-btn admin-btn--small" id="btn-new-order">New order</button>
+          </div>
+          <p class="admin-muted" style="margin: 0 0 0.5rem">
+            Open a draft to edit, or delete drafts you no longer need. Only <strong>draft</strong> manual orders appear here.
+          </p>
+          <div id="manual-drafts-list" class="manual-drafts-list">
+            <p class="admin-muted manual-drafts-empty">Loading…</p>
+          </div>
+        </section>
+
         <section class="manual-order-section">
           <h2>Customer</h2>
+          <p id="manual-editing-banner" class="manual-editing-banner" hidden></p>
           <div class="manual-order-grid">
             <label>
               Full name
@@ -98,11 +112,14 @@
         </section>
 
         <section class="manual-order-section">
-          <h2>Discount (optional)</h2>
-          <label>
-            Hardin promo code
-            <input type="text" name="discount_code" autocomplete="off" autocapitalize="characters" placeholder="HC-XXXXX" />
+          <h2>Discount</h2>
+          <label class="manual-checkbox-label">
+            <input type="checkbox" name="apply_local_discount" id="apply_local_discount" value="1" />
+            <span>Apply eligible local discount (Hardin County, TN delivery — verified on the server from ZIP)</span>
           </label>
+          <p class="admin-muted" style="margin: 0.35rem 0 0">
+            Checking this asks for local pricing; it is only applied when the shipping address qualifies. No promo code is required for staff orders.
+          </p>
         </section>
 
         <div class="manual-order-actions">

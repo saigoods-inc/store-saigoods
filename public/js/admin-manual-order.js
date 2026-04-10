@@ -3,6 +3,7 @@ import { formatCurrency } from "./catalog.js";
 import { isBundleAllocationValid, requiredUnitsFromBundleLines } from "./bundle-validation.js";
 import {
   clearAdminSessionUser,
+  fetchReportJson,
   fetchReportPost,
   fetchSupabasePublicConfig,
   primeAdminSessionUser,
@@ -19,7 +20,9 @@ const US_STATES = [
 let supabase = null;
 let siteSizes = ["Small", "Medium", "Large", "X Large"];
 let products = [];
-/** @type {string | null} */
+/** Order id for payment link + PATCH saves (null = new draft on next save). */
+let editingOrderId = null;
+/** Same as editingOrderId once a draft is saved or loaded; cleared on “New order”. */
 let lastCreatedOrderId = null;
 /** @type {object | null} */
 let lastQuote = null;
@@ -485,7 +488,7 @@ function renderBundledProductBody(product) {
           <span class="selection-summary__subtotal-label">Line subtotal (standard list)</span>
           <span class="selection-summary__subtotal-amount">${formatCurrency(subtotal)}</span>
         </div>
-        <p class="admin-muted manual-selection-note">Final merchandise total uses the same server rules as checkout (including Hardin tier when a promo code applies).</p>
+        <p class="admin-muted manual-selection-note">Final merchandise total uses the same server rules as checkout (including local tier when the discount checkbox is checked and the address qualifies).</p>
       </div>
     </div>
   `;
@@ -508,8 +511,7 @@ function renderProductBlock(product, index) {
   const hasBundles = Array.isArray(product.bundles) && product.bundles.length > 0;
   const status = escapeHtml(productSummaryStatus(product));
   const issue = productHasAllocationIssue(product);
-  const openAttr =
-    allocationSubmitAttempted && issue ? " open" : index === 0 ? " open" : "";
+  const openAttr = allocationSubmitAttempted && issue ? " open" : "";
   const invalidClass = allocationSubmitAttempted && issue ? " manual-product-details--warn" : "";
 
   const body = hasBundles ? renderBundledProductBody(product) : renderLegacyProductBody(product);
@@ -686,6 +688,222 @@ function fillStateSelect() {
   sel.innerHTML = `<option value="">Select</option>${US_STATES.map((c) => `<option value="${c}">${c}</option>`).join("")}`;
 }
 
+function readApplyLocalDiscount(form) {
+  return Boolean(form?.apply_local_discount?.checked);
+}
+
+function resetProductStateFromCatalog() {
+  productState = {};
+  for (const p of products) {
+    ensureProductState(p);
+  }
+}
+
+function hydrateProductStateFromOrder(order) {
+  resetProductStateFromCatalog();
+  const items = Array.isArray(order.items) ? order.items : [];
+  for (const p of products) {
+    const row = items.find((i) => String(i.slug) === p.slug);
+    if (!row) {
+      continue;
+    }
+    const st = productState[p.slug];
+    const bundles = p.bundles || [];
+    st.bundleQty = Object.fromEntries(bundles.map((b) => [b.id, 0]));
+    for (const line of row.bundleLines || []) {
+      const id = String(line.id || "").trim();
+      const q = Math.floor(Number(line.qty) || 0);
+      if (id in st.bundleQty) {
+        st.bundleQty[id] = q;
+      }
+    }
+    for (const sz of siteSizes) {
+      st.caseBySize[sz] = Math.floor(Number(row.quantities?.[sz]) || 0);
+      st.boxBySize[sz] = Math.floor(Number(row.boxQuantities?.[sz]) || 0);
+    }
+    st.openBundleDropdownId = null;
+  }
+}
+
+function fillFormFromOrder(order) {
+  const form = document.getElementById("manual-order-form");
+  if (!form) {
+    return;
+  }
+  form.cust_name.value = order.customer_name || "";
+  form.cust_email.value = order.customer_email || "";
+  form.cust_phone.value = order.customer_phone || "";
+  const a = order.shipping_address && typeof order.shipping_address === "object" ? order.shipping_address : {};
+  form.addr_line1.value = a.line1 || "";
+  form.addr_line2.value = a.line2 || "";
+  form.addr_city.value = a.city || "";
+  form.addr_state.value = String(a.state || "").trim().toUpperCase() || "";
+  form.addr_zip.value = a.postalCode || "";
+  const cb = document.getElementById("apply_local_discount");
+  if (cb) {
+    cb.checked = order.is_hardin_discount === true;
+  }
+}
+
+function setEditingBanner(text, visible) {
+  const el = document.getElementById("manual-editing-banner");
+  if (!el) {
+    return;
+  }
+  el.textContent = text || "";
+  el.hidden = !visible;
+}
+
+function clearFormNewOrder() {
+  editingOrderId = null;
+  lastCreatedOrderId = null;
+  allocationSubmitAttempted = false;
+  const form = document.getElementById("manual-order-form");
+  if (form) {
+    form.cust_name.value = "";
+    form.cust_email.value = "";
+    form.cust_phone.value = "";
+    form.addr_line1.value = "";
+    form.addr_line2.value = "";
+    form.addr_city.value = "";
+    form.addr_zip.value = "";
+  }
+  fillStateSelect();
+  const cb = document.getElementById("apply_local_discount");
+  if (cb) {
+    cb.checked = false;
+  }
+  document.getElementById("btn-send-link").disabled = true;
+  document.getElementById("manual-preview").hidden = true;
+  document.getElementById("manual-result").hidden = true;
+  setEditingBanner("", false);
+  resetProductStateFromCatalog();
+  renderProductInputs();
+}
+
+function formatDraftWhen(iso) {
+  if (!iso) {
+    return "—";
+  }
+  try {
+    return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  } catch {
+    return "—";
+  }
+}
+
+async function loadAndRenderDrafts() {
+  const wrap = document.getElementById("manual-drafts-list");
+  if (!wrap) {
+    return;
+  }
+  const token = await getSessionToken();
+  if (!token) {
+    wrap.innerHTML = `<p class="admin-muted manual-drafts-empty">Sign in to load drafts.</p>`;
+    return;
+  }
+  try {
+    const { drafts } = await fetchReportJson("/api/admin-manual-order-drafts", token);
+    const list = Array.isArray(drafts) ? drafts : [];
+    if (!list.length) {
+      wrap.innerHTML = `<p class="admin-muted manual-drafts-empty">No saved drafts.</p>`;
+      return;
+    }
+    wrap.innerHTML = `<ul class="manual-drafts-ul">${list
+      .map(
+        (d) => `
+      <li class="manual-drafts-li" data-draft-id="${escapeHtml(String(d.id))}">
+        <div class="manual-drafts-li__main">
+          <strong>${escapeHtml(d.order_ref || String(d.id))}</strong>
+          <span class="admin-muted">${escapeHtml(d.customer_name || "—")} · ${escapeHtml(d.customer_email || "")}</span>
+          <span class="admin-muted">${formatDraftWhen(d.created_at)} · ${formatCurrency(d.total_cents)}</span>
+        </div>
+        <div class="manual-drafts-li__actions">
+          <button type="button" class="admin-btn admin-btn--small" data-draft-edit="${escapeHtml(String(d.id))}">Edit</button>
+          <button type="button" class="admin-btn admin-btn--small" data-draft-delete="${escapeHtml(String(d.id))}">Delete</button>
+        </div>
+      </li>`,
+      )
+      .join("")}</ul>`;
+  } catch (e) {
+    wrap.innerHTML = `<p class="admin-error">${escapeHtml(e.message || "Could not load drafts.")}</p>`;
+  }
+}
+
+async function openDraftForEdit(orderId) {
+  const errEl = document.getElementById("admin-load-error");
+  errEl.hidden = true;
+  const token = await getSessionToken();
+  if (!token) {
+    errEl.textContent = "Sign in again.";
+    errEl.hidden = false;
+    return;
+  }
+  try {
+    const { order } = await fetchReportJson(
+      `/api/admin-manual-order-drafts?id=${encodeURIComponent(orderId)}`,
+      token,
+    );
+    hydrateProductStateFromOrder(order);
+    fillFormFromOrder(order);
+    editingOrderId = String(order.id);
+    lastCreatedOrderId = String(order.id);
+    document.getElementById("btn-send-link").disabled = false;
+    document.getElementById("manual-preview").hidden = true;
+    document.getElementById("manual-result").hidden = true;
+    setEditingBanner(`Editing draft ${order.order_ref || order.id}. Save to update, or use “New order” to start fresh.`, true);
+    allocationSubmitAttempted = false;
+    renderProductInputs();
+    document.getElementById("manual-order-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (e) {
+    errEl.textContent = e.message || "Could not open draft.";
+    errEl.hidden = false;
+  }
+}
+
+async function deleteDraftById(orderId) {
+  if (!confirm("Delete this draft permanently? This cannot be undone.")) {
+    return;
+  }
+  const errEl = document.getElementById("admin-load-error");
+  errEl.hidden = true;
+  const token = await getSessionToken();
+  if (!token) {
+    errEl.textContent = "Sign in again.";
+    errEl.hidden = false;
+    return;
+  }
+  try {
+    await fetchReportPost("/api/admin-manual-order-delete-draft", token, { orderId });
+    if (String(editingOrderId) === String(orderId)) {
+      clearFormNewOrder();
+    }
+    await loadAndRenderDrafts();
+  } catch (e) {
+    errEl.textContent = e.message || "Delete failed.";
+    errEl.hidden = false;
+  }
+}
+
+function bindDraftsListClicks() {
+  const wrap = document.getElementById("manual-drafts-list");
+  if (!wrap || wrap.dataset.bound === "1") {
+    return;
+  }
+  wrap.dataset.bound = "1";
+  wrap.addEventListener("click", (e) => {
+    const editBtn = e.target.closest("[data-draft-edit]");
+    if (editBtn) {
+      void openDraftForEdit(editBtn.getAttribute("data-draft-edit"));
+      return;
+    }
+    const delBtn = e.target.closest("[data-draft-delete]");
+    if (delBtn) {
+      void deleteDraftById(delBtn.getAttribute("data-draft-delete"));
+    }
+  });
+}
+
 async function getSessionToken() {
   const {
     data: { session },
@@ -717,7 +935,7 @@ async function runEstimate() {
   renderProductInputs();
 
   const address = readAddressFromForm(form);
-  const discountCode = String(form.discount_code?.value || "").trim();
+  const applyEligibleLocalDiscount = readApplyLocalDiscount(form);
 
   const token = await getSessionToken();
   if (!token) {
@@ -726,7 +944,7 @@ async function runEstimate() {
     return null;
   }
 
-  const body = { items, address, discountCode };
+  const body = { items, address, applyEligibleLocalDiscount };
   const data = await fetchReportPost("/api/admin-manual-order-estimate", token, body);
   lastQuote = data;
 
@@ -748,6 +966,7 @@ async function runEstimate() {
   }
   pre.textContent = lines.join("\n");
   preview.hidden = false;
+  preview.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
   return data;
 }
@@ -783,29 +1002,40 @@ async function saveDraft() {
     return;
   }
 
-  const body = {
+  const applyEligibleLocalDiscount = readApplyLocalDiscount(form);
+  const baseBody = {
     name: String(form.cust_name?.value || "").trim(),
     email: String(form.cust_email?.value || "").trim(),
     phone: String(form.cust_phone?.value || "").trim(),
     address,
     items,
-    discountCode: String(form.discount_code?.value || "").trim(),
+    applyEligibleLocalDiscount,
   };
 
-  const data = await fetchReportPost("/api/admin-manual-order-create", token, body);
-  lastCreatedOrderId = data.orderId;
+  const data = editingOrderId
+    ? await fetchReportPost("/api/admin-manual-order-update-draft", token, {
+        orderId: editingOrderId,
+        ...baseBody,
+      })
+    : await fetchReportPost("/api/admin-manual-order-create", token, baseBody);
+
+  editingOrderId = String(data.orderId);
+  lastCreatedOrderId = String(data.orderId);
   document.getElementById("btn-send-link").disabled = false;
 
   const resEl = document.getElementById("manual-result");
   const textEl = document.getElementById("manual-result-text");
   textEl.textContent = `Reference ${data.orderRef} · Total ${data.totalFormatted}\nYou can now send the payment link email to the customer.`;
   resEl.hidden = false;
+  setEditingBanner(`Editing draft ${data.orderRef}. Save again to update totals after changes.`, true);
+  await loadAndRenderDrafts();
 }
 
 async function sendPaymentLink() {
   const errEl = document.getElementById("admin-load-error");
   errEl.hidden = true;
-  if (!lastCreatedOrderId) {
+  const oid = lastCreatedOrderId || editingOrderId;
+  if (!oid) {
     errEl.textContent = "Save a draft order first.";
     errEl.hidden = false;
     return;
@@ -821,13 +1051,14 @@ async function sendPaymentLink() {
   btn.disabled = true;
   try {
     const data = await fetchReportPost("/api/admin-manual-order-send-link", token, {
-      orderId: lastCreatedOrderId,
+      orderId: oid,
     });
     const msg = data.warning || (data.emailed ? "Payment link emailed to the customer." : "Done.");
     document.getElementById("manual-result-text").textContent += `\n\n${msg}`;
     if (data.checkoutUrl && data.warning) {
       document.getElementById("manual-result-text").textContent += `\n\nLink: ${data.checkoutUrl}`;
     }
+    await loadAndRenderDrafts();
   } catch (e) {
     errEl.textContent = e.message || "Failed to send link.";
     errEl.hidden = false;
@@ -846,6 +1077,12 @@ async function loadProducts() {
   productState = {};
   allocationSubmitAttempted = false;
   renderProductInputs();
+}
+
+async function bootstrapManualOrderData() {
+  await loadProducts();
+  bindDraftsListClicks();
+  await loadAndRenderDrafts();
 }
 
 async function init() {
@@ -876,7 +1113,7 @@ async function init() {
     showApp();
     document.getElementById("admin-user-email").textContent = session.user.email || "";
     renderAdminNav("manual-order");
-    await loadProducts();
+    await bootstrapManualOrderData();
   } else {
     showLogin();
   }
@@ -889,7 +1126,7 @@ async function init() {
       document.getElementById("admin-user-email").textContent = sess.user.email || "";
       showApp();
       renderAdminNav("manual-order");
-      await loadProducts();
+      await bootstrapManualOrderData();
     }
     if (event === "SIGNED_OUT") {
       clearAdminSessionUser();
@@ -915,7 +1152,7 @@ async function init() {
     showApp();
     document.getElementById("admin-user-email").textContent = email;
     renderAdminNav("manual-order");
-    await loadProducts();
+    await bootstrapManualOrderData();
   });
 
   document.getElementById("admin-logout")?.addEventListener("click", async () => {
@@ -926,6 +1163,11 @@ async function init() {
   manualRoot?.addEventListener("click", onManualProductsClick);
   manualRoot?.addEventListener("input", onManualProductsInput);
   document.addEventListener("click", onDocumentClickBundles, false);
+
+  document.getElementById("btn-new-order")?.addEventListener("click", () => {
+    clearFormNewOrder();
+    void loadAndRenderDrafts();
+  });
 
   document.getElementById("btn-estimate")?.addEventListener("click", async () => {
     const btn = document.getElementById("btn-estimate");

@@ -10,8 +10,11 @@ import { assertReportsAuthorized } from "./lib/reports-auth.js";
 import { resolveShippingZip } from "./lib/shipping.js";
 import adminDiscountCodesHandler from "./api/admin-discount-codes.js";
 import adminManualOrderCreateHandler from "./api/admin-manual-order-create.js";
+import adminManualOrderDeleteDraftHandler from "./api/admin-manual-order-delete-draft.js";
+import adminManualOrderDraftsHandler from "./api/admin-manual-order-drafts.js";
 import adminManualOrderEstimateHandler from "./api/admin-manual-order-estimate.js";
 import adminManualOrderSendLinkHandler from "./api/admin-manual-order-send-link.js";
+import adminManualOrderUpdateDraftHandler from "./api/admin-manual-order-update-draft.js";
 import checkoutEstimateHandler from "./api/checkout-estimate.js";
 import checkoutPayHandler from "./api/checkout-pay.js";
 
@@ -188,6 +191,32 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/admin-manual-order-send-link" && req.method === "POST") {
       const body = await readJsonBody(req);
       await adminManualOrderSendLinkHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-manual-order-drafts" && req.method === "GET") {
+      await adminManualOrderDraftsHandler(
+        { method: "GET", headers: req.headers, url: req.url },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-manual-order-update-draft" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminManualOrderUpdateDraftHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-manual-order-delete-draft" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminManualOrderDeleteDraftHandler(
         { method: "POST", body, headers: req.headers },
         adaptExpressStyleResponse(res),
       );

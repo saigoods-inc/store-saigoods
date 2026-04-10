@@ -46,6 +46,71 @@ function formatDate(iso) {
   }
 }
 
+function startOfLocalDayMs(ref = Date.now()) {
+  const d = new Date(ref);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** Monday-start week containing `ref`. */
+function startOfLocalWeekMondayMs(ref = Date.now()) {
+  const d = new Date(startOfLocalDayMs(ref));
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d.getTime();
+}
+
+function startOfLocalMonthMs(ref = Date.now()) {
+  const d = new Date(ref);
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function passesTimeFilter(row, filter) {
+  if (!filter || filter === "all") {
+    return true;
+  }
+  const t = new Date(row.created_at).getTime();
+  if (!Number.isFinite(t)) {
+    return true;
+  }
+  if (filter === "today") {
+    return t >= startOfLocalDayMs();
+  }
+  if (filter === "week") {
+    return t >= startOfLocalWeekMondayMs();
+  }
+  if (filter === "month") {
+    return t >= startOfLocalMonthMs();
+  }
+  return true;
+}
+
+function updateTimeFilterLabels() {
+  const sel = document.getElementById("filter-time");
+  if (!sel) {
+    return;
+  }
+  const total = ordersCache.length;
+  const nToday = ordersCache.filter((r) => passesTimeFilter(r, "today")).length;
+  const nWeek = ordersCache.filter((r) => passesTimeFilter(r, "week")).length;
+  const nMonth = ordersCache.filter((r) => passesTimeFilter(r, "month")).length;
+  for (const opt of sel.options) {
+    const v = opt.value;
+    if (v === "all") {
+      opt.textContent = `All dates (${total})`;
+    } else if (v === "today") {
+      opt.textContent = `Today (${nToday})`;
+    } else if (v === "week") {
+      opt.textContent = `This week (${nWeek})`;
+    } else if (v === "month") {
+      opt.textContent = `This month (${nMonth})`;
+    }
+  }
+}
+
 /** True if payment is not complete — staff cannot set fulfillment yet. */
 function isPaymentAwaiting(row) {
   return String(row.status || "").toLowerCase() !== "paid";
@@ -477,6 +542,7 @@ async function init() {
   });
 
   document.getElementById("filter-status")?.addEventListener("change", () => renderTable());
+  document.getElementById("filter-time")?.addEventListener("change", () => renderTable());
 
   document.querySelectorAll("[data-close-modal]").forEach((el) => {
     el.addEventListener("click", closeModal);
@@ -505,6 +571,7 @@ async function loadOrders() {
 
     ordersCache = Array.isArray(data) ? data : [];
     statusLockByOrderId.clear();
+    updateTimeFilterLabels();
     renderTable();
   } finally {
     loading.hidden = true;
@@ -512,9 +579,13 @@ async function loadOrders() {
 }
 
 function getFilteredOrders() {
+  const timeFilter = document.getElementById("filter-time")?.value || "all";
+  let pool = ordersCache.filter((r) => passesTimeFilter(r, timeFilter));
   const filter = document.getElementById("filter-status")?.value || "";
-  if (!filter) return ordersCache;
-  return ordersCache.filter((r) => {
+  if (!filter) {
+    return pool;
+  }
+  return pool.filter((r) => {
     if (filter === "manual_draft") {
       return String(r.order_source) === "manual" && r.order_status === "draft";
     }

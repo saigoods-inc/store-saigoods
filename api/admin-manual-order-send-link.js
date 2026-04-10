@@ -85,13 +85,20 @@ export default async function handler(req, res) {
       return;
     }
 
+    const adminAddressHardin =
+      order.is_hardin_discount === true && !String(order.discount_code_used || "").trim();
+
     const estimateBody = {
       items: order.items,
       address: shipAddr,
       discountCode: order.discount_code_used || "",
+      applyEligibleLocalDiscount: adminAddressHardin,
     };
 
-    const quote = await computeCheckoutEstimate(estimateBody, { requireCompleteAddress: true });
+    const quote = await computeCheckoutEstimate(estimateBody, {
+      requireCompleteAddress: true,
+      adminLocalDiscount: adminAddressHardin,
+    });
 
     const client = getServiceClient();
     await syncOrderTotalsFromQuote(client, order.id, quote);
