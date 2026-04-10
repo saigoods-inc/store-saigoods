@@ -240,9 +240,9 @@ function renderCheckoutShell(miniQuote, options = {}) {
             <span>Shipping</span>
             <strong id="sum-ship">—</strong>
           </div>
-          <div id="checkout-row-discount" class="summary-card__row summary-card__row--discount" hidden>
+          <div id="checkout-row-discount" class="summary-card__row summary-card__row--discount">
             <span>Discount</span>
-            <strong id="sum-discount" class="checkout-summary-discount">—</strong>
+            <strong id="sum-discount">—</strong>
           </div>
           <div class="summary-card__row summary-card__row--tax">
             <span>Estimated tax</span>
@@ -302,14 +302,10 @@ function shippingDisplayFromEstimate(data) {
   return data.shippingFormatted || "—";
 }
 
-function hideCheckoutSummaryDiscountRow() {
-  const discountRow = document.getElementById("checkout-row-discount");
+function resetCheckoutSummaryDiscountAmount() {
   const sumDiscount = document.getElementById("sum-discount");
-  if (discountRow) {
-    discountRow.hidden = true;
-  }
   if (sumDiscount) {
-    sumDiscount.textContent = "";
+    sumDiscount.textContent = "—";
   }
 }
 
@@ -324,8 +320,6 @@ function applyCheckoutOrderSummary(data, opts = {}) {
   const sumDiscount = document.getElementById("sum-discount");
   const sumTax = document.getElementById("sum-tax");
   const sumTotal = document.getElementById("sum-total");
-  const discountRow = document.getElementById("checkout-row-discount");
-
   const discountCents = Math.max(0, Math.round(Number(data?.merchandiseDiscountCents) || 0));
   const showDiscountBreakdown =
     data?.hardinDiscountApplied === true &&
@@ -338,14 +332,10 @@ function applyCheckoutOrderSummary(data, opts = {}) {
       : data.subtotalFormatted;
   }
 
-  if (discountRow && sumDiscount) {
-    if (showDiscountBreakdown) {
-      discountRow.hidden = false;
-      sumDiscount.textContent = `-${data.merchandiseDiscountFormatted}`;
-    } else {
-      discountRow.hidden = true;
-      sumDiscount.textContent = "";
-    }
+  if (sumDiscount) {
+    sumDiscount.textContent = showDiscountBreakdown
+      ? `-${data.merchandiseDiscountFormatted}`
+      : "—";
   }
 
   if (sumShip && sumTax && sumTotal) {
@@ -564,7 +554,7 @@ async function runEstimate(options = {}) {
     sumShip.textContent = "—";
     sumTax.textContent = "—";
     sumTotal.textContent = "—";
-    hideCheckoutSummaryDiscountRow();
+    resetCheckoutSummaryDiscountAmount();
     latestEstimate = null;
   }
 }
