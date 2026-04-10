@@ -530,9 +530,6 @@ async function runEstimate(options = {}) {
           'Complete your shipping address and click "Confirm shipping address" to apply a discount code.',
         );
       }
-      if (data.hardinDiscountApplied) {
-        w.push("Promotional pricing from your discount code is applied to this order summary.");
-      }
       if (w.length) {
         warningsEl.hidden = false;
         warningsEl.innerHTML = w

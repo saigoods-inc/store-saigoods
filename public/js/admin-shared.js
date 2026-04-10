@@ -1,3 +1,34 @@
+/**
+ * Supabase GoTrue calls `_recoverAndRefresh()` when the tab becomes visible again and may emit
+ * `SIGNED_IN` with the same user — not only on a real login. Track the last user we already
+ * bootstrapped so `onAuthStateChange` does not re-fetch and strand the UI in "Loading…".
+ */
+let _adminLastSignedInUserId = null;
+
+/** After `getSession()` or successful login, before loading staff data. */
+export function primeAdminSessionUser(session) {
+  _adminLastSignedInUserId = session?.user?.id ?? null;
+}
+
+export function clearAdminSessionUser() {
+  _adminLastSignedInUserId = null;
+}
+
+/**
+ * @returns {boolean} True if the handler should run load/bootstrap for this `SIGNED_IN`.
+ */
+export function shouldBootstrapAdminSignedIn(session) {
+  const uid = session?.user?.id ?? null;
+  if (!uid) {
+    return false;
+  }
+  if (_adminLastSignedInUserId === uid) {
+    return false;
+  }
+  _adminLastSignedInUserId = uid;
+  return true;
+}
+
 export async function fetchSupabasePublicConfig() {
   const res = await fetch("/api/supabase-public-config");
   const data = await res.json().catch(() => ({}));

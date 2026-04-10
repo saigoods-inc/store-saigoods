@@ -1,5 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
-import { fetchSupabasePublicConfig, renderAdminNav } from "./admin-shared.js";
+import {
+  clearAdminSessionUser,
+  fetchSupabasePublicConfig,
+  primeAdminSessionUser,
+  renderAdminNav,
+  shouldBootstrapAdminSignedIn,
+} from "./admin-shared.js";
 
 /** Staff can only set these fulfillment statuses (payment column shows payment state). */
 const FULFILLMENT_OPTIONS = [
@@ -350,6 +356,7 @@ async function init() {
   } = await supabase.auth.getSession();
 
   if (session?.user) {
+    primeAdminSessionUser(session);
     showApp();
     document.getElementById("admin-user-email").textContent = session.user.email || "";
     renderAdminNav("orders");
@@ -362,6 +369,9 @@ async function init() {
 
   supabase.auth.onAuthStateChange(async (event, session) => {
     if (event === "SIGNED_IN" && session?.user) {
+      if (!shouldBootstrapAdminSignedIn(session)) {
+        return;
+      }
       document.getElementById("admin-user-email").textContent = session.user.email || "";
       showApp();
       renderAdminNav("orders");
@@ -370,6 +380,7 @@ async function init() {
       await loadOrders();
     }
     if (event === "SIGNED_OUT") {
+      clearAdminSessionUser();
       ordersCache = [];
       document.getElementById("orders-tbody").innerHTML = "";
       showLogin();
@@ -389,6 +400,8 @@ async function init() {
       errEl.hidden = false;
       return;
     }
+    const { data: afterLogin } = await supabase.auth.getSession();
+    primeAdminSessionUser(afterLogin.session);
     showApp();
     document.getElementById("admin-user-email").textContent = email;
     renderAdminNav("orders");
@@ -419,24 +432,26 @@ async function loadOrders() {
   errEl.hidden = true;
   loading.hidden = false;
 
-  const { data, error } = await supabase
-    .from("orders")
-    .select("*")
-    .order("created_at", { ascending: false });
+  try {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("*")
+      .order("created_at", { ascending: false });
 
-  loading.hidden = true;
+    if (error) {
+      errEl.textContent =
+        error.message ||
+        "Could not load orders. Run sql/orders_admin_rls.sql in Supabase and confirm you are signed in.";
+      errEl.hidden = false;
+      return;
+    }
 
-  if (error) {
-    errEl.textContent =
-      error.message ||
-      "Could not load orders. Run sql/orders_admin_rls.sql in Supabase and confirm you are signed in.";
-    errEl.hidden = false;
-    return;
+    ordersCache = Array.isArray(data) ? data : [];
+    statusLockByOrderId.clear();
+    renderTable();
+  } finally {
+    loading.hidden = true;
   }
-
-  ordersCache = Array.isArray(data) ? data : [];
-  statusLockByOrderId.clear();
-  renderTable();
 }
 
 function getFilteredOrders() {

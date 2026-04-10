@@ -1,5 +1,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
-import { fetchSupabasePublicConfig, renderAdminNav, fetchReportJson } from "./admin-shared.js";
+import {
+  clearAdminSessionUser,
+  fetchReportJson,
+  fetchSupabasePublicConfig,
+  primeAdminSessionUser,
+  renderAdminNav,
+  shouldBootstrapAdminSignedIn,
+} from "./admin-shared.js";
 
 let supabase = null;
 
@@ -106,6 +113,7 @@ async function init() {
   } = await supabase.auth.getSession();
 
   if (session?.user) {
+    primeAdminSessionUser(session);
     showApp();
     document.getElementById("admin-user-email").textContent = session.user.email || "";
     renderAdminNav("discounts");
@@ -116,12 +124,16 @@ async function init() {
 
   supabase.auth.onAuthStateChange(async (event, sess) => {
     if (event === "SIGNED_IN" && sess?.user) {
+      if (!shouldBootstrapAdminSignedIn(sess)) {
+        return;
+      }
       document.getElementById("admin-user-email").textContent = sess.user.email || "";
       showApp();
       renderAdminNav("discounts");
       await loadCodes();
     }
     if (event === "SIGNED_OUT") {
+      clearAdminSessionUser();
       showLogin();
     }
   });
@@ -139,6 +151,8 @@ async function init() {
       errEl.hidden = false;
       return;
     }
+    const { data: afterLogin } = await supabase.auth.getSession();
+    primeAdminSessionUser(afterLogin.session);
     showApp();
     document.getElementById("admin-user-email").textContent = email;
     renderAdminNav("discounts");
