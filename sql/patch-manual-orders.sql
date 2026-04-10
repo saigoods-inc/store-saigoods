@@ -22,3 +22,9 @@ alter table public.orders add constraint orders_order_status_check
       'cancelled'
     )
   );
+
+-- Staff manual order: track when local discount was applied via ZIP override (see /admin/manual-order).
+alter table public.orders add column if not exists admin_local_discount_override boolean not null default false;
+
+comment on column public.orders.admin_local_discount_override is
+  'True when staff applied local (Hardin-tier) pricing despite shipping ZIP outside the normal eligible area.';
