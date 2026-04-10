@@ -50,7 +50,7 @@ export default async function handler(req, res) {
 
       if (!isHardinCountyTnDelivery(parsed.address)) {
         res.status(400).json({
-          error: "This discount only applies to orders shipped to an eligible address.",
+          error: "This discount code is invalid or not applicable to this address.",
         });
         return;
       }

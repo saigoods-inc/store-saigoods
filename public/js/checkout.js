@@ -6,7 +6,7 @@ const root = document.querySelector("[data-checkout-root]");
 
 /** Backend discount-validation messages → show under discount header (not shipping). */
 const CHECKOUT_DISCOUNT_ERROR_PREFIXES = [
-  "This discount only applies to orders shipped to an eligible address.",
+  "This discount code is invalid or not applicable to this address.",
   "Enter a valid discount code",
   "That discount code is not valid.",
   "This discount code has already been used.",
@@ -202,7 +202,6 @@ function renderCheckoutShell(miniQuote, options = {}) {
           <h2 class="checkout-section-title">Discount code <span class="checkout-optional">(optional)</span></h2>
           <p id="checkout-discount-warning" class="checkout-discount-warning" role="alert" hidden></p>
           <label class="checkout-field checkout-field--full">
-            <span>Code</span>
             <input
               type="text"
               name="discountCode"
