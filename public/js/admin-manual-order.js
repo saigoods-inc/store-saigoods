@@ -27,6 +27,9 @@ let lastCreatedOrderId = null;
 /** @type {object | null} */
 let lastQuote = null;
 
+/** After “Continue — apply discount anyway”, or loaded from draft with admin override. */
+let discountOverrideConfirmed = false;
+
 /**
  * @typedef {{ bundleQty: Record<string, number>, caseBySize: Record<string, number>, boxBySize: Record<string, number>, openBundleDropdownId: string | null }} ProductLineState
  */
@@ -36,6 +39,33 @@ let productState = {};
 
 /** After failed estimate/save: show bundle/size mismatch styling (mirrors product page). */
 let allocationSubmitAttempted = false;
+
+function updateSaveButtonLabel() {
+  const btn = document.getElementById("btn-save-draft");
+  if (!btn) {
+    return;
+  }
+  btn.textContent = editingOrderId ? "Save to update" : "Save draft order";
+}
+
+function setDiscountOverridePanelVisible(visible) {
+  const p = document.getElementById("manual-discount-override-panel");
+  if (p) {
+    p.hidden = !visible;
+  }
+}
+
+function syncDiscountOverridePanelAfterEstimate(data, form) {
+  if (!readApplyLocalDiscount(form)) {
+    setDiscountOverridePanelVisible(false);
+    return;
+  }
+  if (data?.adminLocalDiscountNeedsOverride && !data?.hardinDiscountApplied) {
+    setDiscountOverridePanelVisible(true);
+    return;
+  }
+  setDiscountOverridePanelVisible(false);
+}
 
 function showLogin() {
   document.getElementById("admin-login").hidden = false;
@@ -779,6 +809,9 @@ function clearFormNewOrder() {
   setEditingBanner("", false);
   resetProductStateFromCatalog();
   renderProductInputs();
+  discountOverrideConfirmed = false;
+  setDiscountOverridePanelVisible(false);
+  updateSaveButtonLabel();
 }
 
 function formatDraftWhen(iso) {
@@ -853,7 +886,10 @@ async function openDraftForEdit(orderId) {
     document.getElementById("manual-result").hidden = true;
     setEditingBanner(`Editing draft ${order.order_ref || order.id}. Save to update, or use “New order” to start fresh.`, true);
     allocationSubmitAttempted = false;
+    discountOverrideConfirmed = order.admin_local_discount_override === true;
+    setDiscountOverridePanelVisible(false);
     renderProductInputs();
+    updateSaveButtonLabel();
     document.getElementById("manual-order-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (e) {
     errEl.textContent = e.message || "Could not open draft.";
@@ -944,9 +980,18 @@ async function runEstimate() {
     return null;
   }
 
-  const body = { items, address, applyEligibleLocalDiscount };
+  const body = {
+    items,
+    address,
+    applyEligibleLocalDiscount,
+    forceApplyEligibleLocalDiscount: discountOverrideConfirmed,
+  };
   const data = await fetchReportPost("/api/admin-manual-order-estimate", token, body);
   lastQuote = data;
+
+  if (data?.adminLocalDiscountForced) {
+    discountOverrideConfirmed = true;
+  }
 
   const preview = document.getElementById("manual-preview");
   const pre = document.getElementById("manual-preview-body");
@@ -966,6 +1011,7 @@ async function runEstimate() {
   }
   pre.textContent = lines.join("\n");
   preview.hidden = false;
+  syncDiscountOverridePanelAfterEstimate(data, form);
   preview.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
   return data;
@@ -1010,6 +1056,7 @@ async function saveDraft() {
     address,
     items,
     applyEligibleLocalDiscount,
+    adminLocalDiscountOverride: applyEligibleLocalDiscount && discountOverrideConfirmed,
   };
 
   const data = editingOrderId
@@ -1028,6 +1075,7 @@ async function saveDraft() {
   textEl.textContent = `Reference ${data.orderRef} · Total ${data.totalFormatted}\nYou can now send the payment link email to the customer.`;
   resEl.hidden = false;
   setEditingBanner(`Editing draft ${data.orderRef}. Save again to update totals after changes.`, true);
+  updateSaveButtonLabel();
   await loadAndRenderDrafts();
 }
 
@@ -1083,6 +1131,7 @@ async function bootstrapManualOrderData() {
   await loadProducts();
   bindDraftsListClicks();
   await loadAndRenderDrafts();
+  updateSaveButtonLabel();
 }
 
 async function init() {
@@ -1167,6 +1216,27 @@ async function init() {
   document.getElementById("btn-new-order")?.addEventListener("click", () => {
     clearFormNewOrder();
     void loadAndRenderDrafts();
+  });
+
+  document.getElementById("apply_local_discount")?.addEventListener("change", () => {
+    discountOverrideConfirmed = false;
+    setDiscountOverridePanelVisible(false);
+  });
+
+  document.getElementById("btn-discount-override")?.addEventListener("click", async () => {
+    const btn = document.getElementById("btn-discount-override");
+    discountOverrideConfirmed = true;
+    setDiscountOverridePanelVisible(false);
+    if (btn) {
+      btn.disabled = true;
+    }
+    try {
+      await runEstimate();
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+      }
+    }
   });
 
   document.getElementById("btn-estimate")?.addEventListener("click", async () => {

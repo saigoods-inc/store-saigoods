@@ -1,5 +1,6 @@
 import { formatShippingAddressForOrder } from "../lib/checkout-totals.js";
 import { computeCheckoutEstimate } from "../lib/checkout-estimate-logic.js";
+import { isHardinCountyTnDelivery } from "../lib/hardin-county.js";
 import { updateManualOrderDraft } from "../lib/orders.js";
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
 
@@ -30,6 +31,7 @@ function parseBody(body) {
     return { error: "Add at least one line item." };
   }
   const applyEligibleLocalDiscount = body?.applyEligibleLocalDiscount === true;
+  const adminLocalDiscountOverride = applyEligibleLocalDiscount && body?.adminLocalDiscountOverride === true;
   return {
     orderId,
     name,
@@ -45,6 +47,7 @@ function parseBody(body) {
     },
     items,
     applyEligibleLocalDiscount,
+    adminLocalDiscountOverride,
   };
 }
 
@@ -66,6 +69,7 @@ export default async function handler(req, res) {
       items: parsed.items,
       address: parsed.address,
       applyEligibleLocalDiscount: parsed.applyEligibleLocalDiscount,
+      forceApplyEligibleLocalDiscount: parsed.adminLocalDiscountOverride,
     };
 
     const quote = await computeCheckoutEstimate(estimateBody, {
@@ -73,9 +77,15 @@ export default async function handler(req, res) {
       adminLocalDiscount: true,
     });
 
+    const zipOk = isHardinCountyTnDelivery(parsed.address);
     const hardinDiscount =
       quote.hardinDiscountApplied === true
-        ? { applied: true, code: null, adminAddressVerified: true }
+        ? {
+            applied: true,
+            code: null,
+            adminAddressVerified: zipOk,
+            adminOverride: quote.adminLocalDiscountForced === true,
+          }
         : null;
 
     const customer = {

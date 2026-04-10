@@ -118,19 +118,33 @@
             <span>Apply eligible local discount (Hardin County, TN delivery — verified on the server from ZIP)</span>
           </label>
           <p class="admin-muted" style="margin: 0.35rem 0 0">
-            Checking this asks for local pricing; it is only applied when the shipping address qualifies. No promo code is required for staff orders.
+            Checking this asks for local pricing; it is only applied when the shipping address qualifies. Use override below if you need an exception. No promo code is required for staff orders.
           </p>
+          <div id="manual-discount-override-panel" class="manual-discount-override" hidden>
+            <p class="manual-discount-override__text">
+              This order does not meet discount eligibility rules (shipping ZIP is outside the eligible local area).
+            </p>
+            <button type="button" class="admin-btn admin-btn--primary" id="btn-discount-override">
+              Continue — apply discount anyway
+            </button>
+            <p class="admin-muted manual-discount-override__note">
+              Override is recorded on the order for tracking. Pricing updates after you click.
+            </p>
+          </div>
         </section>
 
-        <div class="manual-order-actions">
+        <div class="manual-order-actions manual-order-actions--estimate">
           <button type="button" class="admin-btn" id="btn-estimate">Calculate totals</button>
-          <button type="button" class="admin-btn admin-btn--primary" id="btn-save-draft">Save draft order</button>
-          <button type="button" class="admin-btn admin-btn--primary" id="btn-send-link" disabled>Send payment link email</button>
         </div>
 
         <div id="manual-preview" class="manual-order-preview" hidden>
           <h3>Quote preview</h3>
           <pre id="manual-preview-body"></pre>
+        </div>
+
+        <div class="manual-order-actions manual-order-actions--save">
+          <button type="button" class="admin-btn admin-btn--primary" id="btn-save-draft">Save draft order</button>
+          <button type="button" class="admin-btn admin-btn--primary" id="btn-send-link" disabled>Send payment link email</button>
         </div>
 
         <div id="manual-result" class="manual-order-result" hidden>

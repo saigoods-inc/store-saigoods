@@ -35,6 +35,7 @@ async function syncOrderTotalsFromQuote(client, orderId, quote) {
       total_cents: quote.totalCents,
       amount: amountCents,
       tax_collected: taxCollected,
+      admin_local_discount_override: Boolean(quote.adminLocalDiscountForced),
     })
     .eq("id", orderId);
 
@@ -93,6 +94,8 @@ export default async function handler(req, res) {
       address: shipAddr,
       discountCode: order.discount_code_used || "",
       applyEligibleLocalDiscount: adminAddressHardin,
+      forceApplyEligibleLocalDiscount:
+        adminAddressHardin && order.admin_local_discount_override === true,
     };
 
     const quote = await computeCheckoutEstimate(estimateBody, {
