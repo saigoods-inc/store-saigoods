@@ -452,7 +452,10 @@ async function runEstimate(options = {}) {
   try {
     const dc = readDiscountCode();
     const payload = { items, address };
-    if (dc) {
+    // Only send a discount code after the shopper clicks "Confirm shipping address".
+    // Passive estimate on first paint must not run discount validation (autofill + load
+    // would otherwise show eligibility errors before any intentional attempt).
+    if (dc && requireAddress) {
       payload.discountCode = dc;
     }
 
@@ -500,7 +503,7 @@ async function runEstimate(options = {}) {
     }
   } catch (e) {
     const msg = e.message || "Could not verify shipping address.";
-    if (isCheckoutDiscountApiError(msg)) {
+    if (requireAddress && isCheckoutDiscountApiError(msg)) {
       showDiscountSectionWarning(msg);
     } else {
       setAddressFieldsError(true);

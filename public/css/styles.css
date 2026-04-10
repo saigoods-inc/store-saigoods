@@ -1649,6 +1649,10 @@ button {
   color: #b42318;
 }
 
+.checkout-discount-warning[hidden] {
+  display: none !important;
+}
+
 .checkout-discount-block .checkout-confirm-address {
   margin-top: 0.75rem;
 }
