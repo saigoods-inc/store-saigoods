@@ -1764,6 +1764,15 @@ button {
   margin: 0.2rem 0;
 }
 
+.checkout-totals .summary-card__row--discount span {
+  color: var(--muted);
+}
+
+.checkout-totals .checkout-summary-discount {
+  color: #137333;
+  font-variant-numeric: tabular-nums;
+}
+
 .checkout-totals .summary-card__row--total {
   margin-top: 0.35rem;
   padding-top: 0.65rem;

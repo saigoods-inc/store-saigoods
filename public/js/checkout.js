@@ -240,6 +240,10 @@ function renderCheckoutShell(miniQuote, options = {}) {
             <span>Shipping</span>
             <strong id="sum-ship">—</strong>
           </div>
+          <div id="checkout-row-discount" class="summary-card__row summary-card__row--discount" hidden>
+            <span>Discount</span>
+            <strong id="sum-discount" class="checkout-summary-discount">—</strong>
+          </div>
           <div class="summary-card__row summary-card__row--tax">
             <span>Estimated tax</span>
             <strong id="sum-tax">—</strong>
@@ -296,6 +300,64 @@ function shippingDisplayFromEstimate(data) {
     return "Free";
   }
   return data.shippingFormatted || "—";
+}
+
+function hideCheckoutSummaryDiscountRow() {
+  const discountRow = document.getElementById("checkout-row-discount");
+  const sumDiscount = document.getElementById("sum-discount");
+  if (discountRow) {
+    discountRow.hidden = true;
+  }
+  if (sumDiscount) {
+    sumDiscount.textContent = "";
+  }
+}
+
+/**
+ * @param {object} data Estimate JSON from /api/checkout-estimate
+ * @param {{ initialSummary?: boolean }} [opts]
+ */
+function applyCheckoutOrderSummary(data, opts = {}) {
+  const initialSummary = opts.initialSummary === true;
+  const sumSub = document.getElementById("sum-sub");
+  const sumShip = document.getElementById("sum-ship");
+  const sumDiscount = document.getElementById("sum-discount");
+  const sumTax = document.getElementById("sum-tax");
+  const sumTotal = document.getElementById("sum-total");
+  const discountRow = document.getElementById("checkout-row-discount");
+
+  const discountCents = Math.max(0, Math.round(Number(data?.merchandiseDiscountCents) || 0));
+  const showDiscountBreakdown =
+    data?.hardinDiscountApplied === true &&
+    typeof data?.originalMerchandiseSubtotalFormatted === "string" &&
+    discountCents > 0;
+
+  if (sumSub) {
+    sumSub.textContent = showDiscountBreakdown
+      ? data.originalMerchandiseSubtotalFormatted
+      : data.subtotalFormatted;
+  }
+
+  if (discountRow && sumDiscount) {
+    if (showDiscountBreakdown) {
+      discountRow.hidden = false;
+      sumDiscount.textContent = `-${data.merchandiseDiscountFormatted}`;
+    } else {
+      discountRow.hidden = true;
+      sumDiscount.textContent = "";
+    }
+  }
+
+  if (sumShip && sumTax && sumTotal) {
+    if (initialSummary) {
+      sumShip.textContent = "—";
+      sumTax.textContent = "—";
+    } else {
+      sumShip.textContent = shippingDisplayFromEstimate(data);
+      sumTax.textContent = data.taxFormatted;
+    }
+    sumTotal.textContent = data.totalFormatted;
+  }
 }
 
 /** US-oriented: at least 10 digits (ignores formatting). */
@@ -428,7 +490,6 @@ async function runEstimate(options = {}) {
   const sumShip = document.getElementById("sum-ship");
   const sumTax = document.getElementById("sum-tax");
   const sumTotal = document.getElementById("sum-total");
-  const sumSub = document.getElementById("sum-sub");
   const warningsEl = document.getElementById("checkout-warnings");
 
   clearCheckoutInputErrors();
@@ -470,15 +531,7 @@ async function runEstimate(options = {}) {
 
     latestEstimate = data;
     clearDiscountSectionWarning();
-    sumSub.textContent = data.subtotalFormatted;
-    if (initialSummary) {
-      sumShip.textContent = "—";
-      sumTax.textContent = "—";
-    } else {
-      sumShip.textContent = shippingDisplayFromEstimate(data);
-      sumTax.textContent = data.taxFormatted;
-    }
-    sumTotal.textContent = data.totalFormatted;
+    applyCheckoutOrderSummary(data, { initialSummary });
 
     if (warningsEl) {
       const w = Array.isArray(data.warnings) ? [...data.warnings] : [];
@@ -511,6 +564,7 @@ async function runEstimate(options = {}) {
     sumShip.textContent = "—";
     sumTax.textContent = "—";
     sumTotal.textContent = "—";
+    hideCheckoutSummaryDiscountRow();
     latestEstimate = null;
   }
 }
