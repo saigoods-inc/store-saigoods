@@ -226,6 +226,33 @@ body.admin-page {
   word-break: break-all;
 }
 
+.admin-order-tag {
+  margin-top: 0.4rem;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.admin-order-tag__code {
+  font-family: ui-monospace, monospace;
+  text-transform: none;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.admin-order-tag--inline {
+  margin-top: 0;
+}
+
 .admin-status-select {
   padding: 0.35rem 0.5rem;
   border-radius: 6px;

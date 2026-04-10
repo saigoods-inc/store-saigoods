@@ -1633,6 +1633,13 @@ button {
   margin-top: 0;
 }
 
+.checkout-discount-hint {
+  margin: 0 0 0.65rem;
+  font-size: var(--fs-body-secondary);
+  color: var(--muted);
+  line-height: var(--leading-snug);
+}
+
 .checkout-field-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

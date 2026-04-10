@@ -4,20 +4,13 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { enrichCartQuoteApiResponse } from "./lib/cart-api-response.js";
-import { validateShippingAddressForCheckout } from "./lib/address-validation.js";
-import { buildFullCheckoutQuote, formatShippingAddressForOrder } from "./lib/checkout-totals.js";
-import { parseCheckoutPayBody, parseEstimateAddressBody } from "./lib/checkout-validation.js";
-import {
-  cancelPendingOrderAfterPaymentFailure,
-  createPendingOrder,
-  fetchNexusSummaryRows,
-  fetchTaxSummaryTnRows,
-} from "./lib/orders.js";
+import { fetchNexusSummaryRows, fetchTaxSummaryTnRows } from "./lib/orders.js";
 import { buildQuote } from "./lib/quote.js";
 import { assertReportsAuthorized } from "./lib/reports-auth.js";
 import { resolveShippingZip } from "./lib/shipping.js";
-import { sendResendOrderConfirmation } from "./lib/resend-order-confirmation.js";
-import { createCardPayment } from "./lib/square.js";
+import adminDiscountCodesHandler from "./api/admin-discount-codes.js";
+import checkoutEstimateHandler from "./api/checkout-estimate.js";
+import checkoutPayHandler from "./api/checkout-pay.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,6 +30,19 @@ const knownSizes = storeData.site.sizes;
 const port = Number(process.env.PORT || 3000);
 const publicDir = path.join(__dirname, "public");
 const imageDir = path.join(__dirname, "public", "img");
+
+function adaptExpressStyleResponse(res) {
+  let statusCode = 200;
+  return {
+    status(c) {
+      statusCode = c;
+      return this;
+    },
+    json(body) {
+      sendJson(res, statusCode, body);
+    },
+  };
+}
 
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
@@ -137,97 +143,25 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/api/checkout-estimate" && req.method === "POST") {
       const body = await readJsonBody(req);
-      const items = Array.isArray(body.items) ? body.items : [];
-
-      if (!items.length) {
-        return sendJson(res, 400, { error: "Your cart is empty." });
-      }
-
-      const parsed = parseEstimateAddressBody(body);
-      if (parsed.error) {
-        return sendJson(res, 400, { error: parsed.error });
-      }
-
-      const quote = await buildFullCheckoutQuote(items, parsed.address);
-      const warnings = [];
-
-      if (!parsed.partial) {
-        const v = await validateShippingAddressForCheckout(parsed.address);
-        if (!v.ok) {
-          return sendJson(res, 400, { error: v.error });
-        }
-        if (v.warning) {
-          warnings.push(v.warning);
-        }
-      }
-
-      return sendJson(res, 200, { ...quote, warnings });
+      await checkoutEstimateHandler(
+        { method: "POST", body },
+        adaptExpressStyleResponse(res),
+      );
+      return;
     }
 
     if (pathname === "/api/checkout-pay" && req.method === "POST") {
       const body = await readJsonBody(req);
-      const parsed = parseCheckoutPayBody(body);
+      await checkoutPayHandler({ method: "POST", body }, adaptExpressStyleResponse(res));
+      return;
+    }
 
-      if (parsed.error) {
-        return sendJson(res, 400, { error: parsed.error });
-      }
-
-      try {
-        const addrCheck = await validateShippingAddressForCheckout(parsed.address);
-        if (!addrCheck.ok) {
-          return sendJson(res, 400, { error: addrCheck.error });
-        }
-
-        const quote = await buildFullCheckoutQuote(parsed.items, parsed.address);
-
-        let pending = null;
-        try {
-          pending = await createPendingOrder({
-            quote,
-            customer: {
-              name: parsed.name,
-              email: parsed.email,
-              phone: parsed.phone,
-              address: formatShippingAddressForOrder(parsed.address),
-              shippingState: parsed.address.state,
-            },
-          });
-          const { paymentId } = await createCardPayment({
-            sourceId: parsed.sourceId,
-            amountCents: quote.totalCents,
-            locationId: process.env.SQUARE_LOCATION_ID?.trim(),
-            orderId: pending.id,
-            buyerEmail: parsed.email,
-            idempotencyKey: `saigoods-pay-${pending.id}`,
-          });
-
-          void sendResendOrderConfirmation({
-            pending,
-            quote,
-            customerEmail: parsed.email,
-            customerName: parsed.name,
-          }).catch((err) => console.error("Resend order confirmation failed:", err));
-
-          return sendJson(res, 200, {
-            success: true,
-            paymentId,
-            orderId: pending.id,
-            orderRef: pending.order_ref,
-            totalFormatted: quote.totalFormatted,
-          });
-        } catch (payError) {
-          if (pending?.id) {
-            await cancelPendingOrderAfterPaymentFailure(pending.id);
-          }
-          throw payError;
-        }
-      } catch (error) {
-        console.error(error);
-
-        return sendJson(res, error.statusCode || 500, {
-          error: error.message || "Payment could not be completed.",
-        });
-      }
+    if (pathname === "/api/admin-discount-codes" && req.method === "GET") {
+      await adminDiscountCodesHandler(
+        { method: "GET", headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
     }
 
     if (pathname === "/api/checkout" && req.method === "POST") {
@@ -280,6 +214,14 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/admin/nexus" || pathname === "/admin/nexus/" || pathname === "/admin/nexus.html") {
       return serveFile(res, path.join(publicDir, "admin", "nexus.html"), req.method);
+    }
+
+    if (
+      pathname === "/admin/discount-codes" ||
+      pathname === "/admin/discount-codes/" ||
+      pathname === "/admin/discount-codes.html"
+    ) {
+      return serveFile(res, path.join(publicDir, "admin", "discount-codes.html"), req.method);
     }
 
     if (pathname === "/" || pathname === "/index.html") {

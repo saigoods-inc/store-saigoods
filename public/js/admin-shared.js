@@ -16,13 +16,14 @@ function escapeHtml(s) {
 }
 
 /**
- * @param {"orders" | "tax" | "nexus"} activeId
+ * @param {"orders" | "tax" | "nexus" | "discounts"} activeId
  */
 export function renderAdminNav(activeId) {
   const el = document.getElementById("admin-nav");
   if (!el) return;
   const links = [
     ["orders", "/admin/orders.html", "Orders"],
+    ["discounts", "/admin/discount-codes.html", "Discount codes"],
     ["tax", "/admin/tax.html", "Sales tax (TN)"],
     ["nexus", "/admin/nexus.html", "Nexus by state"],
   ];

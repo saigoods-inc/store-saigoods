@@ -492,11 +492,21 @@ function renderTable() {
         .filter(Boolean)
         .join(" ");
 
+      const hardinTag =
+        row.is_hardin_discount === true
+          ? `<div class="admin-order-tag" title="Hardin County Discount">Hardin County Discount${
+              row.discount_code_used
+                ? `<span class="admin-order-tag__code">${escapeHtml(String(row.discount_code_used))}</span>`
+                : ""
+            }</div>`
+          : "";
+
       return `
         <tr data-order-id="${escapeHtml(String(id))}" class="${rowClasses}">
           <td>
             <div class="admin-order-ref">${escapeHtml(orderRef)}</div>
             <div class="admin-order-id">${escapeHtml(String(id))}</div>
+            ${hardinTag}
           </td>
           <td>${escapeHtml(row.customer_name || "—")}<br /><span class="admin-muted">${escapeHtml(row.customer_email || "")}</span></td>
           <td><span class="${badgeClass(row.status === "paid" ? "paid" : "awaiting_payment")}">${escapeHtml(formatPaymentStatus(row.status))}</span></td>
@@ -542,6 +552,15 @@ function openModal(row) {
       <h3>Payment</h3>
       <p>${escapeHtml(formatPaymentStatus(row.status))} · ID: ${escapeHtml(row.payment_id || "—")}</p>
     </div>
+    ${
+      row.is_hardin_discount === true
+        ? `<div class="admin-modal__section">
+      <h3>Promotion</h3>
+      <p><span class="admin-order-tag admin-order-tag--inline">Hardin County Discount</span></p>
+      <p class="admin-muted">Code: ${escapeHtml(row.discount_code_used || "—")}</p>
+    </div>`
+        : ""
+    }
     <div class="admin-modal__section">
       <h3>Customer</h3>
       <pre>${escapeHtml(row.customer_name || "—")}\n${escapeHtml(row.customer_email || "—")}\n${escapeHtml(row.customer_phone || "—")}</pre>

@@ -4,7 +4,8 @@
   "rewrites": [
     { "source": "/admin/orders", "destination": "/admin/orders.html" },
     { "source": "/admin/tax", "destination": "/admin/tax.html" },
-    { "source": "/admin/nexus", "destination": "/admin/nexus.html" }
+    { "source": "/admin/nexus", "destination": "/admin/nexus.html" },
+    { "source": "/admin/discount-codes", "destination": "/admin/discount-codes.html" }
   ],
   "functions": {
     "api/**/*.js": {

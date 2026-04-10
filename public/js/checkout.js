@@ -183,6 +183,22 @@ function renderCheckoutShell(miniQuote, options = {}) {
           Update shipping &amp; tax
         </button>
 
+        <h2 class="checkout-section-title">Hardin County discount <span class="checkout-optional">(optional)</span></h2>
+        <p class="checkout-discount-hint">
+          Eligible Hardin County, TN deliveries: enter your one-time code (format <strong>HC-XXXXX</strong>). Pricing is validated on our servers when you update totals and when you pay.
+        </p>
+        <label class="checkout-field checkout-field--full">
+          <span>Discount code</span>
+          <input
+            type="text"
+            name="discountCode"
+            autocomplete="off"
+            autocapitalize="characters"
+            spellcheck="false"
+            placeholder="e.g. HC-7F3K2"
+          />
+        </label>
+
         <h2 class="checkout-section-title">Payment</h2>
         <p class="checkout-card-hint">Card details are processed by Square. We never see your full card number.</p>
         <div id="sq-card-container" class="sq-card-container"></div>
@@ -251,6 +267,10 @@ function readContactFromForm() {
     email: form.querySelector('[name="email"]')?.value?.trim() || "",
     phone: form.querySelector('[name="phone"]')?.value?.trim() || "",
   };
+}
+
+function readDiscountCode() {
+  return root.querySelector('[name="discountCode"]')?.value?.trim() || "";
 }
 
 /** Order summary: show "Free" when shipping is $0. */
@@ -382,10 +402,16 @@ async function runEstimate(options = {}) {
   }
 
   try {
+    const dc = readDiscountCode();
+    const payload = { items, address };
+    if (dc) {
+      payload.discountCode = dc;
+    }
+
     const res = await fetch("/api/checkout-estimate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ items, address }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -404,7 +430,15 @@ async function runEstimate(options = {}) {
     sumTotal.textContent = data.totalFormatted;
 
     if (warningsEl) {
-      const w = Array.isArray(data.warnings) ? data.warnings : [];
+      const w = Array.isArray(data.warnings) ? [...data.warnings] : [];
+      if (data.hardinDiscountBlocked === "incomplete_address" && readDiscountCode()) {
+        w.push(
+          'Complete your shipping address and click "Update shipping & tax" to apply your Hardin County discount code.',
+        );
+      }
+      if (data.hardinDiscountApplied) {
+        w.push("Hardin County discount pricing is applied to this order summary.");
+      }
       if (w.length) {
         warningsEl.hidden = false;
         warningsEl.innerHTML = w
@@ -659,17 +693,23 @@ function wireEvents() {
         throw new Error(msg);
       }
 
+      const payBody = {
+        items,
+        address,
+        email: contact.email,
+        phone: contact.phone,
+        name: contact.name || undefined,
+        sourceId: tokenResult.token,
+      };
+      const dcPay = readDiscountCode();
+      if (dcPay) {
+        payBody.discountCode = dcPay;
+      }
+
       const res = await fetch("/api/checkout-pay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items,
-          address,
-          email: contact.email,
-          phone: contact.phone,
-          name: contact.name || undefined,
-          sourceId: tokenResult.token,
-        }),
+        body: JSON.stringify(payBody),
       });
 
       const data = await res.json();

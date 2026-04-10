@@ -1,6 +1,12 @@
 import { validateShippingAddressForCheckout } from "../lib/address-validation.js";
 import { buildFullCheckoutQuote, formatShippingAddressForOrder } from "../lib/checkout-totals.js";
 import { parseCheckoutPayBody } from "../lib/checkout-validation.js";
+import {
+  assertDiscountCodeAvailable,
+  claimDiscountCodeForOrder,
+  normalizeDiscountCode,
+} from "../lib/discount-codes.js";
+import { isHardinCountyTnDelivery } from "../lib/hardin-county.js";
 import { cancelPendingOrderAfterPaymentFailure, createPendingOrder } from "../lib/orders.js";
 import { sendResendOrderConfirmation } from "../lib/resend-order-confirmation.js";
 import { createCardPayment } from "../lib/square.js";
@@ -24,7 +30,33 @@ export default async function handler(req, res) {
       return;
     }
 
-    const quote = await buildFullCheckoutQuote(parsed.items, parsed.address);
+    const discountRaw = parsed.discountCode ? String(parsed.discountCode).trim() : "";
+    const normalizedCode = discountRaw ? normalizeDiscountCode(discountRaw) : null;
+    if (discountRaw && !normalizedCode) {
+      res.status(400).json({
+        error: "Enter a valid Hardin County discount code (format HC-XXXXX, letters and numbers only).",
+      });
+      return;
+    }
+
+    let pricingTier = "standard";
+    let hardinDiscount = null;
+
+    if (normalizedCode) {
+      if (!isHardinCountyTnDelivery(parsed.address)) {
+        res.status(400).json({
+          error:
+            "The Hardin County discount only applies to orders shipped to an address in Hardin County, Tennessee.",
+        });
+        return;
+      }
+
+      await assertDiscountCodeAvailable(normalizedCode);
+      pricingTier = "hardin";
+      hardinDiscount = { code: normalizedCode, applied: true };
+    }
+
+    const quote = await buildFullCheckoutQuote(parsed.items, parsed.address, { pricingTier });
     const customer = {
       name: parsed.name,
       email: parsed.email,
@@ -35,8 +67,20 @@ export default async function handler(req, res) {
 
     let pending = null;
     try {
-      pending = await createPendingOrder({ quote, customer });
+      pending = await createPendingOrder({ quote, customer, hardinDiscount });
       const locationId = process.env.SQUARE_LOCATION_ID?.trim();
+
+      if (normalizedCode) {
+        const claimed = await claimDiscountCodeForOrder(normalizedCode, pending.id);
+        if (!claimed) {
+          await cancelPendingOrderAfterPaymentFailure(pending.id);
+          const err = new Error(
+            "This discount code was just used by another order. Refresh and try again without the code, or use a different code.",
+          );
+          err.statusCode = 409;
+          throw err;
+        }
+      }
 
       const { paymentId } = await createCardPayment({
         sourceId: parsed.sourceId,
@@ -60,6 +104,7 @@ export default async function handler(req, res) {
         orderId: pending.id,
         orderRef: pending.order_ref,
         totalFormatted: quote.totalFormatted,
+        hardinDiscountApplied: Boolean(normalizedCode),
       });
     } catch (payError) {
       if (pending?.id) {

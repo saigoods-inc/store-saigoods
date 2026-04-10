@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Discount codes — SAI Goods (staff)</title>
+    <link rel="stylesheet" href="/css/admin-orders.css" />
+  </head>
+  <body class="admin-page">
+    <div id="admin-login" class="admin-login" hidden>
+      <div class="admin-login__box">
+        <h1>Staff login</h1>
+        <p class="admin-muted">Sign in with your Supabase account to view Hardin County promo codes.</p>
+        <form id="login-form">
+          <label>
+            Email
+            <input type="email" name="email" autocomplete="username" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" autocomplete="current-password" required />
+          </label>
+          <p id="login-error" class="admin-error" role="alert" hidden></p>
+          <button type="submit" class="admin-btn admin-btn--primary">Sign in</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="admin-app" class="admin-app" hidden>
+      <header class="admin-header">
+        <div>
+          <h1>Hardin County discount codes</h1>
+          <p class="admin-muted">One-time codes · unused codes can be shared with eligible Hardin County, TN customers.</p>
+        </div>
+        <div class="admin-header__actions">
+          <span id="admin-user-email" class="admin-muted"></span>
+          <button type="button" id="admin-logout" class="admin-btn">Sign out</button>
+        </div>
+      </header>
+
+      <div id="admin-nav"></div>
+
+      <div class="admin-toolbar">
+        <button type="button" id="admin-refresh" class="admin-btn">Refresh</button>
+        <button type="button" id="admin-copy-unused" class="admin-btn">Copy unused codes</button>
+        <button type="button" id="admin-copy-all" class="admin-btn">Copy all codes (CSV)</button>
+      </div>
+
+      <p id="admin-load-error" class="admin-error" role="alert" hidden></p>
+      <div id="admin-loading" class="admin-loading" hidden>Loading codes…</div>
+
+      <div class="admin-table-wrap">
+        <table class="admin-table" id="codes-table">
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Status</th>
+              <th>Used at</th>
+              <th>Order ID</th>
+            </tr>
+          </thead>
+          <tbody id="codes-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <script type="module" src="/js/admin-discount-codes.js"></script>
+  </body>
+</html>

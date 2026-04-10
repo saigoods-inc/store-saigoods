@@ -1,6 +1,8 @@
 import { validateShippingAddressForCheckout } from "../lib/address-validation.js";
-import { parseEstimateAddressBody } from "../lib/checkout-validation.js";
 import { buildFullCheckoutQuote } from "../lib/checkout-totals.js";
+import { parseEstimateAddressBody } from "../lib/checkout-validation.js";
+import { assertDiscountCodeAvailable, normalizeDiscountCode } from "../lib/discount-codes.js";
+import { isHardinCountyTnDelivery } from "../lib/hardin-county.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -21,7 +23,52 @@ export default async function handler(req, res) {
       return;
     }
 
-    const quote = await buildFullCheckoutQuote(items, parsed.address);
+    const discountRaw = String(req.body?.discountCode ?? "").trim();
+    const normalizedCode = discountRaw ? normalizeDiscountCode(discountRaw) : null;
+    if (discountRaw && !normalizedCode) {
+      res.status(400).json({
+        error: "Enter a valid Hardin County discount code (format HC-XXXXX, letters and numbers only).",
+      });
+      return;
+    }
+
+    let pricingTier = "standard";
+    let hardinDiscountApplied = false;
+
+    if (normalizedCode) {
+      if (parsed.partial) {
+        const quote = await buildFullCheckoutQuote(items, parsed.address, { pricingTier: "standard" });
+        const warnings = [];
+        res.status(200).json({
+          ...quote,
+          warnings,
+          hardinDiscountApplied: false,
+          hardinDiscountBlocked: "incomplete_address",
+        });
+        return;
+      }
+
+      if (!isHardinCountyTnDelivery(parsed.address)) {
+        res.status(400).json({
+          error:
+            "The Hardin County discount only applies to orders shipped to an address in Hardin County, Tennessee.",
+        });
+        return;
+      }
+
+      try {
+        await assertDiscountCodeAvailable(normalizedCode);
+      } catch (err) {
+        const status = err.statusCode || 400;
+        res.status(status).json({ error: err.message || "Discount code is not valid." });
+        return;
+      }
+
+      pricingTier = "hardin";
+      hardinDiscountApplied = true;
+    }
+
+    const quote = await buildFullCheckoutQuote(items, parsed.address, { pricingTier });
     const warnings = [];
 
     if (!parsed.partial) {
@@ -35,7 +82,7 @@ export default async function handler(req, res) {
       }
     }
 
-    res.status(200).json({ ...quote, warnings });
+    res.status(200).json({ ...quote, warnings, hardinDiscountApplied });
   } catch (error) {
     console.error(error);
     res.status(error.statusCode || 500).json({ error: error.message || "Estimate failed." });
