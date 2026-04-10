@@ -4,6 +4,25 @@ import { escapeHtml, initSite, setButtonBusy, showToast } from "./site.js";
 
 const root = document.querySelector("[data-checkout-root]");
 
+/** Backend discount-validation messages → show under discount header (not shipping). */
+const CHECKOUT_DISCOUNT_ERROR_PREFIXES = [
+  "This discount only applies to orders shipped to an eligible address.",
+  "Enter a valid discount code",
+  "That discount code is not valid.",
+  "This discount code has already been used.",
+];
+
+function isCheckoutDiscountApiError(message) {
+  const m = String(message || "").trim();
+  if (!m) {
+    return false;
+  }
+  if (m.includes("just used by another order")) {
+    return true;
+  }
+  return CHECKOUT_DISCOUNT_ERROR_PREFIXES.some((p) => m === p || m.startsWith(p));
+}
+
 const US_STATE_CODES = [
   "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY",
   "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND",
@@ -181,10 +200,7 @@ function renderCheckoutShell(miniQuote, options = {}) {
 
         <div class="checkout-discount-block">
           <h2 class="checkout-section-title">Discount code <span class="checkout-optional">(optional)</span></h2>
-          <p id="checkout-discount-warning" class="checkout-discount-warning">
-            This discount only applies to orders shipped to an eligible address.
-          </p>
-          <p id="checkout-discount-error" class="checkout-discount-error" role="alert" hidden></p>
+          <p id="checkout-discount-warning" class="checkout-discount-warning" role="alert" hidden></p>
           <label class="checkout-field checkout-field--full">
             <span>Code</span>
             <input
@@ -193,7 +209,6 @@ function renderCheckoutShell(miniQuote, options = {}) {
               autocomplete="off"
               autocapitalize="characters"
               spellcheck="false"
-              aria-describedby="checkout-discount-warning checkout-discount-error"
             />
           </label>
           <button type="button" class="button button--secondary button--full checkout-confirm-address" id="checkout-update-totals">
@@ -305,13 +320,7 @@ function isValidEmail(email) {
 }
 
 function clearCheckoutInputErrors() {
-  const selectors = [
-    '[name="line1"]',
-    '[name="city"]',
-    '[name="state"]',
-    '[name="postalCode"]',
-    '[name="discountCode"]',
-  ];
+  const selectors = ['[name="line1"]', '[name="city"]', '[name="state"]', '[name="postalCode"]'];
   for (const sel of selectors) {
     const input = root.querySelector(sel);
     if (input?.classList?.contains("checkout-input--error")) {
@@ -329,35 +338,34 @@ function clearShippingSectionError() {
   el.textContent = "";
 }
 
-function clearDiscountSectionError() {
-  const el = document.getElementById("checkout-discount-error");
-  if (!el) {
-    return;
-  }
-  el.hidden = true;
-  el.textContent = "";
-}
-
-/** API messages about discount codes / eligibility — show under the discount block, not shipping. */
-function isDiscountFlowError(message) {
-  return /discount/i.test(String(message || ""));
-}
-
-function showDiscountSectionError(message) {
-  const el = document.getElementById("checkout-discount-error");
-  if (!el) {
-    return;
-  }
-  const staticLine =
-    "This discount only applies to orders shipped to an eligible address.";
-  const m = String(message || "").trim();
-  if (m === staticLine) {
+function clearDiscountSectionWarning() {
+  const el = document.getElementById("checkout-discount-warning");
+  const input = root.querySelector('[name="discountCode"]');
+  if (el) {
     el.hidden = true;
     el.textContent = "";
+  }
+  if (input) {
+    input.removeAttribute("aria-describedby");
+    input.removeAttribute("aria-invalid");
+  }
+}
+
+/**
+ * @param {string} message From API (eligible-address errors use the canonical backend string).
+ */
+function showDiscountSectionWarning(message) {
+  const el = document.getElementById("checkout-discount-warning");
+  const input = root.querySelector('[name="discountCode"]');
+  if (!el) {
     return;
   }
-  el.textContent = m;
+  el.textContent = message;
   el.hidden = false;
+  if (input) {
+    input.setAttribute("aria-describedby", "checkout-discount-warning");
+    input.setAttribute("aria-invalid", "true");
+  }
 }
 
 function showShippingSectionError(message) {
@@ -378,10 +386,6 @@ function setAddressFieldsError(on) {
     }
     input.classList.toggle("checkout-input--error", on);
   }
-}
-
-function setDiscountInputError(on) {
-  root.querySelector('[name="discountCode"]')?.classList.toggle("checkout-input--error", on);
 }
 
 /**
@@ -430,7 +434,7 @@ async function runEstimate(options = {}) {
 
   clearCheckoutInputErrors();
   clearShippingSectionError();
-  clearDiscountSectionError();
+  clearDiscountSectionWarning();
 
   if (validateContact && !applyContactValidationErrors()) {
     return;
@@ -463,6 +467,7 @@ async function runEstimate(options = {}) {
     }
 
     latestEstimate = data;
+    clearDiscountSectionWarning();
     sumSub.textContent = data.subtotalFormatted;
     if (initialSummary) {
       sumShip.textContent = "—";
@@ -493,18 +498,10 @@ async function runEstimate(options = {}) {
         warningsEl.innerHTML = "";
       }
     }
-
-    clearDiscountSectionError();
   } catch (e) {
     const msg = e.message || "Could not verify shipping address.";
-    const discountErr = isDiscountFlowError(msg);
-    if (discountErr) {
-      showDiscountSectionError(msg);
-      if (msg.includes("eligible address")) {
-        setAddressFieldsError(true);
-      } else {
-        setDiscountInputError(true);
-      }
+    if (isCheckoutDiscountApiError(msg)) {
+      showDiscountSectionWarning(msg);
     } else {
       setAddressFieldsError(true);
       showShippingSectionError(msg);
@@ -691,15 +688,15 @@ async function initSquareCard(applicationId, locationId) {
 function wireCheckoutFieldClearErrors() {
   root.addEventListener("input", (e) => {
     const t = e.target;
-    if (t?.name === "discountCode") {
-      clearDiscountSectionError();
-    }
     if (!t?.classList?.contains("checkout-input--error")) {
       return;
     }
     t.classList.remove("checkout-input--error");
     if (t.matches?.('[name="line1"], [name="city"], [name="postalCode"]')) {
       clearShippingSectionError();
+    }
+    if (t.matches?.('[name="discountCode"]')) {
+      clearDiscountSectionWarning();
     }
   });
   root.addEventListener("change", (e) => {
@@ -726,7 +723,7 @@ function wireEvents() {
 
     clearCheckoutInputErrors();
     clearShippingSectionError();
-    clearDiscountSectionError();
+    clearDiscountSectionWarning();
 
     if (!applyContactValidationErrors()) {
       return;
@@ -786,7 +783,12 @@ function wireEvents() {
         totalFormatted: data.totalFormatted,
       });
     } catch (e) {
-      showToast(e.message, "error");
+      const msg = e.message || "Payment failed.";
+      if (isCheckoutDiscountApiError(msg)) {
+        showDiscountSectionWarning(msg);
+      } else {
+        showToast(msg, "error");
+      }
     } finally {
       if (!checkoutSucceeded) {
         setButtonBusy(payBtn, false);
