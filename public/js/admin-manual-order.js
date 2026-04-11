@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
 import { formatCurrency } from "./catalog.js";
+import { formatBundleCardSizeSummaryHtml, perBundleSummaryMap } from "./bundle-size-summary.js";
 import { isBundleAllocationValid, requiredUnitsFromBundleLines } from "./bundle-validation.js";
 import {
   clearAdminSessionUser,
@@ -289,25 +290,6 @@ function buildItemsFromState() {
   return { items, errors };
 }
 
-function formatChannelSizeSummaryHtml(map) {
-  const segments = [];
-  for (const size of siteSizes) {
-    const q = Math.floor(Number(map[size])) || 0;
-    if (q > 0) {
-      segments.push(`${q} ${size}`);
-    }
-  }
-  if (segments.length === 0) {
-    return "";
-  }
-  return segments
-    .map(
-      (seg) =>
-        `<span class="bundle-card__size-summary-seg">${escapeHtml(seg)}</span>`,
-    )
-    .join('<span class="bundle-card__size-summary-sep" aria-hidden="true">•</span>');
-}
-
 function productSummaryStatus(product) {
   const st = productState[product.slug];
   if (!st) {
@@ -447,14 +429,15 @@ function renderBundleCard(product, st, b, err) {
       : "";
 
   const mapForKind = kind === "box" ? st.boxBySize : kind === "case" ? st.caseBySize : null;
-  const summaryHtml =
+  const summaryMap =
     mapForKind &&
     qty > 0 &&
     !showExpand &&
     ((kind === "box" && showBoxColumn(product, st.bundleQty)) ||
       (kind === "case" && showCaseColumn(product, st.bundleQty)))
-      ? formatChannelSizeSummaryHtml(mapForKind)
-      : "";
+      ? perBundleSummaryMap(product, st.bundleQty, b, mapForKind, siteSizes)
+      : null;
+  const summaryHtml = summaryMap ? formatBundleCardSizeSummaryHtml(summaryMap, siteSizes, escapeHtml) : "";
   const collapsedSummaryBlock =
     summaryHtml !== ""
       ? `<p class="bundle-card__size-summary">${summaryHtml}</p>`

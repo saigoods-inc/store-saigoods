@@ -1,5 +1,6 @@
 import { formatCurrency, getProduct } from "./catalog.js";
 import { getCart, setProductQuantities } from "./cart-store.js";
+import { formatBundleCardSizeSummaryHtml, perBundleSummaryMap } from "./bundle-size-summary.js";
 import { escapeHtml, initSite, showToast } from "./site.js";
 
 const productRoot = document.querySelector("[data-product-detail]");
@@ -123,30 +124,6 @@ function computeRequiredUnits() {
 
 function sumChannel(map) {
   return Object.values(map).reduce((s, n) => s + (Math.floor(Number(n)) || 0), 0);
-}
-
-/**
- * Ordered "2 Small • 1 Medium" from a size map; each segment is wrapped so multi-word
- * sizes (e.g. "X Large") never break mid-phrase—wraps happen between segments only.
- */
-function formatChannelSizeSummaryHtml(map) {
-  const sizes = store.site.sizes;
-  const segments = [];
-  for (const size of sizes) {
-    const q = Math.floor(Number(map[size])) || 0;
-    if (q > 0) {
-      segments.push(`${q} ${size}`);
-    }
-  }
-  if (segments.length === 0) {
-    return "";
-  }
-  return segments
-    .map(
-      (seg) =>
-        `<span class="bundle-card__size-summary-seg">${escapeHtml(seg)}</span>`,
-    )
-    .join('<span class="bundle-card__size-summary-sep" aria-hidden="true">•</span>');
 }
 
 /** Round-robin distribution of `total` units across `sizes` (used when bundle requirements change). */
@@ -374,15 +351,17 @@ function renderBundleCard(b, err) {
     `
       : "";
 
+  const sizes = store.site.sizes;
   const mapForKind =
     kind === "box" ? boxBySize : kind === "case" ? caseBySize : null;
-  const summaryHtml =
+  const summaryMap =
     mapForKind &&
     qty > 0 &&
     !showExpand &&
     ((kind === "box" && showBoxColumn()) || (kind === "case" && showCaseColumn()))
-      ? formatChannelSizeSummaryHtml(mapForKind)
-      : "";
+      ? perBundleSummaryMap(product, bundleQty, b, mapForKind, sizes)
+      : null;
+  const summaryHtml = summaryMap ? formatBundleCardSizeSummaryHtml(summaryMap, sizes, escapeHtml) : "";
   const collapsedSummaryBlock =
     summaryHtml !== ""
       ? `<p class="bundle-card__size-summary">${summaryHtml}</p>`
