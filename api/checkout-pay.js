@@ -91,11 +91,14 @@ export default async function handler(req, res) {
       });
 
       void sendResendOrderConfirmation({
-        pending,
+        pending: {
+          ...pending,
+          shipping_address: parsed.address && typeof parsed.address === "object" ? parsed.address : null,
+        },
         quote,
         customerEmail: parsed.email,
         customerName: parsed.name,
-      }).catch((err) => console.error("Resend order confirmation failed:", err));
+      }).catch((err) => console.error("Resend order receipt failed:", err));
 
       res.status(200).json({
         success: true,

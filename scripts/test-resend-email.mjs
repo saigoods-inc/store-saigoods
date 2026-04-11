@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Send a one-off test using your real Resend template (same HTML as checkout).
+ * Send a one-off test using the same post-payment receipt HTML as checkout.
  *
  * Usage:
  *   npm run test:resend -- you@example.com
@@ -61,9 +61,14 @@ const html = buildOrderConfirmationHtml({
     id: "test-internal-id",
     order_ref: "SAI-TEST",
     created_at: new Date().toISOString(),
+    customer_address: "3514 Cravens Rd\nSavannah, TN 38372",
   },
   quote: {
-    totalFormatted: "$0.00",
+    subtotalFormatted: "$312.99",
+    shippingCents: 0,
+    shippingFormatted: "$0.00",
+    taxFormatted: "$21.25",
+    totalFormatted: "$334.24",
     items: [
       {
         name: "Test line — Resend is working",
@@ -80,7 +85,7 @@ const resend = new Resend(key);
 const { data, error } = await resend.emails.send({
   from,
   to: [String(to).trim()],
-  subject: "SAI Goods — Resend test (order template)",
+  subject: "SAI Goods — Resend test (receipt)",
   html,
 });
 

@@ -1116,19 +1116,30 @@ async function sendPaymentLink() {
   }
 
   const btn = document.getElementById("btn-send-link");
+  if (!btn) {
+    return;
+  }
   btn.disabled = true;
   try {
     const data = await fetchReportPost("/api/admin-manual-order-send-link", token, {
-      orderId: oid,
+      orderId: String(oid),
     });
     const msg =
       data.warning ||
       (data.emailed === true
         ? "Payment link emailed to the customer."
         : "Payment link was created but the email was not sent — share the link manually or fix email settings.");
-    document.getElementById("manual-result-text").textContent += `\n\n${msg}`;
-    if (data.checkoutUrl && data.warning) {
-      document.getElementById("manual-result-text").textContent += `\n\nLink: ${data.checkoutUrl}`;
+    const resEl = document.getElementById("manual-result");
+    const textEl = document.getElementById("manual-result-text");
+    if (textEl) {
+      const prev = String(textEl.textContent || "").trim();
+      textEl.textContent = prev ? `${prev}\n\n${msg}` : msg;
+      if (data.checkoutUrl && data.warning) {
+        textEl.textContent += `\n\nLink: ${data.checkoutUrl}`;
+      }
+    }
+    if (resEl) {
+      resEl.hidden = false;
     }
     if (data.emailed === true) {
       lockSendPaymentLinkButtonAfterEmail();

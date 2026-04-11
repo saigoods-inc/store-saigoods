@@ -487,8 +487,9 @@ body.admin-page {
 
 .admin-order-items {
   margin: 0;
-  padding-left: 1.1rem;
+  padding-left: 0;
   max-width: 280px;
+  list-style: none;
 }
 
 .admin-order-items li {
