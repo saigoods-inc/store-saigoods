@@ -536,12 +536,14 @@ function renderLegacyProductBody(product) {
   return `<div class="manual-product-sizes">${sizeFields}</div>`;
 }
 
-function renderProductBlock(product, index) {
+function renderProductBlock(product, index, openDetailSlugs) {
   ensureProductState(product);
   const hasBundles = Array.isArray(product.bundles) && product.bundles.length > 0;
   const status = escapeHtml(productSummaryStatus(product));
   const issue = productHasAllocationIssue(product);
-  const openAttr = allocationSubmitAttempted && issue ? " open" : "";
+  const wasOpen = openDetailSlugs instanceof Set && openDetailSlugs.has(product.slug);
+  const openAttr =
+    (allocationSubmitAttempted && issue) || wasOpen ? " open" : "";
   const invalidClass = allocationSubmitAttempted && issue ? " manual-product-details--warn" : "";
 
   const body = hasBundles ? renderBundledProductBody(product) : renderLegacyProductBody(product);
@@ -564,7 +566,14 @@ function renderProductInputs() {
   if (!wrap) {
     return;
   }
-  wrap.innerHTML = products.map((p, i) => renderProductBlock(p, i)).join("");
+  const openDetailSlugs = new Set();
+  for (const el of wrap.querySelectorAll("details.manual-product-details[open]")) {
+    const slug = el.getAttribute("data-manual-product-slug");
+    if (slug) {
+      openDetailSlugs.add(slug);
+    }
+  }
+  wrap.innerHTML = products.map((p, i) => renderProductBlock(p, i, openDetailSlugs)).join("");
 }
 
 function applyBundleDelta(slug, bundleId, delta) {
