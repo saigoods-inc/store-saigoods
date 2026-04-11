@@ -15,6 +15,12 @@ import adminManualOrderDraftsHandler from "./api/admin-manual-order-drafts.js";
 import adminManualOrderEstimateHandler from "./api/admin-manual-order-estimate.js";
 import adminManualOrderSendLinkHandler from "./api/admin-manual-order-send-link.js";
 import adminManualOrderUpdateDraftHandler from "./api/admin-manual-order-update-draft.js";
+import adminWalkInOrderCreateHandler from "./api/admin-walk-in-order-create.js";
+import adminWalkInOrderDeleteDraftHandler from "./api/admin-walk-in-order-delete-draft.js";
+import adminWalkInOrderDraftsHandler from "./api/admin-walk-in-order-drafts.js";
+import adminWalkInOrderEstimateHandler from "./api/admin-walk-in-order-estimate.js";
+import adminWalkInOrderMarkPaidHandler from "./api/admin-walk-in-order-mark-paid.js";
+import adminWalkInOrderUpdateDraftHandler from "./api/admin-walk-in-order-update-draft.js";
 import checkoutEstimateHandler from "./api/checkout-estimate.js";
 import checkoutPayHandler from "./api/checkout-pay.js";
 
@@ -223,6 +229,59 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === "/api/admin-walk-in-order-estimate" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminWalkInOrderEstimateHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-walk-in-order-create" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminWalkInOrderCreateHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-walk-in-order-drafts" && req.method === "GET") {
+      await adminWalkInOrderDraftsHandler(
+        { method: "GET", headers: req.headers, url: req.url },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-walk-in-order-update-draft" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminWalkInOrderUpdateDraftHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-walk-in-order-delete-draft" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminWalkInOrderDeleteDraftHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-walk-in-order-mark-paid" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminWalkInOrderMarkPaidHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
     if (pathname === "/api/checkout" && req.method === "POST") {
       const body = await readJsonBody(req);
       const shippingZip = resolveShippingZip(body.customer);
@@ -289,6 +348,14 @@ const server = createServer(async (req, res) => {
       pathname === "/admin/manual-order.html"
     ) {
       return serveFile(res, path.join(publicDir, "admin", "manual-order.html"), req.method);
+    }
+
+    if (
+      pathname === "/admin/walk-in-order" ||
+      pathname === "/admin/walk-in-order/" ||
+      pathname === "/admin/walk-in-order.html"
+    ) {
+      return serveFile(res, path.join(publicDir, "admin", "walk-in-order.html"), req.method);
     }
 
     if (pathname === "/" || pathname === "/index.html") {

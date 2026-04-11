@@ -47,7 +47,7 @@ function escapeHtml(s) {
 }
 
 /**
- * @param {"orders" | "tax" | "nexus" | "discounts" | "manual-order"} activeId
+ * @param {"orders" | "tax" | "nexus" | "discounts" | "manual-order" | "walk-in-order"} activeId
  */
 export function renderAdminNav(activeId) {
   const el = document.getElementById("admin-nav");
@@ -55,6 +55,7 @@ export function renderAdminNav(activeId) {
   const links = [
     ["orders", "/admin/orders.html", "Orders"],
     ["manual-order", "/admin/manual-order.html", "Manual order"],
+    ["walk-in-order", "/admin/walk-in-order.html", "Walk-in order"],
     ["discounts", "/admin/discount-codes.html", "Discount codes"],
     ["tax", "/admin/tax.html", "Sales tax (TN)"],
     ["nexus", "/admin/nexus.html", "Nexus by state"],

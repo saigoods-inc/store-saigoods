@@ -387,6 +387,12 @@ body.admin-page {
   border: 1px solid #c7d2fe;
 }
 
+.admin-order-tag--walk-in {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
 .admin-order-tag__code {
   font-family: ui-monospace, monospace;
   text-transform: none;

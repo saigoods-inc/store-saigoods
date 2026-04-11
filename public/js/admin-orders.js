@@ -116,10 +116,26 @@ function isPaymentAwaiting(row) {
   return String(row.status || "").toLowerCase() !== "paid";
 }
 
+function isWalkInOrder(row) {
+  return String(row.order_type || "") === "walk_in" || String(row.order_source || "") === "walk_in";
+}
+
 /**
  * Normalized fulfillment key for filters + dropdown (maps legacy `paid` → ready_to_ship).
  */
 function normalizeFulfillment(row) {
+  if (isWalkInOrder(row)) {
+    const os = String(row.order_status || "");
+    if (os === "draft") {
+      return "walk_in_draft";
+    }
+    if (os === "paid") {
+      return "walk_in_paid";
+    }
+    if (os === "cancelled") {
+      return "cancelled";
+    }
+  }
   const os = row.order_status;
   if (os === "draft" || os === "payment_link_sent") {
     return os;
@@ -134,13 +150,25 @@ function paymentBadgeKey(row) {
   if (String(row.status || "").toLowerCase() === "paid") {
     return "paid";
   }
-  if (row.order_status === "payment_link_sent" || (row.order_source === "manual" && row.order_status === "draft")) {
+  if (
+    row.order_status === "payment_link_sent" ||
+    (row.order_source === "manual" && row.order_status === "draft") ||
+    (isWalkInOrder(row) && row.order_status === "draft")
+  ) {
     return "awaiting_payment";
   }
   return "awaiting_payment";
 }
 
 function formatPaymentColumnLabel(row) {
+  if (isWalkInOrder(row)) {
+    if (row.order_status === "draft") {
+      return "Draft (walk-in)";
+    }
+    if (String(row.status || "").toLowerCase() === "paid" && row.payment_method) {
+      return `Paid (${String(row.payment_method)})`;
+    }
+  }
   if (String(row.order_source) === "manual") {
     if (row.order_status === "draft") {
       return "Draft";
@@ -595,6 +623,12 @@ function getFilteredOrders() {
     if (filter === "manual_draft") {
       return String(r.order_source) === "manual" && r.order_status === "draft";
     }
+    if (filter === "walk_in_draft") {
+      return isWalkInOrder(r) && r.order_status === "draft";
+    }
+    if (filter === "walk_in_paid") {
+      return isWalkInOrder(r) && r.order_status === "paid";
+    }
     if (filter === "payment_link_sent") {
       return r.order_status === "payment_link_sent";
     }
@@ -608,6 +642,9 @@ function getFilteredOrders() {
 
 function currentFulfillmentSelectValue(row) {
   const fk = normalizeFulfillment(row);
+  if (fk === "walk_in_draft" || fk === "walk_in_paid") {
+    return fk;
+  }
   if (FULFILLMENT_OPTIONS.some(([v]) => v === fk)) return fk;
   return "ready_to_ship";
 }
@@ -634,12 +671,21 @@ function renderTable() {
       ).join("");
 
       const osRaw = String(row.order_status || "");
+      const walkInDraft = isWalkInOrder(row) && osRaw === "draft";
+      const walkInPaid = isWalkInOrder(row) && osRaw === "paid";
       const manualDraft =
         String(row.order_source) === "manual" && osRaw === "draft";
       const manualLinkSent =
         String(row.order_source) === "manual" && osRaw === "payment_link_sent";
 
-      const statusCell = manualDraft
+      const statusCell = walkInDraft
+        ? `<div>
+            <p class="admin-muted" style="margin:0">Walk-in draft</p>
+            <p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;">Complete on <a href="/admin/walk-in-order.html">Walk-in order</a> page.</p>
+          </div>`
+        : walkInPaid
+          ? `<span class="admin-muted">Paid in store (${escapeHtml(String(row.payment_method || "—"))})</span>`
+        : manualDraft
         ? `<div>
             <p class="admin-muted" style="margin:0">Draft</p>
             <button type="button" class="admin-btn admin-btn--small" data-send-pay-link="${escapeHtml(String(id))}" style="margin-top:0.4rem">Email payment link</button>
@@ -673,6 +719,9 @@ function renderTable() {
         String(row.order_source) === "manual"
           ? `<div class="admin-order-tag admin-order-tag--manual" title="Created from staff dashboard">Phone / manual</div>`
           : "";
+      const walkInTag = isWalkInOrder(row)
+        ? `<div class="admin-order-tag admin-order-tag--walk-in" title="In-store walk-in sale">Walk-in</div>`
+        : "";
 
       return `
         <tr data-order-id="${escapeHtml(String(id))}" class="${rowClasses}">
@@ -680,6 +729,7 @@ function renderTable() {
             <div class="admin-order-ref">${escapeHtml(orderRef)}</div>
             <div class="admin-order-id">${escapeHtml(String(id))}</div>
             ${manualTag}
+            ${walkInTag}
             ${hardinTag}
           </td>
           <td>${escapeHtml(row.customer_name || "—")}<br /><span class="admin-muted">${escapeHtml(row.customer_email || "")}</span></td>
@@ -721,13 +771,17 @@ function openModal(row) {
     <div class="admin-modal__section">
       <h3>Fulfillment / workflow</h3>
       <p><span class="${badgeClass(isPaymentAwaiting(row) ? "awaiting_payment" : currentFulfillmentSelectValue(row))}">${escapeHtml(
-        row.order_status === "draft"
-          ? "Draft"
-          : row.order_status === "payment_link_sent"
-            ? "Payment link sent"
-            : isPaymentAwaiting(row)
-              ? "Awaiting payment"
-              : fulfillmentLabel(currentFulfillmentSelectValue(row)),
+        isWalkInOrder(row) && row.order_status === "draft"
+          ? "Walk-in draft"
+          : isWalkInOrder(row) && row.order_status === "paid"
+            ? `Walk-in paid (${String(row.payment_method || "")})`
+            : row.order_status === "draft"
+              ? "Draft"
+              : row.order_status === "payment_link_sent"
+                ? "Payment link sent"
+                : isPaymentAwaiting(row)
+                  ? "Awaiting payment"
+                  : fulfillmentLabel(currentFulfillmentSelectValue(row)),
       )}</span></p>
       ${
         String(row.order_source) === "manual" && row.order_status === "payment_link_sent"
@@ -737,7 +791,9 @@ function openModal(row) {
     </div>
     <div class="admin-modal__section">
       <h3>Payment</h3>
-      <p>${escapeHtml(formatPaymentColumnLabel(row))} · ID: ${escapeHtml(row.payment_id || "—")}</p>
+      <p>${escapeHtml(formatPaymentColumnLabel(row))} · ID: ${escapeHtml(row.payment_id || "—")}${
+        row.paid_at ? ` · Paid at: ${escapeHtml(formatDate(row.paid_at))}` : ""
+      }</p>
       ${
         row.payment_link_url
           ? `<p class="admin-muted" style="margin-top:0.5rem;word-break:break-all">Payment link: ${escapeHtml(String(row.payment_link_url))}</p>`

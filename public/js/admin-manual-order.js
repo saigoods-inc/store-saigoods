@@ -43,6 +43,34 @@ let allocationSubmitAttempted = false;
 
 const SEND_PAYMENT_LINK_DEFAULT_LABEL = "Send payment link email";
 
+function isWalkInMode() {
+  return typeof document !== "undefined" && document.body?.dataset?.adminOrderMode === "walk-in";
+}
+
+function staffOrderApi(suffix) {
+  const base = isWalkInMode() ? "admin-walk-in-order" : "admin-manual-order";
+  return `/api/${base}-${suffix}`;
+}
+
+function activeAdminNavId() {
+  return isWalkInMode() ? "walk-in-order" : "manual-order";
+}
+
+function syncWalkInPaymentPanel() {
+  if (!isWalkInMode()) {
+    return;
+  }
+  const panel = document.getElementById("walk-in-payment-panel");
+  const btnPay = document.getElementById("btn-mark-walk-in-paid");
+  if (panel) {
+    panel.hidden = false;
+  }
+  const oid = lastCreatedOrderId || editingOrderId;
+  if (btnPay) {
+    btnPay.disabled = !oid;
+  }
+}
+
 function resetSendPaymentLinkButtonState() {
   const btn = document.getElementById("btn-send-link");
   if (!btn) {
@@ -67,7 +95,11 @@ function updateSaveButtonLabel() {
   if (!btn) {
     return;
   }
-  btn.textContent = editingOrderId ? "Save to update" : "Save draft order";
+  if (isWalkInMode()) {
+    btn.textContent = editingOrderId ? "Save to update walk-in" : "Save walk-in draft";
+  } else {
+    btn.textContent = editingOrderId ? "Save to update" : "Save draft order";
+  }
 }
 
 function setDiscountOverridePanelVisible(visible) {
@@ -821,7 +853,20 @@ function clearFormNewOrder() {
     cb.checked = false;
   }
   resetSendPaymentLinkButtonState();
-  document.getElementById("btn-send-link").disabled = true;
+  document.getElementById("btn-send-link")?.setAttribute("disabled", "");
+  const payBtn = document.getElementById("btn-mark-walk-in-paid");
+  if (payBtn) {
+    payBtn.disabled = true;
+  }
+  const cashRadio = document.querySelector('input[name="walk_in_pay"][value="cash"]');
+  if (cashRadio) {
+    cashRadio.checked = true;
+  }
+  const receiptCb = document.getElementById("walk_in_send_receipt");
+  if (receiptCb) {
+    receiptCb.checked = false;
+  }
+  syncWalkInPaymentPanel();
   document.getElementById("manual-preview").hidden = true;
   document.getElementById("manual-result").hidden = true;
   setEditingBanner("", false);
@@ -854,7 +899,7 @@ async function loadAndRenderDrafts() {
     return;
   }
   try {
-    const { drafts } = await fetchReportJson("/api/admin-manual-order-drafts", token);
+    const { drafts } = await fetchReportJson(staffOrderApi("drafts"), token);
     const list = Array.isArray(drafts) ? drafts : [];
     if (!list.length) {
       wrap.innerHTML = `<p class="admin-muted manual-drafts-empty">No saved drafts.</p>`;
@@ -892,7 +937,7 @@ async function openDraftForEdit(orderId) {
   }
   try {
     const { order } = await fetchReportJson(
-      `/api/admin-manual-order-drafts?id=${encodeURIComponent(orderId)}`,
+      `${staffOrderApi("drafts")}?id=${encodeURIComponent(orderId)}`,
       token,
     );
     hydrateProductStateFromOrder(order);
@@ -900,7 +945,10 @@ async function openDraftForEdit(orderId) {
     editingOrderId = String(order.id);
     lastCreatedOrderId = String(order.id);
     resetSendPaymentLinkButtonState();
-    document.getElementById("btn-send-link").disabled = false;
+    const sendLinkBtn = document.getElementById("btn-send-link");
+    if (sendLinkBtn && !isWalkInMode()) {
+      sendLinkBtn.disabled = false;
+    }
     document.getElementById("manual-preview").hidden = true;
     document.getElementById("manual-result").hidden = true;
     setEditingBanner(`Editing draft ${order.order_ref || order.id}. Save to update, or use “New order” to start fresh.`, true);
@@ -909,6 +957,7 @@ async function openDraftForEdit(orderId) {
     setDiscountOverridePanelVisible(false);
     renderProductInputs();
     updateSaveButtonLabel();
+    syncWalkInPaymentPanel();
     document.getElementById("manual-order-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (e) {
     errEl.textContent = e.message || "Could not open draft.";
@@ -929,7 +978,7 @@ async function deleteDraftById(orderId) {
     return;
   }
   try {
-    await fetchReportPost("/api/admin-manual-order-delete-draft", token, { orderId });
+    await fetchReportPost(staffOrderApi("delete-draft"), token, { orderId });
     if (String(editingOrderId) === String(orderId)) {
       clearFormNewOrder();
     }
@@ -1005,7 +1054,7 @@ async function runEstimate() {
     applyEligibleLocalDiscount,
     forceApplyEligibleLocalDiscount: discountOverrideConfirmed,
   };
-  const data = await fetchReportPost("/api/admin-manual-order-estimate", token, body);
+  const data = await fetchReportPost(staffOrderApi("estimate"), token, body);
   lastQuote = data;
 
   if (data?.adminLocalDiscountForced) {
@@ -1079,24 +1128,99 @@ async function saveDraft() {
   };
 
   const data = editingOrderId
-    ? await fetchReportPost("/api/admin-manual-order-update-draft", token, {
+    ? await fetchReportPost(staffOrderApi("update-draft"), token, {
         orderId: editingOrderId,
         ...baseBody,
       })
-    : await fetchReportPost("/api/admin-manual-order-create", token, baseBody);
+    : await fetchReportPost(staffOrderApi("create"), token, baseBody);
 
   editingOrderId = String(data.orderId);
   lastCreatedOrderId = String(data.orderId);
   resetSendPaymentLinkButtonState();
-  document.getElementById("btn-send-link").disabled = false;
+  const sendLinkAfterSave = document.getElementById("btn-send-link");
+  if (sendLinkAfterSave && !isWalkInMode()) {
+    sendLinkAfterSave.disabled = false;
+  }
 
   const resEl = document.getElementById("manual-result");
   const textEl = document.getElementById("manual-result-text");
-  textEl.textContent = `Reference ${data.orderRef} · Total ${data.totalFormatted}\nYou can now send the payment link email to the customer.`;
+  textEl.textContent = isWalkInMode()
+    ? `Reference ${data.orderRef} · Total ${data.totalFormatted}\nChoose cash or check, then Mark as paid. Optionally check “Send receipt email” if the customer has an email.`
+    : `Reference ${data.orderRef} · Total ${data.totalFormatted}\nYou can now send the payment link email to the customer.`;
   resEl.hidden = false;
   setEditingBanner(`Editing draft ${data.orderRef}. Save again to update totals after changes.`, true);
   updateSaveButtonLabel();
+  syncWalkInPaymentPanel();
   await loadAndRenderDrafts();
+}
+
+async function markWalkInPaid() {
+  const errEl = document.getElementById("admin-load-error");
+  errEl.hidden = true;
+  const oid = lastCreatedOrderId || editingOrderId;
+  if (!oid) {
+    errEl.textContent = "Save a walk-in draft first.";
+    errEl.hidden = false;
+    return;
+  }
+  const method = document.querySelector('input[name="walk_in_pay"]:checked')?.value;
+  if (method !== "cash" && method !== "check") {
+    errEl.textContent = "Select Cash or Check.";
+    errEl.hidden = false;
+    return;
+  }
+  const form = document.getElementById("manual-order-form");
+  const sendReceipt = document.getElementById("walk_in_send_receipt")?.checked === true;
+  const email = String(form?.cust_email?.value || "").trim();
+  if (sendReceipt && !email.includes("@")) {
+    errEl.textContent = "Enter a customer email to send a receipt, or uncheck “Send receipt email”.";
+    errEl.hidden = false;
+    return;
+  }
+  const token = await getSessionToken();
+  if (!token) {
+    errEl.textContent = "Sign in again.";
+    errEl.hidden = false;
+    return;
+  }
+  const btn = document.getElementById("btn-mark-walk-in-paid");
+  if (btn) {
+    btn.disabled = true;
+  }
+  try {
+    const data = await fetchReportPost(staffOrderApi("mark-paid"), token, {
+      orderId: String(oid),
+      paymentMethod: method,
+      sendReceipt,
+    });
+    const resEl = document.getElementById("manual-result");
+    const textEl = document.getElementById("manual-result-text");
+    const prev = String(textEl?.textContent || "").trim();
+    const receiptLine =
+      data.receiptEmailAttempted === true
+        ? data.receiptEmailSent === true
+          ? "\n\nReceipt email sent."
+          : `\n\nReceipt not sent (${String(data.receiptEmailReason || "see server logs")}).`
+        : "";
+    const msg = `Marked paid (${data.paymentMethod || method}).${receiptLine}`;
+    if (textEl) {
+      textEl.textContent = prev ? `${prev}\n\n${msg}` : msg;
+    }
+    if (resEl) {
+      resEl.hidden = false;
+    }
+    await loadAndRenderDrafts();
+    editingOrderId = null;
+    lastCreatedOrderId = null;
+    clearFormNewOrder();
+  } catch (e) {
+    errEl.textContent = e.message || "Could not mark paid.";
+    errEl.hidden = false;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+    }
+  }
 }
 
 async function sendPaymentLink() {
@@ -1172,6 +1296,7 @@ async function bootstrapManualOrderData() {
   bindDraftsListClicks();
   await loadAndRenderDrafts();
   updateSaveButtonLabel();
+  syncWalkInPaymentPanel();
 }
 
 async function init() {
@@ -1201,7 +1326,7 @@ async function init() {
     primeAdminSessionUser(session);
     showApp();
     document.getElementById("admin-user-email").textContent = session.user.email || "";
-    renderAdminNav("manual-order");
+    renderAdminNav(activeAdminNavId());
     await bootstrapManualOrderData();
   } else {
     showLogin();
@@ -1214,7 +1339,7 @@ async function init() {
       }
       document.getElementById("admin-user-email").textContent = sess.user.email || "";
       showApp();
-      renderAdminNav("manual-order");
+      renderAdminNav(activeAdminNavId());
       await bootstrapManualOrderData();
     }
     if (event === "SIGNED_OUT") {
@@ -1240,7 +1365,7 @@ async function init() {
     primeAdminSessionUser(afterLogin.session);
     showApp();
     document.getElementById("admin-user-email").textContent = email;
-    renderAdminNav("manual-order");
+    renderAdminNav(activeAdminNavId());
     await bootstrapManualOrderData();
   });
 
@@ -1308,6 +1433,7 @@ async function init() {
   });
 
   document.getElementById("btn-send-link")?.addEventListener("click", () => void sendPaymentLink());
+  document.getElementById("btn-mark-walk-in-paid")?.addEventListener("click", () => void markWalkInPaid());
 }
 
 init();
