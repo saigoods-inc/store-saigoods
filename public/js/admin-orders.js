@@ -652,7 +652,7 @@ function renderTable() {
 
       const hardinTag =
         row.is_hardin_discount === true
-          ? `<div class="admin-order-tag" title="Hardin County Discount">Hardin County Discount${
+          ? `<div class="admin-order-tag" title="Admin discount applied">Admin discount applied${
               row.discount_code_used
                 ? `<span class="admin-order-tag__code">${escapeHtml(String(row.discount_code_used))}</span>`
                 : ""
@@ -733,7 +733,7 @@ function openModal(row) {
       row.is_hardin_discount === true
         ? `<div class="admin-modal__section">
       <h3>Promotion</h3>
-      <p><span class="admin-order-tag admin-order-tag--inline">Hardin County Discount</span></p>
+      <p><span class="admin-order-tag admin-order-tag--inline">Admin discount applied</span></p>
       <p class="admin-muted">Code: ${escapeHtml(row.discount_code_used || "—")}</p>
     </div>`
         : ""

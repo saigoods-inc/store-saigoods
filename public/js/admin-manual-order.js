@@ -676,22 +676,26 @@ function onManualProductsClick(e) {
   if (action === "bundle-select") {
     selectBundleCard(slug, t.dataset.bundleId);
     renderProductInputs();
+    e.stopPropagation();
     return;
   }
   if (action === "bundle-increase") {
     applyBundleDelta(slug, t.dataset.bundleId, 1);
     renderProductInputs();
+    e.stopPropagation();
     return;
   }
   if (action === "bundle-decrease") {
     applyBundleDelta(slug, t.dataset.bundleId, -1);
     renderProductInputs();
+    e.stopPropagation();
     return;
   }
   if (action === "size-step") {
     const delta = Number(t.dataset.delta) || 0;
     handleSizeStep(slug, t.dataset.channel, t.dataset.size, delta);
     renderProductInputs();
+    e.stopPropagation();
   }
 }
 
