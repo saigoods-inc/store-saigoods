@@ -41,6 +41,27 @@ let productState = {};
 /** After failed estimate/save: show bundle/size mismatch styling (mirrors product page). */
 let allocationSubmitAttempted = false;
 
+const SEND_PAYMENT_LINK_DEFAULT_LABEL = "Send payment link email";
+
+function resetSendPaymentLinkButtonState() {
+  const btn = document.getElementById("btn-send-link");
+  if (!btn) {
+    return;
+  }
+  btn.textContent = SEND_PAYMENT_LINK_DEFAULT_LABEL;
+  delete btn.dataset.paymentLinkSent;
+}
+
+function lockSendPaymentLinkButtonAfterEmail() {
+  const btn = document.getElementById("btn-send-link");
+  if (!btn) {
+    return;
+  }
+  btn.textContent = "Payment link sent";
+  btn.dataset.paymentLinkSent = "1";
+  btn.disabled = true;
+}
+
 function updateSaveButtonLabel() {
   const btn = document.getElementById("btn-save-draft");
   if (!btn) {
@@ -799,6 +820,7 @@ function clearFormNewOrder() {
   if (cb) {
     cb.checked = false;
   }
+  resetSendPaymentLinkButtonState();
   document.getElementById("btn-send-link").disabled = true;
   document.getElementById("manual-preview").hidden = true;
   document.getElementById("manual-result").hidden = true;
@@ -877,6 +899,7 @@ async function openDraftForEdit(orderId) {
     fillFormFromOrder(order);
     editingOrderId = String(order.id);
     lastCreatedOrderId = String(order.id);
+    resetSendPaymentLinkButtonState();
     document.getElementById("btn-send-link").disabled = false;
     document.getElementById("manual-preview").hidden = true;
     document.getElementById("manual-result").hidden = true;
@@ -1064,6 +1087,7 @@ async function saveDraft() {
 
   editingOrderId = String(data.orderId);
   lastCreatedOrderId = String(data.orderId);
+  resetSendPaymentLinkButtonState();
   document.getElementById("btn-send-link").disabled = false;
 
   const resEl = document.getElementById("manual-result");
@@ -1097,17 +1121,26 @@ async function sendPaymentLink() {
     const data = await fetchReportPost("/api/admin-manual-order-send-link", token, {
       orderId: oid,
     });
-    const msg = data.warning || (data.emailed ? "Payment link emailed to the customer." : "Done.");
+    const msg =
+      data.warning ||
+      (data.emailed === true
+        ? "Payment link emailed to the customer."
+        : "Payment link was created but the email was not sent — share the link manually or fix email settings.");
     document.getElementById("manual-result-text").textContent += `\n\n${msg}`;
     if (data.checkoutUrl && data.warning) {
       document.getElementById("manual-result-text").textContent += `\n\nLink: ${data.checkoutUrl}`;
+    }
+    if (data.emailed === true) {
+      lockSendPaymentLinkButtonAfterEmail();
     }
     await loadAndRenderDrafts();
   } catch (e) {
     errEl.textContent = e.message || "Failed to send link.";
     errEl.hidden = false;
   } finally {
-    btn.disabled = false;
+    if (btn.dataset.paymentLinkSent !== "1") {
+      btn.disabled = false;
+    }
   }
 }
 

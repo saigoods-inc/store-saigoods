@@ -380,11 +380,17 @@ function bindOrdersTableEvents() {
           const result = await fetchReportPost("/api/admin-manual-order-send-link", session.access_token, {
             orderId,
           });
-          alert(result.warning || (result.emailed ? "Payment link emailed to the customer." : "Done."));
+          if (result.emailed === true) {
+            alert(result.warning || "Payment link emailed to the customer.");
+          } else {
+            alert(
+              result.warning ||
+                "The payment link was created but the email was not sent. Share the link manually or fix email settings, then try again.",
+            );
+          }
           await loadOrders();
         } catch (err) {
           alert(err.message || "Failed to send payment link.");
-        } finally {
           sendLinkBtn.disabled = false;
         }
       })();
@@ -628,13 +634,20 @@ function renderTable() {
       ).join("");
 
       const osRaw = String(row.order_status || "");
-      const manualPrePay =
-        String(row.order_source) === "manual" && (osRaw === "draft" || osRaw === "payment_link_sent");
+      const manualDraft =
+        String(row.order_source) === "manual" && osRaw === "draft";
+      const manualLinkSent =
+        String(row.order_source) === "manual" && osRaw === "payment_link_sent";
 
-      const statusCell = manualPrePay
+      const statusCell = manualDraft
         ? `<div>
-            <p class="admin-muted" style="margin:0">${osRaw === "draft" ? "Draft" : "Payment link sent"}</p>
+            <p class="admin-muted" style="margin:0">Draft</p>
             <button type="button" class="admin-btn admin-btn--small" data-send-pay-link="${escapeHtml(String(id))}" style="margin-top:0.4rem">Email payment link</button>
+          </div>`
+        : manualLinkSent
+          ? `<div>
+            <p style="margin:0"><strong>Payment link sent</strong></p>
+            <p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px"><b>Payment must complete before fulfillment status can be set.</b></p>
           </div>`
         : awaiting
           ? `<span class="admin-muted">Awaiting payment</span><p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;">Payment must complete before fulfillment status can be set.</p>`
@@ -719,6 +732,11 @@ function openModal(row) {
               ? "Awaiting payment"
               : fulfillmentLabel(currentFulfillmentSelectValue(row)),
       )}</span></p>
+      ${
+        String(row.order_source) === "manual" && row.order_status === "payment_link_sent"
+          ? `<p class="admin-muted" style="margin:0.5rem 0 0;font-size:13px"><b>Payment must complete before fulfillment status can be set.</b></p>`
+          : ""
+      }
     </div>
     <div class="admin-modal__section">
       <h3>Payment</h3>

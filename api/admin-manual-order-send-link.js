@@ -71,8 +71,12 @@ export default async function handler(req, res) {
     }
 
     const st = String(order.order_status || "");
-    if (st !== "draft" && st !== "payment_link_sent") {
-      res.status(400).json({ error: "Order must be in draft or payment link sent state." });
+    if (st === "payment_link_sent") {
+      res.status(400).json({ error: "A payment link email was already sent for this order." });
+      return;
+    }
+    if (st !== "draft") {
+      res.status(400).json({ error: "Order must be a draft to send a payment link." });
       return;
     }
 
@@ -140,25 +144,31 @@ export default async function handler(req, res) {
         },
       });
 
-      await updateOrderPaymentLinkSent(order.id, checkoutUrl);
-
       const emailed = await sendManualOrderPaymentLinkEmail({
         customerEmail: order.customer_email,
         customerName: order.customer_name,
         orderRef: order.order_ref,
         totalFormatted: quote.totalFormatted,
         checkoutUrl,
+        quote,
+        shippingAddress: shipAddr,
       });
 
       if (!emailed) {
+        if (claimed) {
+          await releaseDiscountCodeForOrder(order.id);
+        }
         res.status(200).json({
           ok: true,
           checkoutUrl,
+          emailed: false,
           warning:
             "Payment link was created but the email could not be sent. Configure RESEND_API_KEY and RESEND_FROM, or share the link manually.",
         });
         return;
       }
+
+      await updateOrderPaymentLinkSent(order.id, checkoutUrl);
 
       res.status(200).json({ ok: true, checkoutUrl, emailed: true });
     } catch (err) {
