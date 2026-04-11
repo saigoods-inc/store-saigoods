@@ -28,3 +28,12 @@ alter table public.orders add column if not exists admin_local_discount_override
 
 comment on column public.orders.admin_local_discount_override is
   'True when staff applied local (Hardin-tier) pricing despite shipping ZIP outside the normal eligible area.';
+
+-- Last modified (manual “Save to update”, payment-link sync, etc.).
+alter table public.orders add column if not exists updated_at timestamptz;
+
+update public.orders set updated_at = created_at where updated_at is null;
+
+alter table public.orders alter column updated_at set default now();
+
+comment on column public.orders.updated_at is 'Row last update time; initialized from created_at for existing rows.';

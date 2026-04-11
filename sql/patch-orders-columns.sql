@@ -4,6 +4,8 @@
 alter table public.orders add column if not exists provider text not null default 'square';
 alter table public.orders add column if not exists payment_id text;
 alter table public.orders add column if not exists created_at timestamptz not null default now();
+alter table public.orders add column if not exists updated_at timestamptz default now();
+update public.orders set updated_at = created_at where updated_at is null;
 alter table public.orders add column if not exists order_ref text;
 
 -- If order_ref was added nullable, backfill then enforce NOT NULL (run once after backfill):

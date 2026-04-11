@@ -849,7 +849,7 @@ async function loadAndRenderDrafts() {
         <div class="manual-drafts-li__main">
           <strong>${escapeHtml(d.order_ref || String(d.id))}</strong>
           <span class="admin-muted">${escapeHtml(d.customer_name || "—")} · ${escapeHtml(d.customer_email || "")}</span>
-          <span class="admin-muted">${formatDraftWhen(d.created_at)} · ${formatCurrency(d.total_cents)}</span>
+          <span class="admin-muted">Updated ${formatDraftWhen(d.updated_at || d.created_at)} · ${formatCurrency(d.total_cents)}</span>
         </div>
         <div class="manual-drafts-li__actions">
           <button type="button" class="admin-btn admin-btn--small" data-draft-edit="${escapeHtml(String(d.id))}">Edit</button>

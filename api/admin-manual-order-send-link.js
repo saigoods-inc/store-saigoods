@@ -36,6 +36,7 @@ async function syncOrderTotalsFromQuote(client, orderId, quote) {
       amount: amountCents,
       tax_collected: taxCollected,
       admin_local_discount_override: Boolean(quote.adminLocalDiscountForced),
+      updated_at: new Date().toISOString(),
     })
     .eq("id", orderId);
 

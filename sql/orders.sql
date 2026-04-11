@@ -35,12 +35,14 @@ create table if not exists public.orders (
   state text,
   amount integer not null default 0,
   tax_collected integer not null default 0,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 comment on column public.orders.amount is 'Pretax order total (subtotal + shipping), cents.';
 comment on column public.orders.tax_collected is 'Sales tax collected, cents (TN nexus).';
 comment on column public.orders.state is 'Shipping destination state, 2-letter US.';
+comment on column public.orders.updated_at is 'Last row update (draft saves, payment link, etc.).';
 
 create index if not exists orders_status_idx on public.orders (status);
 create index if not exists orders_customer_email_idx on public.orders (customer_email);
