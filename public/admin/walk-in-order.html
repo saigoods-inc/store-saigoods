@@ -31,9 +31,8 @@
         <div>
           <h1>Walk-in order</h1>
           <p class="admin-muted">
-            In-store sales only: same pricing and tax rules as other staff orders. Save a draft, then mark paid as
-            <strong>cash</strong> or <strong>check</strong>. Email is optional; add it if the customer should get a receipt
-            (Resend).
+            Fast in-store checkout: add line items, calculate totals, <strong>Record walk-in order</strong>, then
+            <strong>Mark as paid</strong> (cash or check). Pickup only — no ship-to. Email optional for receipts (Resend).
           </p>
         </div>
         <div class="admin-header__actions">
@@ -49,12 +48,12 @@
       <form id="manual-order-form" class="manual-order-form">
         <section class="manual-order-section manual-order-section--drafts">
           <div class="manual-order-section-head">
-            <h2>Saved drafts</h2>
+            <h2>Walk-in records</h2>
             <button type="button" class="admin-btn admin-btn--small" id="btn-new-order">New order</button>
           </div>
           <p class="admin-muted" style="margin: 0 0 0.5rem">
-            Open a draft to edit, or delete drafts you no longer need. Only <strong>draft</strong> walk-in orders appear
-            here.
+            Open a row to edit an unpaid walk-in, or delete lines you do not need. Only open (unpaid) walk-ins appear
+            here until you mark them paid.
           </p>
           <div id="manual-drafts-list" class="manual-drafts-list">
             <p class="admin-muted manual-drafts-empty">Loading…</p>
@@ -70,42 +69,12 @@
               <input type="text" name="cust_name" required autocomplete="name" />
             </label>
             <label>
-              Email <span class="admin-muted">(optional)</span>
+              Email (optional)
               <input type="email" name="cust_email" autocomplete="email" />
             </label>
             <label>
-              Phone <span class="admin-muted">(optional)</span>
+              Phone (optional)
               <input type="tel" name="cust_phone" autocomplete="tel" />
-            </label>
-          </div>
-        </section>
-
-        <section class="manual-order-section">
-          <h2>Address for quote / tax</h2>
-          <p class="admin-muted" style="margin: 0 0 0.75rem">
-            Required so totals match checkout rules (shipping + tax). Use the customer’s address or your store address if
-            needed.
-          </p>
-          <div class="manual-order-grid">
-            <label class="manual-order-full">
-              Street address
-              <input type="text" name="addr_line1" required autocomplete="address-line1" />
-            </label>
-            <label class="manual-order-full">
-              Apt, suite (optional)
-              <input type="text" name="addr_line2" autocomplete="address-line2" />
-            </label>
-            <label>
-              City
-              <input type="text" name="addr_city" required autocomplete="address-level2" />
-            </label>
-            <label>
-              State
-              <select name="addr_state" id="addr_state" required></select>
-            </label>
-            <label>
-              ZIP
-              <input type="text" name="addr_zip" required inputmode="numeric" autocomplete="postal-code" />
             </label>
           </div>
         </section>
@@ -113,8 +82,8 @@
         <section class="manual-order-section">
           <h2>Line items</h2>
           <p class="admin-muted" style="margin: 0 0 0.75rem">
-            Same flow as manual order: pick bundle packs, then assign sizes. Calculate totals and save are blocked until
-            every active line validates.
+            Pick bundle packs, then assign sizes. Calculate totals and record are blocked until every active line
+            validates.
           </p>
           <div id="manual-products"></div>
         </section>
@@ -123,23 +92,8 @@
           <h2>Discount</h2>
           <label class="manual-checkbox-label">
             <input type="checkbox" name="apply_local_discount" id="apply_local_discount" value="1" />
-            <span>Apply eligible local discount (Hardin County, TN delivery — verified on the server from ZIP)</span>
+            <span>Apply local discount (walk-in / Savannah pickup — applied when checked; no ZIP entry required)</span>
           </label>
-          <p class="admin-muted" style="margin: 0.35rem 0 0">
-            Checking this asks for local pricing; it is only applied when the address qualifies. Use override below if you
-            need an exception.
-          </p>
-          <div id="manual-discount-override-panel" class="manual-discount-override" hidden>
-            <p class="manual-discount-override__text">
-              This order does not meet discount eligibility rules (shipping ZIP is outside the eligible local area).
-            </p>
-            <button type="button" class="admin-btn admin-btn--primary" id="btn-discount-override">
-              Continue — apply discount anyway
-            </button>
-            <p class="admin-muted manual-discount-override__note">
-              Override is recorded on the order for tracking. Pricing updates after you click.
-            </p>
-          </div>
         </section>
 
         <div class="manual-order-actions manual-order-actions--estimate">
@@ -152,14 +106,14 @@
         </div>
 
         <div class="manual-order-actions manual-order-actions--save">
-          <button type="button" class="admin-btn admin-btn--primary" id="btn-save-draft">Save walk-in draft</button>
+          <button type="button" class="admin-btn admin-btn--primary" id="btn-save-draft">Record walk-in order</button>
         </div>
 
         <section id="walk-in-payment-panel" class="manual-order-section">
           <h2>Payment</h2>
           <p class="admin-muted" style="margin: 0 0 0.75rem">
-            Save the draft first. Then choose how the customer paid and mark the order paid. This records
-            <code>order_type = walk_in</code>, <code>payment_method</code>, and <code>paid_at</code> in the database.
+            After you <strong>Record walk-in order</strong>, choose cash or check and mark paid. Paid orders leave this
+            list and show on the main Orders page.
           </p>
           <div class="manual-order-grid" style="align-items: center">
             <label class="manual-checkbox-label"
@@ -179,7 +133,7 @@
         </section>
 
         <div id="manual-result" class="manual-order-result" hidden>
-          <h3>Order saved</h3>
+          <h3>Order recorded</h3>
           <p id="manual-result-text"></p>
         </div>
       </form>

@@ -96,7 +96,7 @@ function updateSaveButtonLabel() {
     return;
   }
   if (isWalkInMode()) {
-    btn.textContent = editingOrderId ? "Save to update walk-in" : "Save walk-in draft";
+    btn.textContent = editingOrderId ? "Update walk-in record" : "Record walk-in order";
   } else {
     btn.textContent = editingOrderId ? "Save to update" : "Save draft order";
   }
@@ -110,6 +110,10 @@ function setDiscountOverridePanelVisible(visible) {
 }
 
 function syncDiscountOverridePanelAfterEstimate(data, form) {
+  if (isWalkInMode()) {
+    setDiscountOverridePanelVisible(false);
+    return;
+  }
   if (!readApplyLocalDiscount(form)) {
     setDiscountOverridePanelVisible(false);
     return;
@@ -132,6 +136,16 @@ function showApp() {
 }
 
 function readAddressFromForm(form) {
+  if (isWalkInMode()) {
+    return {
+      line1: "In-store pickup",
+      line2: "",
+      city: "Savannah",
+      state: "TN",
+      postalCode: "38372",
+      country: "US",
+    };
+  }
   return {
     line1: String(form.addr_line1?.value || "").trim(),
     line2: String(form.addr_line2?.value || "").trim(),
@@ -812,12 +826,14 @@ function fillFormFromOrder(order) {
   form.cust_name.value = order.customer_name || "";
   form.cust_email.value = order.customer_email || "";
   form.cust_phone.value = order.customer_phone || "";
-  const a = order.shipping_address && typeof order.shipping_address === "object" ? order.shipping_address : {};
-  form.addr_line1.value = a.line1 || "";
-  form.addr_line2.value = a.line2 || "";
-  form.addr_city.value = a.city || "";
-  form.addr_state.value = String(a.state || "").trim().toUpperCase() || "";
-  form.addr_zip.value = a.postalCode || "";
+  if (!isWalkInMode() && form.addr_line1) {
+    const a = order.shipping_address && typeof order.shipping_address === "object" ? order.shipping_address : {};
+    form.addr_line1.value = a.line1 || "";
+    form.addr_line2.value = a.line2 || "";
+    form.addr_city.value = a.city || "";
+    form.addr_state.value = String(a.state || "").trim().toUpperCase() || "";
+    form.addr_zip.value = a.postalCode || "";
+  }
   const cb = document.getElementById("apply_local_discount");
   if (cb) {
     cb.checked = order.is_hardin_discount === true;
@@ -842,10 +858,12 @@ function clearFormNewOrder() {
     form.cust_name.value = "";
     form.cust_email.value = "";
     form.cust_phone.value = "";
-    form.addr_line1.value = "";
-    form.addr_line2.value = "";
-    form.addr_city.value = "";
-    form.addr_zip.value = "";
+    if (!isWalkInMode() && form.addr_line1) {
+      form.addr_line1.value = "";
+      form.addr_line2.value = "";
+      form.addr_city.value = "";
+      form.addr_zip.value = "";
+    }
   }
   fillStateSelect();
   const cb = document.getElementById("apply_local_discount");
@@ -951,7 +969,12 @@ async function openDraftForEdit(orderId) {
     }
     document.getElementById("manual-preview").hidden = true;
     document.getElementById("manual-result").hidden = true;
-    setEditingBanner(`Editing draft ${order.order_ref || order.id}. Save to update, or use “New order” to start fresh.`, true);
+    setEditingBanner(
+      isWalkInMode()
+        ? `Editing walk-in ${order.order_ref || order.id}. Record again to update, or use “New order” to start fresh.`
+        : `Editing draft ${order.order_ref || order.id}. Save to update, or use “New order” to start fresh.`,
+      true,
+    );
     allocationSubmitAttempted = false;
     discountOverrideConfirmed = order.admin_local_discount_override === true;
     setDiscountOverridePanelVisible(false);
@@ -1144,6 +1167,10 @@ async function saveDraft() {
 
   const resEl = document.getElementById("manual-result");
   const textEl = document.getElementById("manual-result-text");
+  const resHeading = resEl?.querySelector("h3");
+  if (resHeading) {
+    resHeading.textContent = isWalkInMode() ? "Order recorded" : "Order saved";
+  }
   textEl.textContent = isWalkInMode()
     ? `Reference ${data.orderRef} · Total ${data.totalFormatted}\nChoose cash or check, then Mark as paid. Optionally check “Send receipt email” if the customer has an email.`
     : `Reference ${data.orderRef} · Total ${data.totalFormatted}\nYou can now send the payment link email to the customer.`;

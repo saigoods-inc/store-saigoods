@@ -1,14 +1,13 @@
 import { formatShippingAddressForOrder } from "../lib/checkout-totals.js";
 import { computeCheckoutEstimate } from "../lib/checkout-estimate-logic.js";
-import { isHardinCountyTnDelivery } from "../lib/hardin-county.js";
 import { createWalkInOrderDraft } from "../lib/orders.js";
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
+import { WALK_IN_PICKUP_ADDRESS } from "../lib/walk-in-pickup.js";
 
 function parseWalkInCreateBody(body) {
   const name = String(body?.name || "").trim();
   const email = String(body?.email || "").trim();
   const phone = String(body?.phone || "").trim();
-  const addr = body?.address;
   if (!name) {
     return { error: "Customer name is required." };
   }
@@ -21,30 +20,17 @@ function parseWalkInCreateBody(body) {
       return { error: "If provided, phone must have at least 10 digits." };
     }
   }
-  if (!addr || typeof addr !== "object") {
-    return { error: "Address is required for tax and totals (use customer or store address if needed)." };
-  }
   const items = Array.isArray(body?.items) ? body.items : [];
   if (!items.length) {
     return { error: "Add at least one line item." };
   }
   const applyEligibleLocalDiscount = body?.applyEligibleLocalDiscount === true;
-  const adminLocalDiscountOverride = applyEligibleLocalDiscount && body?.adminLocalDiscountOverride === true;
   return {
     name,
     email: email ? email : null,
     phone: phone ? phone : null,
-    address: {
-      line1: String(addr.line1 || "").trim(),
-      line2: String(addr.line2 || "").trim(),
-      city: String(addr.city || "").trim(),
-      state: String(addr.state || "").trim().toUpperCase(),
-      postalCode: String(addr.postalCode || "").trim(),
-      country: String(addr.country || "US").trim().toUpperCase() || "US",
-    },
     items,
     applyEligibleLocalDiscount,
-    adminLocalDiscountOverride,
   };
 }
 
@@ -64,24 +50,23 @@ export default async function handler(req, res) {
 
     const estimateBody = {
       items: parsed.items,
-      address: parsed.address,
+      address: WALK_IN_PICKUP_ADDRESS,
       applyEligibleLocalDiscount: parsed.applyEligibleLocalDiscount,
-      forceApplyEligibleLocalDiscount: parsed.adminLocalDiscountOverride,
     };
 
     const quote = await computeCheckoutEstimate(estimateBody, {
       requireCompleteAddress: true,
       adminLocalDiscount: true,
+      walkInPickup: true,
     });
 
-    const zipOk = isHardinCountyTnDelivery(parsed.address);
     const hardinDiscount =
       quote.hardinDiscountApplied === true
         ? {
             applied: true,
             code: null,
-            adminAddressVerified: zipOk,
-            adminOverride: quote.adminLocalDiscountForced === true,
+            adminAddressVerified: true,
+            adminOverride: false,
           }
         : null;
 
@@ -89,15 +74,15 @@ export default async function handler(req, res) {
       name: parsed.name,
       email: parsed.email,
       phone: parsed.phone,
-      address: formatShippingAddressForOrder(parsed.address),
-      shippingState: parsed.address.state,
+      address: formatShippingAddressForOrder(WALK_IN_PICKUP_ADDRESS),
+      shippingState: WALK_IN_PICKUP_ADDRESS.state,
     };
 
     const order = await createWalkInOrderDraft({
       quote,
       customer,
       hardinDiscount,
-      shippingAddress: parsed.address,
+      shippingAddress: WALK_IN_PICKUP_ADDRESS,
     });
 
     res.status(200).json({
