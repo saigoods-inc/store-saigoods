@@ -514,6 +514,12 @@ body.admin-page {
   font-size: 13px;
 }
 
+.admin-pack-line__sizes-inline {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--admin-text);
+}
+
 .admin-modal__line-items {
   font-size: 13px;
   line-height: 1.5;

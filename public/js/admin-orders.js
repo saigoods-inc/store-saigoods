@@ -237,12 +237,10 @@ function buildLineItemPack(it) {
 
   const textLines = [`Product: ${name}`];
   if (bundleRows.length) {
-    textLines.push("Bundle:");
-    bundleRows.forEach((r) => textLines.push(`  ${r}`));
+    textLines.push(`Bundle: ${bundleRows.join(", ")}`);
   }
   if (sizeRows.length) {
-    textLines.push("Size:");
-    sizeRows.forEach((r) => textLines.push(`  ${r}`));
+    textLines.push(`Size: ${sizeRows.join(", ")}`);
   }
   if (!bundleRows.length && !sizeRows.length) {
     const fb = formatFallbackInventory(it);
@@ -257,12 +255,14 @@ function buildLineItemPack(it) {
     `<div class="admin-pack-line"><div><strong>Product:</strong> ${escapeHtml(name)}</div>`,
   ];
   if (bundleRows.length) {
-    htmlParts.push(`<div><strong>Bundle:</strong></div>`);
-    bundleRows.forEach((r) => htmlParts.push(`<div class="admin-pack-line__sub">${escapeHtml(r)}</div>`));
+    htmlParts.push(
+      `<div><strong>Bundle:</strong> <span class="admin-pack-line__sizes-inline">${escapeHtml(bundleRows.join(", "))}</span></div>`,
+    );
   }
   if (sizeRows.length) {
-    htmlParts.push(`<div><strong>Size:</strong></div>`);
-    sizeRows.forEach((r) => htmlParts.push(`<div class="admin-pack-line__sub">${escapeHtml(r)}</div>`));
+    htmlParts.push(
+      `<div><strong>Size:</strong> <span class="admin-pack-line__sizes-inline">${escapeHtml(sizeRows.join(", "))}</span></div>`,
+    );
   }
   if (!bundleRows.length && !sizeRows.length) {
     const fb = formatFallbackInventory(it);
@@ -645,10 +645,7 @@ function renderTable() {
             <button type="button" class="admin-btn admin-btn--small" data-send-pay-link="${escapeHtml(String(id))}" style="margin-top:0.4rem">Email payment link</button>
           </div>`
         : manualLinkSent
-          ? `<div>
-            <p style="margin:0"><strong>Payment link sent</strong></p>
-            <p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px"><b>Payment must complete before fulfillment status can be set.</b></p>
-          </div>`
+          ? `<span class="admin-muted">Payment link sent</span><p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;">Payment must complete before fulfillment status can be set.</p>`
         : awaiting
           ? `<span class="admin-muted">Awaiting payment</span><p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;">Payment must complete before fulfillment status can be set.</p>`
           : `<div class="admin-status-actions"><select class="admin-status-select" data-order-status-select aria-label="Fulfillment status" data-prev-value="${escapeHtml(
@@ -734,7 +731,7 @@ function openModal(row) {
       )}</span></p>
       ${
         String(row.order_source) === "manual" && row.order_status === "payment_link_sent"
-          ? `<p class="admin-muted" style="margin:0.5rem 0 0;font-size:13px"><b>Payment must complete before fulfillment status can be set.</b></p>`
+          ? `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;">Payment must complete before fulfillment status can be set.</p>`
           : ""
       }
     </div>
