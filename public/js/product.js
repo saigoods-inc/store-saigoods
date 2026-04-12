@@ -2,6 +2,7 @@ import { formatCurrency, getProduct } from "./catalog.js";
 import { getCart, setProductQuantities } from "./cart-store.js";
 import { formatBundleCardSizeSummaryHtml, perBundleSummaryMap } from "./bundle-size-summary.js";
 import { responsiveRasterImg } from "./image-utils.js";
+import { isSizeInStock, sizesOrderedForAllocation } from "./size-availability.js";
 import { escapeHtml, initSite, showToast } from "./site.js";
 
 const productRoot = document.querySelector("[data-product-detail]");
@@ -127,15 +128,21 @@ function sumChannel(map) {
   return Object.values(map).reduce((s, n) => s + (Math.floor(Number(n)) || 0), 0);
 }
 
-/** Round-robin distribution of `total` units across `sizes` (used when bundle requirements change). */
-function defaultSpread(total, sizes) {
+/**
+ * Round-robin distribution of `total` units across `sizesOrder` (used when bundle requirements change).
+ * Zeros every key in `allSizes` so out-of-stock sizes never retain stale counts.
+ */
+function defaultSpread(total, sizesOrder, allSizes) {
   const map = {};
-  for (const s of sizes) {
+  for (const s of allSizes) {
     map[s] = 0;
   }
   const n = Math.max(0, Math.floor(Number(total) || 0));
+  if (!sizesOrder.length) {
+    return map;
+  }
   for (let i = 0; i < n; i++) {
-    map[sizes[i % sizes.length]] += 1;
+    map[sizesOrder[i % sizesOrder.length]] += 1;
   }
   return map;
 }
@@ -144,12 +151,13 @@ function defaultSpread(total, sizes) {
  * When box/case bundle counts change, re-fill only the affected channel so totals match
  * the new requirement. Size steppers never auto-adjust each other.
  */
-function applyBundleRequirementDeltas(prevReq, nextReq, sizes) {
+function applyBundleRequirementDeltas(prevReq, nextReq, allSizes) {
+  const order = sizesOrderedForAllocation(product.slug, allSizes);
   if (nextReq.reqBox !== prevReq.reqBox) {
-    boxBySize = defaultSpread(nextReq.reqBox, sizes);
+    boxBySize = defaultSpread(nextReq.reqBox, order, allSizes);
   }
   if (nextReq.reqCase !== prevReq.reqCase) {
-    caseBySize = defaultSpread(nextReq.reqCase, sizes);
+    caseBySize = defaultSpread(nextReq.reqCase, order, allSizes);
   }
 }
 
@@ -207,6 +215,23 @@ function bundleLinesPayload() {
 function allocationValid() {
   const { reqBox, reqCase } = computeRequiredUnits();
   return sumChannel(boxBySize) === reqBox && sumChannel(caseBySize) === reqCase;
+}
+
+/** Sizes that are out of stock for this product but still have a positive allocation. */
+function unavailableSizesWithQuantity() {
+  const sizes = store.site.sizes;
+  const names = [];
+  for (const s of sizes) {
+    if (isSizeInStock(product.slug, s)) {
+      continue;
+    }
+    const c = Math.floor(caseBySize[s] || 0);
+    const b = Math.floor(boxBySize[s] || 0);
+    if (c + b > 0) {
+      names.push(s);
+    }
+  }
+  return names;
 }
 
 function hasAnyBundleSelection() {
@@ -411,20 +436,33 @@ function renderSizeColumn(title, channel, map, { invalid = false, hint = "", hid
       ${headerHtml}
       <div class="size-bundle-column__rows">
         ${sizes
-          .map(
-            (size) => `
-          <div class="size-row">
-            <span class="size-row__label">${escapeHtml(size)}</span>
+          .map((size) => {
+            const inStock = isSizeInStock(product.slug, size);
+            const cur = Math.floor(map[size] || 0);
+            const minusDisabled = cur < 1;
+            const plusDisabledForRow = !inStock || plusDisabled;
+            const rowClass = inStock ? "size-row" : "size-row size-row--unavailable";
+            const stockNote = inStock
+              ? ""
+              : `<span class="size-row__stock-note">Out of stock</span>`;
+            return `
+          <div class="${rowClass}">
+            <span class="size-row__label-wrap">
+              <span class="size-row__label">${escapeHtml(size)}</span>
+              ${stockNote}
+            </span>
             <div class="qty-control qty-control--round">
-              <button type="button" data-action="size-step" data-channel="${channel}" data-size="${escapeHtml(size)}" data-delta="-1" aria-label="Decrease ${escapeHtml(size)} ${channel} count">−</button>
+              <button type="button" data-action="size-step" data-channel="${channel}" data-size="${escapeHtml(size)}" data-delta="-1" aria-label="Decrease ${escapeHtml(size)} ${channel} count"${
+                minusDisabled ? " disabled" : ""
+              }>−</button>
               <strong>${map[size] || 0}</strong>
               <button type="button" data-action="size-step" data-channel="${channel}" data-size="${escapeHtml(size)}" data-delta="1" aria-label="Increase ${escapeHtml(size)} ${channel} count"${
-                plusDisabled ? " disabled" : ""
+                plusDisabledForRow ? " disabled" : ""
               }>+</button>
             </div>
           </div>
-        `,
-          )
+        `;
+          })
           .join("")}
       </div>
     </div>
@@ -580,6 +618,9 @@ function renderMissingProduct() {
 
 function handleSizeStep(channel, size, delta) {
   bundleSubmitAttempted = false;
+  if (delta > 0 && !isSizeInStock(product.slug, size)) {
+    return;
+  }
   const map = channel === "box" ? { ...boxBySize } : { ...caseBySize };
   const cur = Math.floor(map[size]) || 0;
   const { reqBox, reqCase } = computeRequiredUnits();
@@ -659,6 +700,14 @@ async function handleProductClick(event) {
       );
       return;
     }
+    const oosSizes = unavailableSizesWithQuantity();
+    if (oosSizes.length) {
+      showToast(
+        `Out-of-stock sizes still have quantity (${oosSizes.join(", ")}). Use − to clear them before adding to cart.`,
+        "error",
+      );
+      return;
+    }
     setProductQuantities(
       product.slug,
       {
@@ -687,6 +736,14 @@ async function handleProductClick(event) {
       focusBundleForAllocationError();
       showToast(
         "Adjust box and case totals above to match your bundle packs before checkout.",
+        "error",
+      );
+      return;
+    }
+    const oosCheckout = unavailableSizesWithQuantity();
+    if (oosCheckout.length) {
+      showToast(
+        `Out-of-stock sizes still have quantity (${oosCheckout.join(", ")}). Use − to clear them before checkout.`,
         "error",
       );
       return;

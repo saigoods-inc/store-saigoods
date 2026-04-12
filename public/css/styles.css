@@ -1389,6 +1389,30 @@ button {
   font-weight: var(--font-weight-bold);
 }
 
+.size-row__label-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.size-row--unavailable {
+  opacity: 0.78;
+}
+
+.size-row--unavailable .size-row__label {
+  color: var(--muted);
+  font-weight: var(--font-weight-medium);
+}
+
+.size-row__stock-note {
+  font-size: var(--fs-body-secondary);
+  font-weight: var(--font-weight-normal);
+  color: var(--muted);
+  line-height: 1.3;
+}
+
 .qty-control--round button {
   width: 1.65rem;
   height: 1.65rem;
