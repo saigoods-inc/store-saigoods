@@ -1,4 +1,5 @@
 import { formatCurrency, getStore, searchProducts } from "./catalog.js";
+import { responsiveRasterImg } from "./image-utils.js";
 import { escapeHtml, initSite } from "./site.js";
 
 const productGrid = document.querySelector("[data-product-grid]");
@@ -97,7 +98,11 @@ function renderCatalog(products) {
       return `
         <article class="product-card product-card--${escapeHtml(product.intro.theme)}">
           <div class="product-card__media">
-            <img src="${escapeHtml(product.cardImage)}" alt="${escapeHtml(product.name)}" loading="lazy" />
+            ${responsiveRasterImg(product.cardImage, {
+              alt: product.name,
+              loading: "lazy",
+              sizes: "(max-width: 768px) 92vw, 33vw",
+            })}
           </div>
 
           <div class="product-card__body">
@@ -164,7 +169,7 @@ function renderIntroPanels(products) {
                   .map(
                     (feature) => `
                       <li>
-                        <img src="/img/check-icon.svg" alt="" aria-hidden="true" />
+                        <img src="/img/check-icon.svg" alt="" aria-hidden="true" width="22" height="22" decoding="async" />
                         <span>${escapeHtml(feature)}</span>
                       </li>
                     `,
@@ -174,7 +179,11 @@ function renderIntroPanels(products) {
             </div>
 
             <div class="intro-panel__media">
-              <img src="${escapeHtml(product.intro.image)}" alt="${escapeHtml(product.name)} gloves" loading="lazy" />
+              ${responsiveRasterImg(product.intro.image, {
+                alt: `${product.name} gloves`,
+                loading: "lazy",
+                sizes: "(max-width: 768px) 92vw, 50vw",
+              })}
             </div>
           </div>
         </section>

@@ -1,5 +1,6 @@
 import { createCheckout, formatCartUnitLabel, formatSizeLineText, getCartQuote } from "./catalog.js";
 import { clearCart, getCart, removeProduct } from "./cart-store.js";
+import { responsiveRasterImg } from "./image-utils.js";
 import { escapeHtml, initSite, setButtonBusy, showToast } from "./site.js";
 
 const cartRoot = document.querySelector("[data-cart-root]");
@@ -185,7 +186,11 @@ function renderCartItem(item, sizes) {
   return `
     <article class="cart-card" data-slug="${escapeHtml(item.slug)}">
       <div class="cart-card__media">
-        <img src="${escapeHtml(item.cardImage)}" alt="${escapeHtml(item.name)}" />
+        ${responsiveRasterImg(item.cardImage, {
+          alt: item.name,
+          loading: "lazy",
+          sizes: "160px",
+        })}
       </div>
 
       <div class="cart-card__body">

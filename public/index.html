@@ -8,7 +8,73 @@
       name="description"
       content="Shop nitrile and black nitrile gloves from SAI Goods. Explore standard, general purpose, and heavy-duty protection."
     />
-    <link rel="stylesheet" href="/css/styles.css" />
+    <!-- Perf (Lighthouse): discover LCP candidate early; WebP generated via npm run optimize:images -->
+    <link rel="preload" as="image" href="/img/boxes-stack.webp" type="image/webp" fetchpriority="high" />
+    <!-- Perf: minimal above-the-fold + CLS reserve until async styles.css paints -->
+    <style>
+      :root {
+        --bg: #f7f4ee;
+        --text: #25242a;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      .site-header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        padding: 0.65rem 0;
+        background: #fff;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+      }
+      .navbar {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        column-gap: 1.5rem;
+        max-width: 72rem;
+        margin: 0 auto;
+        padding: 0 1rem;
+      }
+      .hero {
+        background: linear-gradient(145deg, #e8f1fb 0%, #fafafa 46%, #fdf3ee 100%);
+      }
+      .hero__grid {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 2rem;
+        min-height: 22rem;
+        padding: 1rem 1rem;
+      }
+      .hero__media img {
+        display: block;
+        width: 100%;
+        max-width: 32rem;
+        height: auto;
+      }
+      .announcement-bar {
+        position: sticky;
+        top: 0.75rem;
+        z-index: 21;
+        width: 100%;
+        background: #2d2d2d;
+        min-height: 2.75rem;
+      }
+      .announcement-bar__marquee {
+        background: #2d2d2d;
+      }
+      .announcement-bar__text,
+      .announcement-bar__text::after {
+        color: #fafafa;
+      }
+    </style>
+    <!-- Perf: non-render-blocking full stylesheet (see also public/js/image-utils.js) -->
+    <link rel="stylesheet" href="/css/styles.css" media="print" onload="this.media='all'" />
+    <noscript><link rel="stylesheet" href="/css/styles.css" /></noscript>
   </head>
   <body>
     <div class="site-frame">
@@ -51,9 +117,18 @@
             </div>
 
             <div class="hero__media fade-up">
+              <!-- Perf: WebP + srcset + intrinsic size (CLS); onerror matches image-utils.js fallback -->
               <img
-                src="/img/boxes-stack.png"
+                src="/img/boxes-stack.webp"
+                srcset="/img/boxes-stack-400.webp 400w, /img/boxes-stack-800.webp 800w"
+                sizes="(max-width: 768px) 92vw, min(88vw, 32rem)"
+                width="800"
+                height="600"
                 alt="Stacked LYDUS glove boxes featured in the SAI Goods Store."
+                loading="eager"
+                fetchpriority="high"
+                decoding="async"
+                onerror="this.onerror=null;this.removeAttribute('srcset');this.removeAttribute('sizes');this.src='/img/boxes-stack.png';"
               />
             </div>
           </div>

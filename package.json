@@ -7,7 +7,11 @@
     "dev": "node --watch server.js",
     "start": "node server.js",
     "api:dev": "vercel dev",
-    "test:resend": "node scripts/test-resend-email.mjs"
+    "test:resend": "node scripts/test-resend-email.mjs",
+    "optimize:images": "node scripts/optimize-images.mjs"
+  },
+  "devDependencies": {
+    "sharp": "^0.33.5"
   },
   "dependencies": {
     "@sendgrid/mail": "^8.1.6",

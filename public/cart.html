@@ -8,7 +8,46 @@
       name="description"
       content="Review your SAI Goods cart order summary and proceed to secure checkout. Edit items on the product page."
     />
-    <link rel="stylesheet" href="/css/styles.css" />
+    <!-- Perf: critical shell until async styles.css -->
+    <style>
+      :root {
+        --bg: #f7f4ee;
+        --text: #25242a;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      .site-header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        padding: 0.65rem 0;
+        background: #fff;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+      }
+      .navbar {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        column-gap: 1.5rem;
+        max-width: 72rem;
+        margin: 0 auto;
+        padding: 0 1rem;
+      }
+      .section {
+        padding: 1.5rem 0;
+      }
+      .shell {
+        max-width: 72rem;
+        margin: 0 auto;
+        padding: 0 1rem;
+      }
+    </style>
+    <link rel="stylesheet" href="/css/styles.css" media="print" onload="this.media='all'" />
+    <noscript><link rel="stylesheet" href="/css/styles.css" /></noscript>
   </head>
   <body class="page--cart">
     <div class="site-frame">

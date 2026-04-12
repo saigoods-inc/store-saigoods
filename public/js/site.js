@@ -127,12 +127,12 @@ function renderHeader(site, page, searchValue) {
     <div class="site-header">
       <div class="shell navbar">
         <a class="brand-mark" href="${logoHref}" aria-label="${escapeHtml(site.name)} home">
-          <img src="/img/nav-logo.svg" alt="${escapeHtml(site.name)} logo" />
+          <img src="/img/nav-logo.svg" alt="${escapeHtml(site.name)} logo" width="44" height="44" decoding="async" />
         </a>
 
         <form class="search-form" data-global-search>
           <button class="search-form__button" type="submit" aria-label="Search products">
-            <img src="/img/search-icon.svg" alt="" aria-hidden="true" />
+            <img src="/img/search-icon.svg" alt="" aria-hidden="true" width="16" height="16" decoding="async" />
           </button>
           <input
             type="search"
@@ -145,7 +145,7 @@ function renderHeader(site, page, searchValue) {
         </form>
 
         <a class="cart-link" href="/cart.html" aria-label="View cart">
-          <img src="/img/cart-icon.svg" alt="" aria-hidden="true" />
+          <img src="/img/cart-icon.svg" alt="" aria-hidden="true" width="22" height="22" decoding="async" />
           <span class="cart-link__count" data-cart-count hidden>0</span>
         </a>
       </div>
@@ -168,7 +168,7 @@ function renderFooter(site) {
         <div class="footer__top">
           <div class="brand widget">
             <div class="brand__row">
-              <img src="/img/nav-logo.svg" alt="${escapeHtml(site.legalName)} logo" class="brand__logo" />
+              <img src="/img/nav-logo.svg" alt="${escapeHtml(site.legalName)} logo" class="brand__logo" width="44" height="44" decoding="async" />
               <span class="brand__name">${escapeHtml(site.legalName)}</span>
             </div>
             <address class="brand__address">
@@ -225,7 +225,7 @@ function renderFooter(site) {
               rel="noreferrer"
               aria-label="Facebook"
             >
-              <img src="/img/facebook-icon.svg" alt="" aria-hidden="true" />
+              <img src="/img/facebook-icon.svg" alt="" aria-hidden="true" width="24" height="24" decoding="async" />
             </a>
             <a
               href="https://www.linkedin.com/company/sai-goods-inc/"
@@ -233,7 +233,7 @@ function renderFooter(site) {
               rel="noreferrer"
               aria-label="LinkedIn"
             >
-              <img src="/img/linkedin-icon.svg" alt="" aria-hidden="true" />
+              <img src="/img/linkedin-icon.svg" alt="" aria-hidden="true" width="24" height="24" decoding="async" />
             </a>
           </div>
         </div>

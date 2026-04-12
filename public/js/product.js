@@ -1,6 +1,7 @@
 import { formatCurrency, getProduct } from "./catalog.js";
 import { getCart, setProductQuantities } from "./cart-store.js";
 import { formatBundleCardSizeSummaryHtml, perBundleSummaryMap } from "./bundle-size-summary.js";
+import { responsiveRasterImg } from "./image-utils.js";
 import { escapeHtml, initSite, showToast } from "./site.js";
 
 const productRoot = document.querySelector("[data-product-detail]");
@@ -492,7 +493,12 @@ function renderProduct() {
                   data-thumb-index="${index}"
                   aria-label="View product image ${index + 1}"
                 >
-                  <img src="${escapeHtml(product.gallery[index])}" alt="${escapeHtml(product.name)} image ${index + 1}" />
+                  ${responsiveRasterImg(product.gallery[index], {
+                    alt: `${product.name} image ${index + 1}`,
+                    loading: index === selectedImageIndex ? "eager" : "lazy",
+                    fetchpriority: index === 0 ? "high" : "auto",
+                    sizes: "(max-width: 768px) 22vw, 120px",
+                  })}
                 </button>
               `,
             )
@@ -500,7 +506,12 @@ function renderProduct() {
         </div>
 
         <div class="product-gallery__main">
-          <img src="${escapeHtml(product.gallery[selectedImageIndex])}" alt="${escapeHtml(product.name)} main image" />
+          ${responsiveRasterImg(product.gallery[selectedImageIndex], {
+            alt: `${product.name} main image`,
+            loading: "eager",
+            fetchpriority: "high",
+            sizes: "(max-width: 768px) 100vw, 520px",
+          })}
         </div>
       </div>
 
@@ -540,7 +551,7 @@ function renderProduct() {
           <button class="button button--primary button--with-icon" type="button" data-action="add-to-cart" ${
             !canClickActions ? "disabled" : ""
           }>
-            <img src="/img/cart-icon.svg" alt="" aria-hidden="true" class="button__icon" />
+            <img src="/img/cart-icon.svg" alt="" aria-hidden="true" class="button__icon" width="22" height="22" decoding="async" />
             <span>Add to cart</span>
           </button>
           <button
