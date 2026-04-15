@@ -1777,6 +1777,7 @@ button {
 
 .checkout-address-suggestion__apply {
   font-size: var(--fs-caption);
+  font-weight: var(--font-weight-normal);
   padding: 0.4rem 0.85rem;
 }
 
@@ -1862,6 +1863,18 @@ button {
 /* .summary-card__row uses display:flex, which overrides the native [hidden] display:none */
 .checkout-totals .summary-card__row[hidden] {
   display: none !important;
+}
+
+.checkout-totals .checkout-residential-hint[hidden] {
+  display: none !important;
+}
+
+.checkout-residential-hint {
+  margin: 0.05rem 0 0.35rem;
+  font-size: var(--fs-small);
+  font-style: italic;
+  line-height: var(--leading-normal);
+  color: var(--muted);
 }
 
 .checkout-totals .summary-card__row--total {

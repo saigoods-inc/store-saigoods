@@ -260,6 +260,9 @@ function renderCheckoutShell(miniQuote, options = {}) {
             <span>Residential surcharge:</span>
             <strong id="sum-residential">—</strong>
           </div>
+          <p id="checkout-residential-hint" class="checkout-residential-hint" hidden>
+            Use a business address to avoid additional residential charges.
+          </p>
           <div id="checkout-row-discount" class="summary-card__row summary-card__row--discount" hidden>
             <span>Discount:</span>
             <strong id="sum-discount">—</strong>
@@ -375,6 +378,7 @@ function applyCheckoutOrderSummary(data, opts = {}) {
 
   const resRow = document.getElementById("checkout-row-residential");
   const sumRes = document.getElementById("sum-residential");
+  const resHint = document.getElementById("checkout-residential-hint");
 
   if (sumShip && sumTax && sumTotal) {
     if (initialSummary) {
@@ -382,6 +386,9 @@ function applyCheckoutOrderSummary(data, opts = {}) {
       sumTax.textContent = "—";
       if (resRow) {
         resRow.hidden = true;
+      }
+      if (resHint) {
+        resHint.hidden = true;
       }
       if (discountRow) {
         discountRow.hidden = true;
@@ -394,8 +401,14 @@ function applyCheckoutOrderSummary(data, opts = {}) {
         if (resCents > 0 && data.residentialSurchargeFormatted) {
           resRow.hidden = false;
           sumRes.textContent = data.residentialSurchargeFormatted;
+          if (resHint) {
+            resHint.hidden = false;
+          }
         } else {
           resRow.hidden = true;
+          if (resHint) {
+            resHint.hidden = true;
+          }
         }
       }
     }
@@ -739,6 +752,14 @@ async function runEstimate(options = {}) {
     sumTax.textContent = "—";
     sumTotal.textContent = "—";
     resetCheckoutSummaryDiscountAmount();
+    const resRowErr = document.getElementById("checkout-row-residential");
+    const resHintErr = document.getElementById("checkout-residential-hint");
+    if (resRowErr) {
+      resRowErr.hidden = true;
+    }
+    if (resHintErr) {
+      resHintErr.hidden = true;
+    }
     hideAddressSuggestion();
     latestEstimate = null;
     syncPayButtonForAddressSuggestion();
