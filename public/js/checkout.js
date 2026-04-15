@@ -244,7 +244,7 @@ function renderCheckoutShell(miniQuote, options = {}) {
             <span>Residential surcharge:</span>
             <strong id="sum-residential">—</strong>
           </div>
-          <div id="checkout-row-discount" class="summary-card__row summary-card__row--discount">
+          <div id="checkout-row-discount" class="summary-card__row summary-card__row--discount" hidden>
             <span>Discount:</span>
             <strong id="sum-discount">—</strong>
           </div>
@@ -313,8 +313,12 @@ function baseShippingDisplayFromEstimate(data) {
 
 function resetCheckoutSummaryDiscountAmount() {
   const sumDiscount = document.getElementById("sum-discount");
+  const discountRow = document.getElementById("checkout-row-discount");
   if (sumDiscount) {
     sumDiscount.textContent = "—";
+  }
+  if (discountRow) {
+    discountRow.hidden = true;
   }
 }
 
@@ -335,16 +339,22 @@ function applyCheckoutOrderSummary(data, opts = {}) {
     typeof data?.originalMerchandiseSubtotalFormatted === "string" &&
     discountCents > 0;
 
+  const discountRow = document.getElementById("checkout-row-discount");
+
   if (sumSub) {
     sumSub.textContent = showDiscountBreakdown
       ? data.originalMerchandiseSubtotalFormatted
       : data.subtotalFormatted;
   }
 
-  if (sumDiscount) {
-    sumDiscount.textContent = showDiscountBreakdown
-      ? `-${data.merchandiseDiscountFormatted}`
-      : "—";
+  if (sumDiscount && discountRow) {
+    if (showDiscountBreakdown) {
+      discountRow.hidden = false;
+      sumDiscount.textContent = `-${data.merchandiseDiscountFormatted}`;
+    } else {
+      discountRow.hidden = true;
+      sumDiscount.textContent = "—";
+    }
   }
 
   const resRow = document.getElementById("checkout-row-residential");
@@ -356,6 +366,9 @@ function applyCheckoutOrderSummary(data, opts = {}) {
       sumTax.textContent = "—";
       if (resRow) {
         resRow.hidden = true;
+      }
+      if (discountRow) {
+        discountRow.hidden = true;
       }
     } else {
       sumShip.textContent = baseShippingDisplayFromEstimate(data);
