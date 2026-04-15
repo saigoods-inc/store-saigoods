@@ -205,7 +205,11 @@ function renderCheckoutShell(miniQuote, options = {}) {
         <div id="checkout-address-suggestion" class="checkout-address-suggestion" hidden>
           <p class="checkout-address-suggestion__label">Did you mean this address?</p>
           <p id="checkout-address-suggestion-body" class="checkout-address-suggestion__body"></p>
-          <button type="button" class="button button--secondary" id="checkout-apply-suggested-address">
+          <button
+            type="button"
+            class="button button--secondary checkout-address-suggestion__apply"
+            id="checkout-apply-suggested-address"
+          >
             Use suggested address
           </button>
         </div>
@@ -521,6 +525,26 @@ function showAddressSuggestionIfAny(data) {
   box.hidden = false;
 }
 
+/** Shippo suggested a normalized address — block Pay until the shopper applies it (or gets a new estimate without one). */
+function syncPayButtonForAddressSuggestion() {
+  const payBtn = document.getElementById("checkout-pay");
+  if (!payBtn || payBtn.getAttribute("aria-busy") === "true") {
+    return;
+  }
+  const pending =
+    latestEstimate &&
+    latestEstimate.addressSuggestion &&
+    typeof latestEstimate.addressSuggestion === "object";
+  if (pending) {
+    payBtn.disabled = true;
+    payBtn.title =
+      'Please tap "Use suggested address" above, or edit your address and click Confirm shipping address again.';
+  } else {
+    payBtn.disabled = false;
+    payBtn.removeAttribute("title");
+  }
+}
+
 function clearDiscountSectionWarning() {
   const el = document.getElementById("checkout-discount-warning");
   const input = root.querySelector('[name="discountCode"]');
@@ -621,6 +645,7 @@ async function runEstimate(options = {}) {
   hideAddressSuggestion();
 
   if (validateContact && !applyContactValidationErrors()) {
+    syncPayButtonForAddressSuggestion();
     return;
   }
 
@@ -630,6 +655,7 @@ async function runEstimate(options = {}) {
   ) {
     setAddressFieldsError(true);
     showShippingSectionError("Please complete your shipping address.");
+    syncPayButtonForAddressSuggestion();
     return;
   }
 
@@ -637,6 +663,7 @@ async function runEstimate(options = {}) {
     applyApiFieldErrors({ postalCode: "Please enter a valid ZIP code" });
     root.querySelector('[name="postalCode"]')?.classList.add("checkout-input--error");
     showShippingSectionError("Please enter a valid ZIP code");
+    syncPayButtonForAddressSuggestion();
     return;
   }
 
@@ -693,6 +720,7 @@ async function runEstimate(options = {}) {
         warningsEl.innerHTML = "";
       }
     }
+    syncPayButtonForAddressSuggestion();
   } catch (e) {
     const msg = e.message || "Could not verify shipping address.";
     if (requireAddress && isCheckoutDiscountApiError(msg)) {
@@ -713,6 +741,7 @@ async function runEstimate(options = {}) {
     resetCheckoutSummaryDiscountAmount();
     hideAddressSuggestion();
     latestEstimate = null;
+    syncPayButtonForAddressSuggestion();
   }
 }
 
@@ -1043,6 +1072,7 @@ function wireEvents() {
     } finally {
       if (!checkoutSucceeded) {
         setButtonBusy(payBtn, false);
+        syncPayButtonForAddressSuggestion();
       }
     }
   });

@@ -1770,9 +1770,14 @@ button {
 
 .checkout-address-suggestion__body {
   margin: 0 0 0.65rem;
-  font-size: var(--fs-body-secondary);
+  font-size: var(--fs-body);
   line-height: var(--leading-relaxed);
   color: var(--muted);
+}
+
+.checkout-address-suggestion__apply {
+  font-size: var(--fs-caption);
+  padding: 0.4rem 0.85rem;
 }
 
 .checkout-field-required {
