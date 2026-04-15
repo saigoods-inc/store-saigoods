@@ -37,6 +37,28 @@ function formatPaymentStatus(status) {
   return status ? String(status) : "—";
 }
 
+function shippoSyncLabel(row) {
+  const sync = String(row.shippo_sync_status || "pending");
+  if (sync === "synced") return "Synced";
+  if (sync === "syncing") return "Syncing";
+  if (sync === "error") return "Sync failed";
+  return "Pending sync";
+}
+
+function shippoSyncBadgeClass(row) {
+  const sync = String(row.shippo_sync_status || "pending");
+  if (sync === "synced") return "admin-badge admin-badge--shippo-synced";
+  if (sync === "syncing") return "admin-badge admin-badge--shippo-syncing";
+  if (sync === "error") return "admin-badge admin-badge--shippo-error";
+  return "admin-badge admin-badge--shippo-pending";
+}
+
+function shippoShipmentLabel(row) {
+  const s = String(row.shippo_shipment_status || "").trim();
+  if (!s) return "—";
+  return s.replace(/_/g, " ");
+}
+
 function formatDate(iso) {
   if (!iso) return "—";
   try {
@@ -722,6 +744,16 @@ function renderTable() {
       const walkInTag = isWalkInOrder(row)
         ? `<div class="admin-order-tag admin-order-tag--walk-in" title="In-store walk-in sale">Walk-in</div>`
         : "";
+      const shippoId = String(row.shippo_order_id || "").trim();
+      const shippoTracking = String(row.shippo_tracking_number || "").trim();
+      const shippoError = String(row.shippo_sync_error || "").trim();
+      const shippoCell = `
+        <span class="${shippoSyncBadgeClass(row)}">${escapeHtml(shippoSyncLabel(row))}</span>
+        <div class="admin-muted">ID: ${escapeHtml(shippoId || "—")}</div>
+        <div class="admin-muted">Shipment: ${escapeHtml(shippoShipmentLabel(row))}</div>
+        <div class="admin-muted">Tracking: ${escapeHtml(shippoTracking || "—")}</div>
+        ${shippoError ? `<div class="admin-error" style="margin-top:0.35rem">${escapeHtml(shippoError)}</div>` : ""}
+      `;
 
       return `
         <tr data-order-id="${escapeHtml(String(id))}" class="${rowClasses}">
@@ -736,6 +768,7 @@ function renderTable() {
           <td><span class="${badgeClass(paymentBadgeKey(row))}">${escapeHtml(formatPaymentColumnLabel(row))}</span></td>
           <td>${statusCell}</td>
           <td>${itemsCell}</td>
+          <td>${shippoCell}</td>
           <td>${escapeHtml(formatDate(row.created_at))}</td>
           <td>
             <button type="button" class="admin-btn admin-btn--small" data-detail-id="${escapeHtml(String(id))}">Details</button>
@@ -829,6 +862,17 @@ function openModal(row) {
 Shipping: ${escapeHtml(fmt(row.shipping_cents))}
 Tax: ${escapeHtml(fmt(row.tax_cents))}
 Total: ${escapeHtml(fmt(row.total_cents))}</pre>
+    </div>
+    <div class="admin-modal__section">
+      <h3>Shippo sync</h3>
+      <pre>Shippo synced: ${escapeHtml(shippoSyncLabel(row))}
+Shippo order ID: ${escapeHtml(row.shippo_order_id || "—")}
+Shippo shipment status: ${escapeHtml(shippoShipmentLabel(row))}
+Tracking number: ${escapeHtml(row.shippo_tracking_number || "—")}
+Tracking status: ${escapeHtml(row.shippo_tracking_status || "—")}
+Last Shippo sync: ${escapeHtml(formatDate(row.shippo_last_sync_at))}
+Last Shippo event: ${escapeHtml(formatDate(row.shippo_last_event_at))}
+Sync error: ${escapeHtml(row.shippo_sync_error || "—")}</pre>
     </div>
   `;
   document.getElementById("order-modal").hidden = false;

@@ -491,6 +491,26 @@ body.admin-page {
   color: #991b1b;
 }
 
+.admin-badge--shippo-pending {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.admin-badge--shippo-syncing {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.admin-badge--shippo-synced {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.admin-badge--shippo-error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .admin-order-items {
   margin: 0;
   padding-left: 0;

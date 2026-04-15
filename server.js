@@ -22,6 +22,7 @@ import adminWalkInOrderMarkPaidHandler from "./api/admin-walk-in-order-mark-paid
 import adminWalkInOrderUpdateDraftHandler from "./api/admin-walk-in-order-update-draft.js";
 import checkoutEstimateHandler from "./api/checkout-estimate.js";
 import checkoutPayHandler from "./api/checkout-pay.js";
+import shippoWebhookHandler from "./api/webhooks/shippo.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -164,6 +165,16 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/checkout-pay" && req.method === "POST") {
       const body = await readJsonBody(req);
       await checkoutPayHandler({ method: "POST", body }, adaptExpressStyleResponse(res));
+      return;
+    }
+
+    if (pathname === "/api/webhooks/shippo" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const query = Object.fromEntries(requestUrl.searchParams.entries());
+      await shippoWebhookHandler(
+        { method: "POST", body, headers: req.headers, query, url: req.url },
+        adaptExpressStyleResponse(res),
+      );
       return;
     }
 

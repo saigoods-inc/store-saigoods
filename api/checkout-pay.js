@@ -9,6 +9,7 @@ import {
 import { isHardinCountyTnDelivery } from "../lib/hardin-county.js";
 import { cancelPendingOrderAfterPaymentFailure, createPendingOrder } from "../lib/orders.js";
 import { sendResendOrderConfirmation } from "../lib/resend-order-confirmation.js";
+import { syncWebsiteOrderToShippo } from "../lib/shippo-order-sync.js";
 import { createCardPayment } from "../lib/square.js";
 
 export default async function handler(req, res) {
@@ -83,7 +84,12 @@ export default async function handler(req, res) {
 
     let pending = null;
     try {
-      pending = await createPendingOrder({ quote, customer, hardinDiscount });
+      pending = await createPendingOrder({
+        quote,
+        customer,
+        hardinDiscount,
+        shippingAddress: mergedAddress && typeof mergedAddress === "object" ? mergedAddress : null,
+      });
       const locationId = process.env.SQUARE_LOCATION_ID?.trim();
 
       if (normalizedCode) {
@@ -106,6 +112,11 @@ export default async function handler(req, res) {
         buyerEmail: parsed.email,
         idempotencyKey: `saigoods-pay-${pending.id}`,
       });
+
+      const shippoSync = await syncWebsiteOrderToShippo(pending.id);
+      if (!shippoSync.ok && !shippoSync.skipped) {
+        console.error("[shippo] checkout sync failed:", shippoSync.error || shippoSync.reason || "unknown");
+      }
 
       void sendResendOrderConfirmation({
         pending: {
