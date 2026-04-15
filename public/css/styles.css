@@ -1824,6 +1824,11 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+/* .summary-card__row uses display:flex, which overrides the native [hidden] display:none */
+.checkout-totals .summary-card__row[hidden] {
+  display: none !important;
+}
+
 .checkout-totals .summary-card__row--total {
   margin-top: 0.35rem;
   padding-top: 0.65rem;
