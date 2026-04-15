@@ -1745,6 +1745,36 @@ button {
   border: 1px solid rgba(255, 0, 0, 0.5);
 }
 
+.checkout-field-error {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: var(--fs-small);
+  line-height: var(--leading-normal);
+  color: #b42318;
+}
+
+.checkout-address-suggestion {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem 1rem;
+  border-radius: 0.65rem;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.checkout-address-suggestion__label {
+  margin: 0 0 0.35rem;
+  font-size: var(--fs-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text);
+}
+
+.checkout-address-suggestion__body {
+  margin: 0 0 0.65rem;
+  font-size: var(--fs-body-secondary);
+  line-height: var(--leading-relaxed);
+  color: var(--muted);
+}
+
 .checkout-field-required {
   color: #b42318;
   font-weight: var(--font-weight-semibold);

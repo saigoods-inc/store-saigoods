@@ -15,6 +15,7 @@ export default async function handler(req, res) {
     res.status(status).json({
       error: error.message || "Estimate failed.",
       ...(error.addressValidation ? { addressValidation: error.addressValidation } : {}),
+      ...(error.fieldErrors && Object.keys(error.fieldErrors).length ? { fieldErrors: error.fieldErrors } : {}),
     });
   }
 }

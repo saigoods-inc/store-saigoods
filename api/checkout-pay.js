@@ -20,15 +20,21 @@ export default async function handler(req, res) {
   try {
     const parsed = parseCheckoutPayBody(req.body || {});
     if (parsed.error) {
-      res.status(400).json({ error: parsed.error });
+      res.status(400).json({
+        error: parsed.error,
+        ...(parsed.fieldErrors && Object.keys(parsed.fieldErrors).length ? { fieldErrors: parsed.fieldErrors } : {}),
+      });
       return;
     }
 
-    const addrCheck = await validateShippingAddressForCheckout(parsed.address);
+    const addrCheck = await validateShippingAddressForCheckout(parsed.address, { strictShippo: true });
     if (!addrCheck.ok) {
       res.status(400).json({
         error: addrCheck.error,
         ...(addrCheck.addressValidation ? { addressValidation: addrCheck.addressValidation } : {}),
+        ...(addrCheck.fieldErrors && Object.keys(addrCheck.fieldErrors).length
+          ? { fieldErrors: addrCheck.fieldErrors }
+          : {}),
       });
       return;
     }
@@ -130,6 +136,7 @@ export default async function handler(req, res) {
     res.status(error.statusCode || 500).json({
       error: error.message || "Payment could not be completed.",
       ...(error.addressValidation ? { addressValidation: error.addressValidation } : {}),
+      ...(error.fieldErrors && Object.keys(error.fieldErrors).length ? { fieldErrors: error.fieldErrors } : {}),
     });
   }
 }

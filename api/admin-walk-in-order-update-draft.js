@@ -63,6 +63,7 @@ export default async function handler(req, res) {
       requireCompleteAddress: true,
       adminLocalDiscount: true,
       walkInPickup: true,
+      strictShippo: false,
     });
 
     const hardinDiscount =

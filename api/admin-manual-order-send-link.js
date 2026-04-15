@@ -106,6 +106,7 @@ export default async function handler(req, res) {
     const quote = await computeCheckoutEstimate(estimateBody, {
       requireCompleteAddress: true,
       adminLocalDiscount: adminAddressHardin,
+      strictShippo: false,
     });
 
     const client = getServiceClient();

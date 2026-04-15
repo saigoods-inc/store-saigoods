@@ -176,6 +176,7 @@ function renderCheckoutShell(miniQuote, options = {}) {
           <label class="checkout-field checkout-field--full">
             <span>Street address</span>
             <input type="text" name="line1" autocomplete="address-line1" required />
+            <span id="checkout-err-line1" class="checkout-field-error" role="alert" hidden></span>
           </label>
           <label class="checkout-field checkout-field--full">
             <span>Apt, suite, etc. <span class="checkout-optional">(optional)</span></span>
@@ -184,6 +185,7 @@ function renderCheckoutShell(miniQuote, options = {}) {
           <label class="checkout-field">
             <span>City</span>
             <input type="text" name="city" autocomplete="address-level2" required />
+            <span id="checkout-err-city" class="checkout-field-error" role="alert" hidden></span>
           </label>
           <label class="checkout-field">
             <span>State</span>
@@ -191,11 +193,21 @@ function renderCheckoutShell(miniQuote, options = {}) {
               <option value="">Select</option>
               ${stateOptions}
             </select>
+            <span id="checkout-err-state" class="checkout-field-error" role="alert" hidden></span>
           </label>
           <label class="checkout-field">
             <span>ZIP code</span>
             <input type="text" name="postalCode" inputmode="numeric" autocomplete="postal-code" required />
+            <span id="checkout-err-postalCode" class="checkout-field-error" role="alert" hidden></span>
           </label>
+        </div>
+
+        <div id="checkout-address-suggestion" class="checkout-address-suggestion" hidden>
+          <p class="checkout-address-suggestion__label">Did you mean this address?</p>
+          <p id="checkout-address-suggestion-body" class="checkout-address-suggestion__body"></p>
+          <button type="button" class="button button--secondary" id="checkout-apply-suggested-address">
+            Use suggested address
+          </button>
         </div>
 
         <div class="checkout-discount-block">
@@ -426,6 +438,89 @@ function clearShippingSectionError() {
   el.textContent = "";
 }
 
+const ADDRESS_FIELD_ERR_IDS = {
+  line1: "checkout-err-line1",
+  city: "checkout-err-city",
+  state: "checkout-err-state",
+  postalCode: "checkout-err-postalCode",
+};
+
+function isStrictUsZipInput(z) {
+  const s = String(z ?? "")
+    .trim()
+    .replace(/\s/g, "");
+  return /^\d{5}$/.test(s) || /^\d{5}-\d{4}$/.test(s);
+}
+
+function clearAddressFieldErrors() {
+  for (const id of Object.values(ADDRESS_FIELD_ERR_IDS)) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.textContent = "";
+      el.hidden = true;
+    }
+  }
+  for (const name of Object.keys(ADDRESS_FIELD_ERR_IDS)) {
+    root.querySelector(`[name="${name}"]`)?.classList.remove("checkout-input--error");
+  }
+}
+
+/**
+ * @param {Record<string, string> | undefined} fieldErrors
+ */
+function applyApiFieldErrors(fieldErrors) {
+  clearAddressFieldErrors();
+  if (!fieldErrors || typeof fieldErrors !== "object") {
+    return;
+  }
+  for (const [name, msg] of Object.entries(fieldErrors)) {
+    const errId = ADDRESS_FIELD_ERR_IDS[name];
+    if (!errId || !String(msg || "").trim()) {
+      continue;
+    }
+    const errEl = document.getElementById(errId);
+    if (errEl) {
+      errEl.textContent = String(msg).trim();
+      errEl.hidden = false;
+    }
+    root.querySelector(`[name="${name}"]`)?.classList.add("checkout-input--error");
+  }
+}
+
+function formatSuggestionAddress(s) {
+  if (!s || typeof s !== "object") {
+    return "";
+  }
+  const line2 = s.line2 ? `${String(s.line2).trim()}\n` : "";
+  const cityLine = [String(s.city || "").trim(), String(s.state || "").trim(), String(s.postalCode || "").trim()]
+    .filter(Boolean)
+    .join(", ");
+  return `${String(s.line1 || "").trim()}\n${line2}${cityLine}`.trim();
+}
+
+function hideAddressSuggestion() {
+  const box = document.getElementById("checkout-address-suggestion");
+  if (box) {
+    box.hidden = true;
+  }
+  const body = document.getElementById("checkout-address-suggestion-body");
+  if (body) {
+    body.textContent = "";
+  }
+}
+
+function showAddressSuggestionIfAny(data) {
+  const sug = data?.addressSuggestion;
+  const box = document.getElementById("checkout-address-suggestion");
+  const body = document.getElementById("checkout-address-suggestion-body");
+  if (!box || !body || !sug || typeof sug !== "object") {
+    hideAddressSuggestion();
+    return;
+  }
+  body.textContent = formatSuggestionAddress(sug);
+  box.hidden = false;
+}
+
 function clearDiscountSectionWarning() {
   const el = document.getElementById("checkout-discount-warning");
   const input = root.querySelector('[name="discountCode"]');
@@ -522,6 +617,8 @@ async function runEstimate(options = {}) {
   clearCheckoutInputErrors();
   clearShippingSectionError();
   clearDiscountSectionWarning();
+  clearAddressFieldErrors();
+  hideAddressSuggestion();
 
   if (validateContact && !applyContactValidationErrors()) {
     return;
@@ -533,6 +630,13 @@ async function runEstimate(options = {}) {
   ) {
     setAddressFieldsError(true);
     showShippingSectionError("Please complete your shipping address.");
+    return;
+  }
+
+  if (requireAddress && address.postalCode && !isStrictUsZipInput(address.postalCode)) {
+    applyApiFieldErrors({ postalCode: "Please enter a valid ZIP code" });
+    root.querySelector('[name="postalCode"]')?.classList.add("checkout-input--error");
+    showShippingSectionError("Please enter a valid ZIP code");
     return;
   }
 
@@ -553,6 +657,7 @@ async function runEstimate(options = {}) {
     });
     const data = await res.json();
     if (!res.ok) {
+      applyApiFieldErrors(data.fieldErrors);
       const parts = [data.error || "Could not calculate totals."];
       const msgs = data.addressValidation?.messages;
       if (Array.isArray(msgs) && msgs.length) {
@@ -563,7 +668,13 @@ async function runEstimate(options = {}) {
 
     latestEstimate = data;
     clearDiscountSectionWarning();
+    clearAddressFieldErrors();
     applyCheckoutOrderSummary(data, { initialSummary });
+    if (!initialSummary) {
+      showAddressSuggestionIfAny(data);
+    } else {
+      hideAddressSuggestion();
+    }
 
     if (warningsEl) {
       const w = Array.isArray(data.warnings) ? [...data.warnings] : [];
@@ -587,13 +698,20 @@ async function runEstimate(options = {}) {
     if (requireAddress && isCheckoutDiscountApiError(msg)) {
       showDiscountSectionWarning(msg);
     } else {
-      setAddressFieldsError(true);
+      if (
+        requireAddress &&
+        !isCheckoutDiscountApiError(msg) &&
+        !root.querySelector(".checkout-field-error:not([hidden])")
+      ) {
+        setAddressFieldsError(true);
+      }
       showShippingSectionError(msg);
     }
     sumShip.textContent = "—";
     sumTax.textContent = "—";
     sumTotal.textContent = "—";
     resetCheckoutSummaryDiscountAmount();
+    hideAddressSuggestion();
     latestEstimate = null;
   }
 }
@@ -773,6 +891,14 @@ async function initSquareCard(applicationId, locationId) {
 function wireCheckoutFieldClearErrors() {
   root.addEventListener("input", (e) => {
     const t = e.target;
+    const name = t?.name;
+    if (name && ADDRESS_FIELD_ERR_IDS[name]) {
+      const errEl = document.getElementById(ADDRESS_FIELD_ERR_IDS[name]);
+      if (errEl) {
+        errEl.hidden = true;
+        errEl.textContent = "";
+      }
+    }
     if (!t?.classList?.contains("checkout-input--error")) {
       return;
     }
@@ -786,6 +912,13 @@ function wireCheckoutFieldClearErrors() {
   });
   root.addEventListener("change", (e) => {
     const t = e.target;
+    if (t?.name === "state") {
+      const errEl = document.getElementById(ADDRESS_FIELD_ERR_IDS.state);
+      if (errEl) {
+        errEl.hidden = true;
+        errEl.textContent = "";
+      }
+    }
     if (t?.name === "state" && t.classList.contains("checkout-input--error")) {
       t.classList.remove("checkout-input--error");
       clearShippingSectionError();
@@ -794,6 +927,38 @@ function wireCheckoutFieldClearErrors() {
 }
 
 function wireEvents() {
+  document.getElementById("checkout-apply-suggested-address")?.addEventListener("click", () => {
+    const sug = latestEstimate?.addressSuggestion;
+    if (!sug || typeof sug !== "object") {
+      hideAddressSuggestion();
+      return;
+    }
+    const l1 = root.querySelector('[name="line1"]');
+    const l2 = root.querySelector('[name="line2"]');
+    const city = root.querySelector('[name="city"]');
+    const state = root.querySelector('[name="state"]');
+    const zip = root.querySelector('[name="postalCode"]');
+    if (l1) {
+      l1.value = String(sug.line1 || "").trim();
+    }
+    if (l2) {
+      l2.value = String(sug.line2 || "").trim();
+    }
+    if (city) {
+      city.value = String(sug.city || "").trim();
+    }
+    if (state && sug.state) {
+      state.value = String(sug.state || "").trim().toUpperCase().slice(0, 2);
+    }
+    if (zip) {
+      zip.value = String(sug.postalCode || "").trim();
+    }
+    hideAddressSuggestion();
+    clearAddressFieldErrors();
+    clearShippingSectionError();
+    void runEstimate({ validateContact: false, requireAddress: true });
+  });
+
   document.getElementById("checkout-update-totals")?.addEventListener("click", () => {
     if (!applyContactValidationErrors()) {
       return;
@@ -857,6 +1022,7 @@ function wireEvents() {
 
       const data = await res.json();
       if (!res.ok) {
+        applyApiFieldErrors(data.fieldErrors);
         throw new Error(data.error || "Payment failed.");
       }
 

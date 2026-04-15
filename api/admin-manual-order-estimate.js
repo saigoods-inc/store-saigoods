@@ -12,6 +12,7 @@ export default async function handler(req, res) {
     const json = await computeCheckoutEstimate(req.body || {}, {
       requireCompleteAddress: true,
       adminLocalDiscount: true,
+      strictShippo: false,
     });
     res.status(200).json(json);
   } catch (error) {
