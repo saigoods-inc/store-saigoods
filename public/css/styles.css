@@ -1870,10 +1870,11 @@ button {
 }
 
 .checkout-residential-hint {
-  margin: 0.05rem 0 0.35rem;
+  grid-column: 1 / -1;
+  margin: 0.45rem 0 0;
   font-size: var(--fs-small);
   font-style: italic;
-  line-height: var(--leading-normal);
+  line-height: var(--leading-snug);
   color: var(--muted);
 }
 

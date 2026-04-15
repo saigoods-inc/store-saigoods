@@ -257,12 +257,9 @@ function renderCheckoutShell(miniQuote, options = {}) {
             <strong id="sum-ship">—</strong>
           </div>
           <div id="checkout-row-residential" class="summary-card__row" hidden>
-            <span>Residential surcharge:</span>
+            <span>Residential surcharge*:</span>
             <strong id="sum-residential">—</strong>
           </div>
-          <p id="checkout-residential-hint" class="checkout-residential-hint" hidden>
-            Use a business address to avoid additional residential charges.
-          </p>
           <div id="checkout-row-discount" class="summary-card__row summary-card__row--discount" hidden>
             <span>Discount:</span>
             <strong id="sum-discount">—</strong>
@@ -275,6 +272,9 @@ function renderCheckoutShell(miniQuote, options = {}) {
             <span>Total due:</span>
             <strong id="sum-total">—</strong>
           </div>
+          <p id="checkout-residential-hint" class="checkout-residential-hint" hidden>
+            Use a business address to avoid additional residential charges.
+          </p>
         </div>
         <div id="checkout-warnings" class="checkout-warnings" hidden></div>
       </aside>
