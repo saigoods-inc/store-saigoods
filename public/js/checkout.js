@@ -273,7 +273,7 @@ function renderCheckoutShell(miniQuote, options = {}) {
             <strong id="sum-total">—</strong>
           </div>
           <p id="checkout-residential-hint" class="checkout-residential-hint" hidden>
-            Use a business address to avoid additional residential charges.
+            * Use a business address to avoid additional residential charges.
           </p>
         </div>
         <div id="checkout-warnings" class="checkout-warnings" hidden></div>
