@@ -37,6 +37,8 @@ export default async function handler(req, res) {
       res.status(502).json({
         error: result.error || "Shippo sync failed.",
         order: refreshed,
+        shippo_last_error_response: refreshed?.shippo_last_error_response ?? null,
+        shippo_last_attempt_payload: refreshed?.shippo_last_attempt_payload ?? null,
       });
       return;
     }

@@ -93,6 +93,22 @@ export async function fetchReportJson(path, accessToken) {
 }
 
 /**
+ * Thrown by {@link fetchReportPost} on non-OK responses; includes parsed JSON `body` when available.
+ */
+export class ReportPostError extends Error {
+  /**
+   * @param {string} message
+   * @param {{ status?: number, body?: object }} [meta]
+   */
+  constructor(message, meta = {}) {
+    super(message);
+    this.name = "ReportPostError";
+    this.status = meta.status;
+    this.body = meta.body;
+  }
+}
+
+/**
  * Authenticated POST for staff APIs (manual order, etc.).
  * @param {string} path
  * @param {string} [accessToken] Supabase session access JWT
@@ -110,7 +126,10 @@ export async function fetchReportPost(path, accessToken, body) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.error || res.statusText || "Request failed.");
+    throw new ReportPostError(data.error || res.statusText || "Request failed.", {
+      status: res.status,
+      body: data,
+    });
   }
   return data;
 }

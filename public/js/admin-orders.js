@@ -5,6 +5,7 @@ import {
   fetchSupabasePublicConfig,
   primeAdminSessionUser,
   renderAdminNav,
+  ReportPostError,
   shouldBootstrapAdminSignedIn,
 } from "./admin-shared.js";
 
@@ -94,8 +95,26 @@ function parseCustomerAddressText(text) {
   };
 }
 
+function parseShippingAddressColumn(row) {
+  const v = row?.shipping_address;
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    return v;
+  }
+  if (typeof v === "string") {
+    try {
+      const p = JSON.parse(v);
+      if (p && typeof p === "object" && !Array.isArray(p)) {
+        return p;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return {};
+}
+
 function normalizeSavedShippingAddress(row) {
-  const raw = row?.shipping_address && typeof row.shipping_address === "object" ? row.shipping_address : {};
+  const raw = parseShippingAddressColumn(row);
   const textFallback = parseCustomerAddressText(row?.customer_address);
   const name = String(raw.name || raw.full_name || "").trim() || String(row?.customer_name || "").trim();
   const email = String(raw.email || "").trim() || String(row?.customer_email || "").trim();
@@ -140,6 +159,64 @@ function formatDate(iso) {
     return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   } catch {
     return "—";
+  }
+}
+
+function jsonPrettyOrNull(value) {
+  if (value === undefined || value === null) {
+    return "null";
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+async function loadShippoPreviewPanel(orderId) {
+  const panel = document.getElementById("admin-shippo-preview-panel");
+  if (!panel || !supabase) {
+    return;
+  }
+  panel.innerHTML = `<p class="admin-muted">Loading server preview…</p>`;
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      panel.innerHTML = `<p class="admin-error">Not signed in.</p>`;
+      return;
+    }
+    const data = await fetchReportPost("/api/admin-order-shippo-preview", session.access_token, { orderId });
+    const preview = data.preview;
+    if (!preview) {
+      panel.innerHTML = `<p class="admin-muted">No preview.</p>`;
+      return;
+    }
+    const payloadBlock = preview.payload
+      ? escapeHtml(jsonPrettyOrNull(preview.payload))
+      : escapeHtml(preview.payloadError || "Could not build payload.");
+    panel.innerHTML = `
+      <h4 class="admin-muted" style="margin:0 0 0.35rem;font-size:13px">Server preview (same merge + payload as Shippo sync)</h4>
+      <details open>
+        <summary class="admin-muted" style="cursor:pointer">Resolved shipping for sync</summary>
+        <pre>${escapeHtml(jsonPrettyOrNull(preview.resolvedShippingForSync))}</pre>
+      </details>
+      <details style="margin-top:0.35rem">
+        <summary class="admin-muted" style="cursor:pointer">Raw <code>shipping_address</code> from DB (parsed)</summary>
+        <pre>${escapeHtml(jsonPrettyOrNull(preview.rawShippingAddressFromDb))}</pre>
+      </details>
+      <details style="margin-top:0.35rem">
+        <summary class="admin-muted" style="cursor:pointer">Line items (weight / qty)</summary>
+        <pre>${escapeHtml(jsonPrettyOrNull(preview.lineItems))}</pre>
+      </details>
+      <details style="margin-top:0.35rem">
+        <summary class="admin-muted" style="cursor:pointer">Final Shippo API payload</summary>
+        <pre>${payloadBlock}</pre>
+      </details>
+    `;
+  } catch (e) {
+    panel.innerHTML = `<p class="admin-error">${escapeHtml(e.message || "Preview failed.")}</p>`;
   }
 }
 
@@ -588,7 +665,19 @@ function bindOrdersTableEvents() {
           });
           await loadOrders();
         } catch (err) {
-          alert(err.message || "Shippo sync failed.");
+          if (err instanceof ReportPostError && err.body?.order) {
+            const idx = ordersCache.findIndex((r) => String(r.id) === String(orderId));
+            if (idx >= 0) {
+              ordersCache[idx] = err.body.order;
+            }
+            renderTable();
+          }
+          const parts = [err.message || "Shippo sync failed."];
+          if (err instanceof ReportPostError && err.body?.shippo_last_error_response != null) {
+            parts.push(`Shippo response:\n${JSON.stringify(err.body.shippo_last_error_response, null, 2)}`);
+          }
+          alert(parts.join("\n\n"));
+        } finally {
           shippoSyncBtn.disabled = false;
           shippoSyncBtn.textContent = beforeText || "Sync to Shippo";
         }
@@ -633,12 +722,18 @@ function bindOrdersTableEvents() {
         const beforeText = saveShippingBtn.textContent;
         saveShippingBtn.textContent = "Saving…";
         try {
-          await fetchReportPost("/api/admin-order-update-shipping-address", session.access_token, {
+          const data = await fetchReportPost("/api/admin-order-update-shipping-address", session.access_token, {
             orderId,
             shippingAddress,
             shippingContact,
           });
           await loadOrders();
+          if (data.order) {
+            const idx = ordersCache.findIndex((r) => String(r.id) === String(orderId));
+            if (idx >= 0) {
+              ordersCache[idx] = data.order;
+            }
+          }
           const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
           if (refreshed) {
             openModal(refreshed);
@@ -1039,9 +1134,14 @@ country: ${escapeHtml(addr.country || "—")}</pre>
           : `<p class="admin-muted" style="margin-top:0.5rem">All required Shippo shipping fields are present.</p>`
       }
       <details style="margin-top:0.5rem">
-        <summary class="admin-muted" style="cursor:pointer">Raw shipping_address payload</summary>
-        <pre>${escapeHtml(JSON.stringify(row.shipping_address || {}, null, 2))}</pre>
+        <summary class="admin-muted" style="cursor:pointer">Raw <code>shipping_address</code> column (parsed JSONB)</summary>
+        <pre>${escapeHtml(jsonPrettyOrNull(parseShippingAddressColumn(row)))}</pre>
       </details>
+      <p class="admin-muted" style="margin-top:0.5rem;font-size:12px;line-height:1.45">
+        If this is empty <code>{}</code> but the fields above are filled, the UI is showing a merge of
+        <code>customer_address</code> text plus contact columns. Saving writes structured fields into <code>shipping_address</code>.
+      </p>
+      <div id="admin-shippo-preview-panel" style="margin-top:0.75rem"></div>
     </div>
     <div class="admin-modal__section">
       <h3>Edit shipping address</h3>
@@ -1103,9 +1203,18 @@ Tracking status: ${escapeHtml(row.shippo_tracking_status || "—")}
 Last Shippo sync: ${escapeHtml(formatDate(row.shippo_last_sync_at))}
 Last Shippo event: ${escapeHtml(formatDate(row.shippo_last_event_at))}
 Sync error: ${escapeHtml(row.shippo_sync_error || "—")}</pre>
+      <details style="margin-top:0.5rem">
+        <summary class="admin-muted" style="cursor:pointer">Last payload sent to Shippo (stored on failure)</summary>
+        <pre>${escapeHtml(jsonPrettyOrNull(row.shippo_last_attempt_payload))}</pre>
+      </details>
+      <details style="margin-top:0.5rem">
+        <summary class="admin-muted" style="cursor:pointer">Last Shippo API error body (stored on failure)</summary>
+        <pre>${escapeHtml(jsonPrettyOrNull(row.shippo_last_error_response))}</pre>
+      </details>
     </div>
   `;
   document.getElementById("order-modal").hidden = false;
+  void loadShippoPreviewPanel(String(row.id));
 }
 
 function closeModal() {
