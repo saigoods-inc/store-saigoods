@@ -59,11 +59,75 @@ function shippoShipmentLabel(row) {
   return s.replace(/_/g, " ");
 }
 
+function parseCustomerAddressText(text) {
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!lines.length) {
+    return null;
+  }
+  let line1 = lines[0] || "";
+  let line2 = "";
+  let cityLine = "";
+  let country = "";
+  if (lines.length >= 4) {
+    line2 = lines[1] || "";
+    cityLine = lines[2] || "";
+    country = lines[3] || "";
+  } else if (lines.length === 3) {
+    cityLine = lines[1] || "";
+    country = lines[2] || "";
+  } else if (lines.length === 2) {
+    cityLine = lines[1] || "";
+  }
+  const m1 = cityLine.match(/^(.*?),\s*([A-Za-z]{2})\s*,\s*(\d{5}(?:-\d{4})?)$/);
+  const m2 = cityLine.match(/^(.*?),\s*([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$/);
+  const m = m1 || m2;
+  return {
+    line1,
+    line2,
+    city: m ? String(m[1] || "").trim() : "",
+    state: m ? String(m[2] || "").trim().toUpperCase().slice(0, 2) : "",
+    postalCode: m ? String(m[3] || "").trim() : "",
+    country: String(country || "").trim().toUpperCase(),
+  };
+}
+
+function normalizeSavedShippingAddress(row) {
+  const raw = row?.shipping_address && typeof row.shipping_address === "object" ? row.shipping_address : {};
+  const textFallback = parseCustomerAddressText(row?.customer_address);
+  const line1 = String(raw.line1 || raw.street1 || raw.address_line_1 || "").trim() || String(textFallback?.line1 || "").trim();
+  const line2 = String(raw.line2 || raw.street2 || raw.address_line_2 || "").trim() || String(textFallback?.line2 || "").trim();
+  const city = String(raw.city || raw.locality || "").trim() || String(textFallback?.city || "").trim();
+  const state =
+    String(raw.state || raw.region || raw.administrative_district_level_1 || "")
+      .trim()
+      .toUpperCase()
+      .slice(0, 2) || String(textFallback?.state || "").trim().toUpperCase().slice(0, 2);
+  const postalCode =
+    String(raw.postalCode || raw.zip || raw.postal_code || "").trim() || String(textFallback?.postalCode || "").trim();
+  const country = String(raw.country || raw.country_code || "").trim().toUpperCase() || String(textFallback?.country || "").trim().toUpperCase();
+  return { line1, line2, city, state, postalCode, country };
+}
+
+function missingShippoAddressFields(row) {
+  const addr = normalizeSavedShippingAddress(row);
+  const missing = [];
+  if (!addr.line1) missing.push("shipping street");
+  if (!addr.city) missing.push("city");
+  if (!addr.state) missing.push("state");
+  if (!addr.postalCode) missing.push("ZIP");
+  if (!addr.country) missing.push("country");
+  return { addr, missing };
+}
+
 function canManualSyncToShippo(row) {
   const paid = String(row.status || "").toLowerCase() === "paid";
   const hasShippoId = Boolean(String(row.shippo_order_id || "").trim());
   const isSyncing = String(row.shippo_sync_status || "") === "syncing";
-  return paid && !hasShippoId && !isSyncing;
+  const { missing } = missingShippoAddressFields(row);
+  return paid && !hasShippoId && !isSyncing && missing.length === 0;
 }
 
 function formatDate(iso) {
@@ -528,6 +592,57 @@ function bindOrdersTableEvents() {
       return;
     }
 
+    const saveShippingBtn = e.target.closest("[data-save-shipping-address]");
+    if (saveShippingBtn) {
+      e.preventDefault();
+      const orderId = saveShippingBtn.getAttribute("data-save-shipping-address");
+      if (!orderId || !supabase) {
+        return;
+      }
+      const form = document.getElementById("admin-shipping-edit-form");
+      if (!form) {
+        return;
+      }
+      const fd = new FormData(form);
+      const shippingAddress = {
+        line1: String(fd.get("line1") || "").trim(),
+        line2: String(fd.get("line2") || "").trim(),
+        city: String(fd.get("city") || "").trim(),
+        state: String(fd.get("state") || "").trim().toUpperCase(),
+        postalCode: String(fd.get("postalCode") || "").trim(),
+        country: String(fd.get("country") || "").trim().toUpperCase(),
+      };
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        saveShippingBtn.disabled = true;
+        const beforeText = saveShippingBtn.textContent;
+        saveShippingBtn.textContent = "Saving…";
+        try {
+          await fetchReportPost("/api/admin-order-update-shipping-address", session.access_token, {
+            orderId,
+            shippingAddress,
+          });
+          await loadOrders();
+          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
+          if (refreshed) {
+            openModal(refreshed);
+          }
+        } catch (err) {
+          alert(err.message || "Could not update shipping address.");
+        } finally {
+          saveShippingBtn.disabled = false;
+          saveShippingBtn.textContent = beforeText || "Save shipping address";
+        }
+      })();
+      return;
+    }
+
     const cancelEditBtn = e.target.closest("[data-order-edit-cancel]");
     if (cancelEditBtn) {
       e.preventDefault();
@@ -786,6 +901,7 @@ function renderTable() {
       const shippoId = String(row.shippo_order_id || "").trim();
       const shippoTracking = String(row.shippo_tracking_number || "").trim();
       const shippoError = String(row.shippo_sync_error || "").trim();
+      const shippoDiag = missingShippoAddressFields(row);
       const syncBtn = canManualSyncToShippo(row)
         ? `<button type="button" class="admin-btn admin-btn--small" data-shippo-sync="${escapeHtml(String(id))}" style="margin-top:0.45rem">Sync to Shippo</button>`
         : "";
@@ -794,6 +910,7 @@ function renderTable() {
         <div class="admin-muted">ID: ${escapeHtml(shippoId || "—")}</div>
         <div class="admin-muted">Shipment: ${escapeHtml(shippoShipmentLabel(row))}</div>
         <div class="admin-muted">Tracking: ${escapeHtml(shippoTracking || "—")}</div>
+        ${shippoDiag.missing.length ? `<div class="admin-error" style="margin-top:0.35rem">Missing ${escapeHtml(shippoDiag.missing.join(", "))}</div>` : ""}
         ${syncBtn}
         ${shippoError ? `<div class="admin-error" style="margin-top:0.35rem">${escapeHtml(shippoError)}</div>` : ""}
       `;
@@ -836,6 +953,8 @@ function renderTable() {
 
 function openModal(row) {
   const { lines: itemLines } = describeLineItems(row.items);
+  const diag = missingShippoAddressFields(row);
+  const addr = diag.addr;
   const fmt = (cents) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
       (Number(cents) || 0) / 100,
@@ -892,6 +1011,48 @@ function openModal(row) {
     <div class="admin-modal__section">
       <h3>Ship to</h3>
       <pre>${escapeHtml(row.customer_address || "—")}</pre>
+    </div>
+    <div class="admin-modal__section">
+      <h3>Saved shipping address fields</h3>
+      <pre>line1: ${escapeHtml(addr.line1 || "—")}
+line2: ${escapeHtml(addr.line2 || "—")}
+city: ${escapeHtml(addr.city || "—")}
+state: ${escapeHtml(addr.state || "—")}
+postalCode: ${escapeHtml(addr.postalCode || "—")}
+country: ${escapeHtml(addr.country || "—")}</pre>
+      ${
+        diag.missing.length
+          ? `<p class="admin-error" style="margin-top:0.5rem">Missing for Shippo: ${escapeHtml(diag.missing.join(", "))}</p>`
+          : `<p class="admin-muted" style="margin-top:0.5rem">All required Shippo shipping fields are present.</p>`
+      }
+    </div>
+    <div class="admin-modal__section">
+      <h3>Edit shipping address</h3>
+      <form id="admin-shipping-edit-form" class="admin-shipping-edit-grid">
+        <label>Street
+          <input name="line1" value="${escapeHtml(addr.line1 || "")}" required />
+        </label>
+        <label>Line 2
+          <input name="line2" value="${escapeHtml(addr.line2 || "")}" />
+        </label>
+        <label>City
+          <input name="city" value="${escapeHtml(addr.city || "")}" required />
+        </label>
+        <label>State
+          <input name="state" value="${escapeHtml(addr.state || "")}" maxlength="2" required />
+        </label>
+        <label>ZIP
+          <input name="postalCode" value="${escapeHtml(addr.postalCode || "")}" required />
+        </label>
+        <label>Country
+          <input name="country" value="${escapeHtml(addr.country || "")}" maxlength="2" required />
+        </label>
+      </form>
+      <div style="margin-top:0.55rem">
+        <button type="button" class="admin-btn admin-btn--small" data-save-shipping-address="${escapeHtml(String(row.id))}">
+          Save shipping address
+        </button>
+      </div>
     </div>
     <div class="admin-modal__section">
       <h3>Line items (pack these)</h3>

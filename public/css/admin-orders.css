@@ -628,6 +628,29 @@ body.admin-page {
   font-family: inherit;
 }
 
+.admin-shipping-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 0.75rem;
+}
+
+.admin-shipping-edit-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 12px;
+  color: var(--admin-muted);
+}
+
+.admin-shipping-edit-grid input {
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--admin-border);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--admin-text);
+  background: #fff;
+}
+
 /* Manual order — bundle + size UI (mirrors store product page, scoped to form) */
 .manual-order-form .manual-product-details {
   margin-bottom: 0.65rem;
