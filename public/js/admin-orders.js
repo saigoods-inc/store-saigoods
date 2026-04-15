@@ -59,6 +59,13 @@ function shippoShipmentLabel(row) {
   return s.replace(/_/g, " ");
 }
 
+function canManualSyncToShippo(row) {
+  const paid = String(row.status || "").toLowerCase() === "paid";
+  const hasShippoId = Boolean(String(row.shippo_order_id || "").trim());
+  const isSyncing = String(row.shippo_sync_status || "") === "syncing";
+  return paid && !hasShippoId && !isSyncing;
+}
+
 function formatDate(iso) {
   if (!iso) return "—";
   try {
@@ -489,6 +496,38 @@ function bindOrdersTableEvents() {
       })();
     }
 
+    const shippoSyncBtn = e.target.closest("[data-shippo-sync]");
+    if (shippoSyncBtn) {
+      e.preventDefault();
+      const orderId = shippoSyncBtn.getAttribute("data-shippo-sync");
+      if (!orderId || !supabase) {
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        shippoSyncBtn.disabled = true;
+        const beforeText = shippoSyncBtn.textContent;
+        shippoSyncBtn.textContent = "Syncing…";
+        try {
+          await fetchReportPost("/api/admin-order-shippo-sync", session.access_token, {
+            orderId,
+          });
+          await loadOrders();
+        } catch (err) {
+          alert(err.message || "Shippo sync failed.");
+          shippoSyncBtn.disabled = false;
+          shippoSyncBtn.textContent = beforeText || "Sync to Shippo";
+        }
+      })();
+      return;
+    }
+
     const cancelEditBtn = e.target.closest("[data-order-edit-cancel]");
     if (cancelEditBtn) {
       e.preventDefault();
@@ -747,11 +786,15 @@ function renderTable() {
       const shippoId = String(row.shippo_order_id || "").trim();
       const shippoTracking = String(row.shippo_tracking_number || "").trim();
       const shippoError = String(row.shippo_sync_error || "").trim();
+      const syncBtn = canManualSyncToShippo(row)
+        ? `<button type="button" class="admin-btn admin-btn--small" data-shippo-sync="${escapeHtml(String(id))}" style="margin-top:0.45rem">Sync to Shippo</button>`
+        : "";
       const shippoCell = `
         <span class="${shippoSyncBadgeClass(row)}">${escapeHtml(shippoSyncLabel(row))}</span>
         <div class="admin-muted">ID: ${escapeHtml(shippoId || "—")}</div>
         <div class="admin-muted">Shipment: ${escapeHtml(shippoShipmentLabel(row))}</div>
         <div class="admin-muted">Tracking: ${escapeHtml(shippoTracking || "—")}</div>
+        ${syncBtn}
         ${shippoError ? `<div class="admin-error" style="margin-top:0.35rem">${escapeHtml(shippoError)}</div>` : ""}
       `;
 

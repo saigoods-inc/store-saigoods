@@ -7,7 +7,7 @@ import {
   normalizeDiscountCode,
 } from "../lib/discount-codes.js";
 import { isHardinCountyTnDelivery } from "../lib/hardin-county.js";
-import { cancelPendingOrderAfterPaymentFailure, createPendingOrder } from "../lib/orders.js";
+import { cancelPendingOrderAfterPaymentFailure, createPendingOrder, markOrderPaid } from "../lib/orders.js";
 import { sendResendOrderConfirmation } from "../lib/resend-order-confirmation.js";
 import { syncWebsiteOrderToShippo } from "../lib/shippo-order-sync.js";
 import { createCardPayment } from "../lib/square.js";
@@ -111,6 +111,16 @@ export default async function handler(req, res) {
         orderId: pending.id,
         buyerEmail: parsed.email,
         idempotencyKey: `saigoods-pay-${pending.id}`,
+      });
+
+      await markOrderPaid({
+        orderId: pending.id,
+        paymentId,
+        paidTotalCents: quote.totalCents,
+        customerAddress: formatShippingAddressForOrder(mergedAddress),
+        buyerEmail: parsed.email,
+        buyerPhone: parsed.phone,
+        buyerName: parsed.name,
       });
 
       const shippoSync = await syncWebsiteOrderToShippo(pending.id);

@@ -12,6 +12,7 @@ import adminManualOrderCreateHandler from "./api/admin-manual-order-create.js";
 import adminManualOrderDeleteDraftHandler from "./api/admin-manual-order-delete-draft.js";
 import adminManualOrderDraftsHandler from "./api/admin-manual-order-drafts.js";
 import adminManualOrderEstimateHandler from "./api/admin-manual-order-estimate.js";
+import adminOrderShippoSyncHandler from "./api/admin-order-shippo-sync.js";
 import adminManualOrderSendLinkHandler from "./api/admin-manual-order-send-link.js";
 import adminManualOrderUpdateDraftHandler from "./api/admin-manual-order-update-draft.js";
 import adminWalkInOrderCreateHandler from "./api/admin-walk-in-order-create.js";
@@ -207,6 +208,15 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/admin-manual-order-send-link" && req.method === "POST") {
       const body = await readJsonBody(req);
       await adminManualOrderSendLinkHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-order-shippo-sync" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminOrderShippoSyncHandler(
         { method: "POST", body, headers: req.headers },
         adaptExpressStyleResponse(res),
       );
