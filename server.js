@@ -7,7 +7,6 @@ import { enrichCartQuoteApiResponse } from "./lib/cart-api-response.js";
 import { fetchNexusSummaryRows, fetchTaxSummaryTnRows } from "./lib/orders.js";
 import { buildQuote } from "./lib/quote.js";
 import { assertReportsAuthorized } from "./lib/reports-auth.js";
-import { resolveShippingZip } from "./lib/shipping.js";
 import adminDiscountCodesHandler from "./api/admin-discount-codes.js";
 import adminManualOrderCreateHandler from "./api/admin-manual-order-create.js";
 import adminManualOrderDeleteDraftHandler from "./api/admin-manual-order-delete-draft.js";
@@ -284,8 +283,7 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/api/checkout" && req.method === "POST") {
       const body = await readJsonBody(req);
-      const shippingZip = resolveShippingZip(body.customer);
-      const quote = buildQuote(body.items, { zipCode: shippingZip || undefined });
+      const quote = buildQuote(body.items, { omitShippingEstimate: true });
 
       if (!quote.items.length) {
         return sendJson(res, 400, { error: "Your cart is empty." });

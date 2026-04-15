@@ -26,9 +26,17 @@ export default async function handler(req, res) {
 
     const addrCheck = await validateShippingAddressForCheckout(parsed.address);
     if (!addrCheck.ok) {
-      res.status(400).json({ error: addrCheck.error });
+      res.status(400).json({
+        error: addrCheck.error,
+        ...(addrCheck.addressValidation ? { addressValidation: addrCheck.addressValidation } : {}),
+      });
       return;
     }
+
+    const mergedAddress =
+      addrCheck.normalizedAddress && typeof addrCheck.normalizedAddress === "object"
+        ? { ...parsed.address, ...addrCheck.normalizedAddress }
+        : parsed.address;
 
     const discountRaw = parsed.discountCode ? String(parsed.discountCode).trim() : "";
     const normalizedCode = discountRaw ? normalizeDiscountCode(discountRaw) : null;
@@ -43,7 +51,7 @@ export default async function handler(req, res) {
     let hardinDiscount = null;
 
     if (normalizedCode) {
-      if (!isHardinCountyTnDelivery(parsed.address)) {
+      if (!isHardinCountyTnDelivery(mergedAddress)) {
         res.status(400).json({
           error: "This discount code is invalid or not applicable to this address.",
         });
@@ -55,13 +63,16 @@ export default async function handler(req, res) {
       hardinDiscount = { code: normalizedCode, applied: true };
     }
 
-    const quote = await buildFullCheckoutQuote(parsed.items, parsed.address, { pricingTier });
+    const quote = await buildFullCheckoutQuote(parsed.items, mergedAddress, {
+      pricingTier,
+      shippingContext: addrCheck.shippingContext,
+    });
     const customer = {
       name: parsed.name,
       email: parsed.email,
       phone: parsed.phone,
-      address: formatShippingAddressForOrder(parsed.address),
-      shippingState: parsed.address.state,
+      address: formatShippingAddressForOrder(mergedAddress),
+      shippingState: mergedAddress.state,
     };
 
     let pending = null;
@@ -93,7 +104,7 @@ export default async function handler(req, res) {
       void sendResendOrderConfirmation({
         pending: {
           ...pending,
-          shipping_address: parsed.address && typeof parsed.address === "object" ? parsed.address : null,
+          shipping_address: mergedAddress && typeof mergedAddress === "object" ? mergedAddress : null,
         },
         quote,
         customerEmail: parsed.email,
@@ -116,8 +127,9 @@ export default async function handler(req, res) {
     }
   } catch (error) {
     console.error(error);
-    res
-      .status(error.statusCode || 500)
-      .json({ error: error.message || "Payment could not be completed." });
+    res.status(error.statusCode || 500).json({
+      error: error.message || "Payment could not be completed.",
+      ...(error.addressValidation ? { addressValidation: error.addressValidation } : {}),
+    });
   }
 }

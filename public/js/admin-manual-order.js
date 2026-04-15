@@ -1092,11 +1092,20 @@ async function runEstimate() {
   if (data.merchandiseDiscountFormatted && Number(data.merchandiseDiscountCents) > 0) {
     lines.push(`Discount: −${data.merchandiseDiscountFormatted}`);
   }
-  lines.push(
-    `Shipping: ${data.shippingCents === 0 ? "Free" : data.shippingFormatted}`,
-    `Tax: ${data.taxFormatted}`,
-    `Total: ${data.totalFormatted}`,
-  );
+  const baseCents = Math.max(0, Number(data.baseShippingCents) || 0);
+  const shipBase =
+    data.baseShippingFormatted != null
+      ? baseCents === 0
+        ? "Free"
+        : data.baseShippingFormatted
+      : data.shippingCents === 0
+        ? "Free"
+        : data.shippingFormatted;
+  lines.push(`Shipping: ${shipBase}`);
+  if (Math.max(0, Number(data.residentialSurchargeCents) || 0) > 0 && data.residentialSurchargeFormatted) {
+    lines.push(`Residential surcharge: ${data.residentialSurchargeFormatted}`);
+  }
+  lines.push(`Tax: ${data.taxFormatted}`, `Total: ${data.totalFormatted}`);
   if (Array.isArray(data.warnings) && data.warnings.length) {
     lines.push("", ...data.warnings.map((w) => `Note: ${w}`));
   }

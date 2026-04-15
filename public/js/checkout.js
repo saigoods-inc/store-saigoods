@@ -240,6 +240,10 @@ function renderCheckoutShell(miniQuote, options = {}) {
             <span>Shipping</span>
             <strong id="sum-ship">—</strong>
           </div>
+          <div id="checkout-row-residential" class="summary-card__row" hidden>
+            <span>Residential surcharge</span>
+            <strong id="sum-residential">—</strong>
+          </div>
           <div id="checkout-row-discount" class="summary-card__row summary-card__row--discount">
             <span>Discount</span>
             <strong id="sum-discount">—</strong>
@@ -293,8 +297,12 @@ function readDiscountCode() {
   return root.querySelector('[name="discountCode"]')?.value?.trim() || "";
 }
 
-/** Order summary: show "Free" when shipping is $0. */
-function shippingDisplayFromEstimate(data) {
+/** Base shipping line (not including residential surcharge). */
+function baseShippingDisplayFromEstimate(data) {
+  if (data?.baseShippingFormatted != null) {
+    const base = Math.max(0, Math.round(Number(data?.baseShippingCents) || 0));
+    return base === 0 ? "Free" : String(data.baseShippingFormatted);
+  }
   const cents = Math.max(0, Math.round(Number(data?.shippingCents) || 0));
   if (cents === 0) {
     return "Free";
@@ -338,13 +346,28 @@ function applyCheckoutOrderSummary(data, opts = {}) {
       : "—";
   }
 
+  const resRow = document.getElementById("checkout-row-residential");
+  const sumRes = document.getElementById("sum-residential");
+
   if (sumShip && sumTax && sumTotal) {
     if (initialSummary) {
       sumShip.textContent = "—";
       sumTax.textContent = "—";
+      if (resRow) {
+        resRow.hidden = true;
+      }
     } else {
-      sumShip.textContent = shippingDisplayFromEstimate(data);
+      sumShip.textContent = baseShippingDisplayFromEstimate(data);
       sumTax.textContent = data.taxFormatted;
+      const resCents = Math.max(0, Math.round(Number(data?.residentialSurchargeCents) || 0));
+      if (resRow && sumRes) {
+        if (resCents > 0 && data.residentialSurchargeFormatted) {
+          resRow.hidden = false;
+          sumRes.textContent = data.residentialSurchargeFormatted;
+        } else {
+          resRow.hidden = true;
+        }
+      }
     }
     sumTotal.textContent = data.totalFormatted;
   }
@@ -516,7 +539,12 @@ async function runEstimate(options = {}) {
     });
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.error || "Could not calculate totals.");
+      const parts = [data.error || "Could not calculate totals."];
+      const msgs = data.addressValidation?.messages;
+      if (Array.isArray(msgs) && msgs.length) {
+        parts.push(...msgs.slice(0, 6));
+      }
+      throw new Error(parts.join(" "));
     }
 
     latestEstimate = data;

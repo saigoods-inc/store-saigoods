@@ -11,6 +11,10 @@ export default async function handler(req, res) {
     res.status(200).json(json);
   } catch (error) {
     console.error(error);
-    res.status(error.statusCode || 500).json({ error: error.message || "Estimate failed." });
+    const status = error.statusCode || 500;
+    res.status(status).json({
+      error: error.message || "Estimate failed.",
+      ...(error.addressValidation ? { addressValidation: error.addressValidation } : {}),
+    });
   }
 }
