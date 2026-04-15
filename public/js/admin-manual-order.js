@@ -1093,14 +1093,16 @@ async function runEstimate() {
     lines.push(`Discount: −${data.merchandiseDiscountFormatted}`);
   }
   const baseCents = Math.max(0, Number(data.baseShippingCents) || 0);
+  const shipCents = Math.max(0, Number(data.shippingCents) || 0);
+  const resCents = Math.max(0, Number(data.residentialSurchargeCents) || 0);
   const shipBase =
-    data.baseShippingFormatted != null
+    typeof data.baseShippingCents === "number"
       ? baseCents === 0
         ? "Free"
-        : data.baseShippingFormatted
-      : data.shippingCents === 0
+        : data.baseShippingFormatted || "—"
+      : shipCents === 0 || shipCents === resCents
         ? "Free"
-        : data.shippingFormatted;
+        : data.shippingFormatted || "—";
   lines.push(`Shipping: ${shipBase}`);
   if (Math.max(0, Number(data.residentialSurchargeCents) || 0) > 0 && data.residentialSurchargeFormatted) {
     lines.push(`Residential surcharge: ${data.residentialSurchargeFormatted}`);

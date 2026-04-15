@@ -233,27 +233,27 @@ function renderCheckoutShell(miniQuote, options = {}) {
         <div id="checkout-lines" class="checkout-lines"></div>
         <div class="summary-card__rows checkout-totals">
           <div class="summary-card__row">
-            <span>Merchandise</span>
+            <span>Merchandise:</span>
             <strong id="sum-sub">—</strong>
           </div>
           <div class="summary-card__row">
-            <span>Shipping</span>
+            <span>Shipping:</span>
             <strong id="sum-ship">—</strong>
           </div>
           <div id="checkout-row-residential" class="summary-card__row" hidden>
-            <span>Residential surcharge</span>
+            <span>Residential surcharge:</span>
             <strong id="sum-residential">—</strong>
           </div>
           <div id="checkout-row-discount" class="summary-card__row summary-card__row--discount">
-            <span>Discount</span>
+            <span>Discount:</span>
             <strong id="sum-discount">—</strong>
           </div>
           <div class="summary-card__row summary-card__row--tax">
-            <span>Estimated tax</span>
+            <span>Estimated tax:</span>
             <strong id="sum-tax">—</strong>
           </div>
           <div class="summary-card__row summary-card__row--total">
-            <span>Total due</span>
+            <span>Total due:</span>
             <strong id="sum-total">—</strong>
           </div>
         </div>
@@ -297,14 +297,15 @@ function readDiscountCode() {
   return root.querySelector('[name="discountCode"]')?.value?.trim() || "";
 }
 
-/** Base shipping line (not including residential surcharge). */
+/** Base shipping line — catalog includes shipping; line is always Free unless a future non-zero base is added. */
 function baseShippingDisplayFromEstimate(data) {
-  if (data?.baseShippingFormatted != null) {
-    const base = Math.max(0, Math.round(Number(data?.baseShippingCents) || 0));
-    return base === 0 ? "Free" : String(data.baseShippingFormatted);
+  const base = Math.max(0, Math.round(Number(data?.baseShippingCents) || 0));
+  if (typeof data?.baseShippingCents === "number") {
+    return base === 0 ? "Free" : String(data.baseShippingFormatted || "—");
   }
-  const cents = Math.max(0, Math.round(Number(data?.shippingCents) || 0));
-  if (cents === 0) {
+  const ship = Math.max(0, Math.round(Number(data?.shippingCents) || 0));
+  const res = Math.max(0, Math.round(Number(data?.residentialSurchargeCents) || 0));
+  if (ship === 0 || ship === res) {
     return "Free";
   }
   return data.shippingFormatted || "—";
