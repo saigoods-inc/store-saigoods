@@ -21,7 +21,11 @@ export default async function handler(req, res) {
       return;
     }
 
-    const updated = await updateOrderShippingAddressForAdmin(orderId, req.body?.shippingAddress || {});
+    const updated = await updateOrderShippingAddressForAdmin(
+      orderId,
+      req.body?.shippingAddress || {},
+      req.body?.shippingContact || {},
+    );
     res.status(200).json({ ok: true, order: updated });
   } catch (error) {
     console.error(error);

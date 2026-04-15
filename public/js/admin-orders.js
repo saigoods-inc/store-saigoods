@@ -97,23 +97,27 @@ function parseCustomerAddressText(text) {
 function normalizeSavedShippingAddress(row) {
   const raw = row?.shipping_address && typeof row.shipping_address === "object" ? row.shipping_address : {};
   const textFallback = parseCustomerAddressText(row?.customer_address);
+  const name = String(raw.name || raw.full_name || "").trim() || String(row?.customer_name || "").trim();
+  const email = String(raw.email || "").trim() || String(row?.customer_email || "").trim();
+  const phone = String(raw.phone || "").trim() || String(row?.customer_phone || "").trim();
   const line1 = String(raw.line1 || raw.street1 || raw.address_line_1 || "").trim() || String(textFallback?.line1 || "").trim();
   const line2 = String(raw.line2 || raw.street2 || raw.address_line_2 || "").trim() || String(textFallback?.line2 || "").trim();
   const city = String(raw.city || raw.locality || "").trim() || String(textFallback?.city || "").trim();
   const state =
-    String(raw.state || raw.region || raw.administrative_district_level_1 || "")
+    String(raw.state || raw.province || raw.region || raw.administrative_district_level_1 || "")
       .trim()
       .toUpperCase()
       .slice(0, 2) || String(textFallback?.state || "").trim().toUpperCase().slice(0, 2);
   const postalCode =
-    String(raw.postalCode || raw.zip || raw.postal_code || "").trim() || String(textFallback?.postalCode || "").trim();
+    String(raw.postalCode || raw.zip || raw.zip_code || raw.postal_code || "").trim() || String(textFallback?.postalCode || "").trim();
   const country = String(raw.country || raw.country_code || "").trim().toUpperCase() || String(textFallback?.country || "").trim().toUpperCase();
-  return { line1, line2, city, state, postalCode, country };
+  return { name, email, phone, line1, line2, city, state, postalCode, country };
 }
 
 function missingShippoAddressFields(row) {
   const addr = normalizeSavedShippingAddress(row);
   const missing = [];
+  if (!addr.name) missing.push("shipping name");
   if (!addr.line1) missing.push("shipping street");
   if (!addr.city) missing.push("city");
   if (!addr.state) missing.push("state");
@@ -612,6 +616,11 @@ function bindOrdersTableEvents() {
         postalCode: String(fd.get("postalCode") || "").trim(),
         country: String(fd.get("country") || "").trim().toUpperCase(),
       };
+      const shippingContact = {
+        name: String(fd.get("name") || "").trim(),
+        email: String(fd.get("email") || "").trim(),
+        phone: String(fd.get("phone") || "").trim(),
+      };
       void (async () => {
         const {
           data: { session },
@@ -627,6 +636,7 @@ function bindOrdersTableEvents() {
           await fetchReportPost("/api/admin-order-update-shipping-address", session.access_token, {
             orderId,
             shippingAddress,
+            shippingContact,
           });
           await loadOrders();
           const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
@@ -1014,21 +1024,37 @@ function openModal(row) {
     </div>
     <div class="admin-modal__section">
       <h3>Saved shipping address fields</h3>
-      <pre>line1: ${escapeHtml(addr.line1 || "—")}
-line2: ${escapeHtml(addr.line2 || "—")}
+      <pre>full name: ${escapeHtml(addr.name || "—")}
+email: ${escapeHtml(addr.email || "—")}
+phone: ${escapeHtml(addr.phone || "—")}
+street1: ${escapeHtml(addr.line1 || "—")}
+street2: ${escapeHtml(addr.line2 || "—")}
 city: ${escapeHtml(addr.city || "—")}
 state: ${escapeHtml(addr.state || "—")}
-postalCode: ${escapeHtml(addr.postalCode || "—")}
+ZIP: ${escapeHtml(addr.postalCode || "—")}
 country: ${escapeHtml(addr.country || "—")}</pre>
       ${
         diag.missing.length
           ? `<p class="admin-error" style="margin-top:0.5rem">Missing for Shippo: ${escapeHtml(diag.missing.join(", "))}</p>`
           : `<p class="admin-muted" style="margin-top:0.5rem">All required Shippo shipping fields are present.</p>`
       }
+      <details style="margin-top:0.5rem">
+        <summary class="admin-muted" style="cursor:pointer">Raw shipping_address payload</summary>
+        <pre>${escapeHtml(JSON.stringify(row.shipping_address || {}, null, 2))}</pre>
+      </details>
     </div>
     <div class="admin-modal__section">
       <h3>Edit shipping address</h3>
       <form id="admin-shipping-edit-form" class="admin-shipping-edit-grid">
+        <label>Full name
+          <input name="name" value="${escapeHtml(addr.name || "")}" required />
+        </label>
+        <label>Email
+          <input name="email" type="email" value="${escapeHtml(addr.email || "")}" />
+        </label>
+        <label>Phone
+          <input name="phone" value="${escapeHtml(addr.phone || "")}" />
+        </label>
         <label>Street
           <input name="line1" value="${escapeHtml(addr.line1 || "")}" required />
         </label>
