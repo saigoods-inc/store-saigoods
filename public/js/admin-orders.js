@@ -60,32 +60,71 @@ function shippoShipmentLabel(row) {
   return s.replace(/_/g, " ");
 }
 
-function shippoParcelPieceCount(row) {
-  const a = row.shippo_parcel_audit_json;
-  if (!a || typeof a !== "object") {
+/**
+ * Safe read of parcel audit JSON (handles missing columns, string JSON, bad shapes).
+ */
+function safeShippoParcelAuditJson(row) {
+  if (!row || typeof row !== "object") {
     return null;
   }
-  if (typeof a.parcelCount === "number") {
-    return a.parcelCount;
+  const v = row.shippo_parcel_audit_json;
+  if (v == null) {
+    return null;
   }
-  if (Array.isArray(a.parcels)) {
-    return a.parcels.length;
+  if (typeof v === "object" && !Array.isArray(v)) {
+    return v;
+  }
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (!t) {
+      return null;
+    }
+    try {
+      const p = JSON.parse(t);
+      if (p && typeof p === "object" && !Array.isArray(p)) {
+        return p;
+      }
+    } catch {
+      return null;
+    }
   }
   return null;
 }
 
+function shippoParcelPieceCount(row) {
+  try {
+    const a = safeShippoParcelAuditJson(row);
+    if (!a) {
+      return null;
+    }
+    if (typeof a.parcelCount === "number") {
+      return a.parcelCount;
+    }
+    if (Array.isArray(a.parcels)) {
+      return a.parcels.length;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function shippoRatesList(row) {
-  const raw = row.shippo_shipment_rates_json;
-  if (!raw) {
+  try {
+    const raw = row?.shippo_shipment_rates_json;
+    if (!raw) {
+      return [];
+    }
+    if (Array.isArray(raw)) {
+      return raw;
+    }
+    if (typeof raw === "object" && Array.isArray(raw.rates)) {
+      return raw.rates;
+    }
+    return [];
+  } catch {
     return [];
   }
-  if (Array.isArray(raw)) {
-    return raw;
-  }
-  if (typeof raw === "object" && Array.isArray(raw.rates)) {
-    return raw.rates;
-  }
-  return [];
 }
 
 function formatShippoMoney(amount, currency) {
@@ -107,28 +146,36 @@ function isUpsRate(r) {
 }
 
 function parcelAuditSummaryLines(row) {
-  const a = row.shippo_parcel_audit_json;
-  if (!a || typeof a !== "object") {
+  try {
+    const a = safeShippoParcelAuditJson(row);
+    if (!a) {
+      return [];
+    }
+    const audit = Array.isArray(a.parcels) ? a.parcels : null;
+    if (audit && audit.length) {
+      return audit.map((p, i) => {
+        const spec = p.spec;
+        if (spec) {
+          return `${i + 1}. ${spec.length}×${spec.width}×${spec.height} in · ${spec.weightLb} lb`;
+        }
+        return `${i + 1}. (see parcel audit JSON)`;
+      });
+    }
+    const req = Array.isArray(a.requestParcels) ? a.requestParcels : [];
+    return req.map((p, i) => `${i + 1}. ${p.length}×${p.width}×${p.height} in · ${p.weight} ${p.mass_unit || "lb"}`);
+  } catch {
     return [];
   }
-  const audit = Array.isArray(a.parcels) ? a.parcels : null;
-  if (audit && audit.length) {
-    return audit.map((p, i) => {
-      const spec = p.spec;
-      if (spec) {
-        return `${i + 1}. ${spec.length}×${spec.width}×${spec.height} in · ${spec.weightLb} lb`;
-      }
-      return `${i + 1}. (see parcel audit JSON)`;
-    });
-  }
-  const req = Array.isArray(a.requestParcels) ? a.requestParcels : [];
-  return req.map((p, i) => `${i + 1}. ${p.length}×${p.width}×${p.height} in · ${p.weight} ${p.mass_unit || "lb"}`);
 }
 
 function shipmentReadyForRates(row) {
-  const sid = String(row.shippo_shipment_object_id || "").trim();
-  const st = String(row.shippo_shipment_rate_status || "");
-  return Boolean(sid && st === "rates_available");
+  try {
+    const sid = String(row?.shippo_shipment_object_id || "").trim();
+    const st = String(row?.shippo_shipment_rate_status || "");
+    return Boolean(sid && st === "rates_available");
+  } catch {
+    return false;
+  }
 }
 
 function firstPreferredRateIndex(rates) {
@@ -1149,9 +1196,14 @@ async function loadOrders() {
       .order("created_at", { ascending: false });
 
     if (error) {
-      errEl.textContent =
+      let msg =
         error.message ||
         "Could not load orders. Run sql/orders_admin_rls.sql in Supabase and confirm you are signed in.";
+      if (/schema cache|could not find.*column/i.test(String(msg))) {
+        msg +=
+          " Run sql/patch-orders-shippo-schema-complete.sql in the Supabase SQL editor, then execute NOTIFY pgrst, 'reload schema'; (included at end of that file) or use Dashboard → Settings → API → Reload schema.";
+      }
+      errEl.textContent = msg;
       errEl.hidden = false;
       return;
     }
@@ -1345,11 +1397,17 @@ function renderTable() {
 }
 
 function openModal(row) {
-  const { lines: itemLines } = describeLineItems(row.items);
+  let itemLines = [];
+  try {
+    itemLines = describeLineItems(row.items).lines;
+  } catch (e) {
+    console.error(e);
+    itemLines = [{ html: '<p class="admin-error">Could not render line items.</p>' }];
+  }
   const diag = missingShippoAddressFields(row);
   const addr = diag.addr;
   const pieceCount = shippoParcelPieceCount(row) ?? "—";
-  const overrideDefault = row.shippo_parcels_override_json
+  const overrideDefault = row?.shippo_parcels_override_json
     ? escapeHtml(jsonPrettyOrNull(row.shippo_parcels_override_json))
     : "";
   const fmt = (cents) =>
@@ -1357,23 +1415,29 @@ function openModal(row) {
       (Number(cents) || 0) / 100,
     );
 
-  const rates = shippoRatesList(row);
-  const pickIdx = firstPreferredRateIndex(rates);
-  const parcelLines = parcelAuditSummaryLines(row);
-  const multiNote =
-    row.shippo_parcel_audit_json && typeof row.shippo_parcel_audit_json === "object"
-      ? row.shippo_parcel_audit_json.multiPieceCarrierNote
-      : null;
-  const ratesRowsHtml =
-    rates.length === 0
-      ? `<p class="admin-muted">No rates loaded yet. Use <strong>Sync to Shippo</strong> on the orders table, or <strong>Create or refresh shipment</strong> below.</p>`
-      : `<div style="overflow:auto;max-width:100%"><table class="admin-table" style="font-size:12px;margin-top:0.25rem;width:100%"><thead><tr><th></th><th>Carrier</th><th>Service</th><th>Est. cost</th><th>Transit</th><th>Rate ID</th></tr></thead><tbody>${rates
-          .map((r, idx) => {
-            const oid = String(r.object_id || "").trim();
-            const ups = isUpsRate(r);
-            const transit =
-              r.estimated_days != null ? `${r.estimated_days} days` : String(r.duration_terms || "—");
-            return `<tr class="${ups ? "admin-shippo-rate--ups" : ""}">
+  let ratesRowsHtml = "";
+  let parcelSummaryHtml = "";
+  let multiNoteHtml = "";
+  let labelBlock = "";
+  let buyBlock = "";
+  let shippoPanelErrorHtml = "";
+
+  try {
+    const rates = shippoRatesList(row);
+    const pickIdx = firstPreferredRateIndex(rates);
+    const parcelLines = parcelAuditSummaryLines(row);
+    const audit = safeShippoParcelAuditJson(row);
+    const multiNote = audit?.multiPieceCarrierNote;
+    ratesRowsHtml =
+      rates.length === 0
+        ? `<p class="admin-muted">No rates loaded yet. Use <strong>Sync to Shippo</strong> on the orders table, or <strong>Create or refresh shipment</strong> below.</p>`
+        : `<div style="overflow:auto;max-width:100%"><table class="admin-table" style="font-size:12px;margin-top:0.25rem;width:100%"><thead><tr><th></th><th>Carrier</th><th>Service</th><th>Est. cost</th><th>Transit</th><th>Rate ID</th></tr></thead><tbody>${rates
+            .map((r, idx) => {
+              const oid = String(r.object_id || "").trim();
+              const ups = isUpsRate(r);
+              const transit =
+                r.estimated_days != null ? `${r.estimated_days} days` : String(r.duration_terms || "—");
+              return `<tr class="${ups ? "admin-shippo-rate--ups" : ""}">
   <td><input type="radio" name="admin-shippo-rate-pick" value="${escapeHtml(oid)}" ${idx === pickIdx ? "checked" : ""} ${!oid ? "disabled" : ""} /></td>
   <td>${escapeHtml(String(r.provider || "—"))}${ups ? ' <span class="admin-muted">(UPS)</span>' : ""}</td>
   <td>${escapeHtml(String(r.servicelevel_name || r.servicelevel_token || "—"))}</td>
@@ -1381,23 +1445,23 @@ function openModal(row) {
   <td>${escapeHtml(transit)}</td>
   <td class="admin-muted" style="word-break:break-all;font-size:11px">${escapeHtml(oid)}</td>
 </tr>`;
-          })
-          .join("")}</tbody></table></div>`;
-  const parcelSummaryHtml =
-    parcelLines.length > 0
-      ? `<ul style="margin:0.35rem 0 0;padding-left:1.1rem;font-size:12px;line-height:1.45">${parcelLines
-          .map((line) => `<li>${escapeHtml(line)}</li>`)
-          .join("")}</ul>`
-      : `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">No parcel audit yet — sync or refresh shipment after packing rules apply.</p>`;
-  const multiNoteHtml =
-    multiNote && String(multiNote).trim()
-      ? `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;line-height:1.45">${escapeHtml(String(multiNote))}</p>`
-      : "";
-  const labelPurchased =
-    Boolean(String(row.shippo_label_url || "").trim()) &&
-    String(row.shippo_transaction_status || "").toUpperCase() === "SUCCESS";
-  const labelBlock = labelPurchased
-    ? `<div style="margin-top:0.65rem;padding:0.6rem;border:1px solid rgba(0,0,0,0.12);border-radius:6px">
+            })
+            .join("")}</tbody></table></div>`;
+    parcelSummaryHtml =
+      parcelLines.length > 0
+        ? `<ul style="margin:0.35rem 0 0;padding-left:1.1rem;font-size:12px;line-height:1.45">${parcelLines
+            .map((line) => `<li>${escapeHtml(line)}</li>`)
+            .join("")}</ul>`
+        : `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">No parcel audit yet — sync or refresh shipment after packing rules apply.</p>`;
+    multiNoteHtml =
+      multiNote && String(multiNote).trim()
+        ? `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;line-height:1.45">${escapeHtml(String(multiNote))}</p>`
+        : "";
+    const labelPurchased =
+      Boolean(String(row.shippo_label_url || "").trim()) &&
+      String(row.shippo_transaction_status || "").toUpperCase() === "SUCCESS";
+    labelBlock = labelPurchased
+      ? `<div style="margin-top:0.65rem;padding:0.6rem;border:1px solid rgba(0,0,0,0.12);border-radius:6px">
   <p style="margin:0 0 0.35rem;font-weight:600">Label purchased</p>
   <p class="admin-muted" style="margin:0.35rem 0">Carrier: ${escapeHtml(row.shippo_label_carrier || "—")} · Service: ${escapeHtml(row.shippo_label_service || "—")}</p>
   <p class="admin-muted" style="margin:0.35rem 0">Tracking: ${escapeHtml(row.shippo_tracking_number || "—")} (${escapeHtml(row.shippo_tracking_status || "—")})</p>
@@ -1411,21 +1475,30 @@ function openModal(row) {
   </p>
   <p class="admin-muted" style="margin:0.35rem 0;font-size:11px">Transaction: ${escapeHtml(row.shippo_transaction_id || "—")} · Purchased: ${escapeHtml(formatDate(row.shippo_label_purchased_at))}</p>
 </div>`
-    : "";
-  const canBuy =
-    rates.length > 0 &&
-    !labelPurchased;
-  const buyBlock = canBuy
-    ? `<div style="margin-top:0.65rem">
+      : "";
+    const canBuy = rates.length > 0 && !labelPurchased;
+    buyBlock = canBuy
+      ? `<div style="margin-top:0.65rem">
     <button type="button" class="admin-btn admin-btn--small admin-btn--primary" data-shippo-buy-label="${escapeHtml(String(row.id))}">Buy label (selected rate)</button>
     <p class="admin-muted" style="margin:0.35rem 0 0;font-size:11px">Purchases via Shippo Transaction API. Prefer UPS rates for your workflow when available.</p>
   </div>`
-    : !labelPurchased
-      ? `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">Load rates (sync or refresh shipment), then select a row and buy.</p>`
-      : `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">A label is already on file. Void in Shippo if you must repurchase.</p>`;
+      : !labelPurchased
+        ? `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">Load rates (sync or refresh shipment), then select a row and buy.</p>`
+        : `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">A label is already on file. Void in Shippo if you must repurchase.</p>`;
+  } catch (e) {
+    console.error("[admin] Shippo modal panel", e);
+    shippoPanelErrorHtml = `<div class="admin-error" style="margin:0.35rem 0 0.5rem;padding:0.5rem;border-radius:6px;border:1px solid rgba(180,40,40,0.35);background:rgba(180,40,40,0.06)">
+      <strong>Shippo section could not render.</strong>
+      <p style="margin:0.35rem 0 0;font-size:13px">${escapeHtml(String(e?.message || e || "Unknown error"))}</p>
+      <p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;line-height:1.45">If the database is missing Shippo columns, run <code>sql/patch-orders-shippo-schema-complete.sql</code> in Supabase SQL Editor, then <code>NOTIFY pgrst, 'reload schema';</code>. Other sections of this dialog still work.</p>
+    </div>`;
+    ratesRowsHtml = `<p class="admin-muted">—</p>`;
+    parcelSummaryHtml = `<p class="admin-muted">—</p>`;
+  }
 
   const body = document.getElementById("order-modal-body");
-  body.innerHTML = `
+  try {
+    body.innerHTML = `
     <h2>${escapeHtml(row.order_ref || "Order")}</h2>
     <div class="admin-modal__section">
       <h3>Fulfillment / workflow</h3>
@@ -1554,6 +1627,7 @@ Total: ${escapeHtml(fmt(row.total_cents))}</pre>
     </div>
     <div class="admin-modal__section">
       <h3>Shippo (order → shipment → rates → label)</h3>
+      ${shippoPanelErrorHtml}
       <pre style="font-size:12px">Shippo synced: ${escapeHtml(shippoSyncLabel(row))}
 Shippo order ID: ${escapeHtml(row.shippo_order_id || "—")}
 Shippo shipment status: ${escapeHtml(shippoShipmentLabel(row))}
@@ -1585,7 +1659,7 @@ Label purchase error: ${escapeHtml(row.shippo_label_sync_error || "—")}</pre>
       </details>
       <details style="margin-top:0.5rem">
         <summary class="admin-muted" style="cursor:pointer">Raw parcel audit JSON</summary>
-        <pre style="white-space:pre-wrap;word-break:break-all">${escapeHtml(jsonPrettyOrNull(row.shippo_parcel_audit_json))}</pre>
+        <pre style="white-space:pre-wrap;word-break:break-all">${escapeHtml(jsonPrettyOrNull(safeShippoParcelAuditJson(row)))}</pre>
       </details>
       ${
         row.shippo_order_id
@@ -1607,6 +1681,16 @@ Label purchase error: ${escapeHtml(row.shippo_label_sync_error || "—")}</pre>
       }
     </div>
   `;
+  } catch (e) {
+    console.error("[admin] openModal render", e);
+    body.innerHTML = `
+      <h2>${escapeHtml(row.order_ref || "Order")}</h2>
+      <div class="admin-modal__section admin-error">
+        <p><strong>Could not render order details</strong></p>
+        <p style="margin-top:0.35rem">${escapeHtml(String(e?.message || e || "Error"))}</p>
+        <p class="admin-muted" style="margin-top:0.5rem;font-size:12px;line-height:1.45">If this involves missing Shippo columns, run <code>sql/patch-orders-shippo-schema-complete.sql</code> in Supabase, then reload the API schema.</p>
+      </div>`;
+  }
   document.getElementById("order-modal").hidden = false;
   void loadShippoPreviewPanel(String(row.id));
 }

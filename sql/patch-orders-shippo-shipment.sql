@@ -1,4 +1,6 @@
 -- Shipment + parcel audit (rates, label purchase prep). Safe to run multiple times.
+-- For a single script that adds shipment + label + debug columns and reloads the API schema cache, use:
+--   sql/patch-orders-shippo-schema-complete.sql
 
 alter table public.orders add column if not exists shippo_shipment_object_id text;
 alter table public.orders add column if not exists shippo_parcel_audit_json jsonb;
