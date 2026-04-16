@@ -13,6 +13,7 @@ import adminManualOrderDeleteDraftHandler from "./api/admin-manual-order-delete-
 import adminManualOrderDraftsHandler from "./api/admin-manual-order-drafts.js";
 import adminManualOrderEstimateHandler from "./api/admin-manual-order-estimate.js";
 import adminOrderShippoSyncHandler from "./api/admin-order-shippo-sync.js";
+import adminOrderShippoRefreshStatusHandler from "./api/admin-order-shippo-refresh-status.js";
 import adminOrderShippoPreviewHandler from "./api/admin-order-shippo-preview.js";
 import adminOrderShippoShipmentHandler from "./api/admin-order-shippo-shipment.js";
 import adminOrderShippoPurchaseLabelHandler from "./api/admin-order-shippo-purchase-label.js";
@@ -222,6 +223,15 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/admin-order-shippo-sync" && req.method === "POST") {
       const body = await readJsonBody(req);
       await adminOrderShippoSyncHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-order-shippo-refresh-status" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminOrderShippoRefreshStatusHandler(
         { method: "POST", body, headers: req.headers },
         adaptExpressStyleResponse(res),
       );

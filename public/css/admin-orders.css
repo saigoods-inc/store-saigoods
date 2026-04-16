@@ -1059,3 +1059,16 @@ body.admin-page {
 .admin-shippo-rate--ups td {
   background: rgba(59, 130, 246, 0.07);
 }
+
+/* Orders table: Shippo Agent column — keep narrow, break long object IDs */
+.admin-shippo-agent-cell {
+  max-width: 11rem;
+  min-width: 0;
+  vertical-align: top;
+}
+
+.admin-shippo-agent__id {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}

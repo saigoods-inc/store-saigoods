@@ -271,11 +271,21 @@ function missingShippoAddressFields(row) {
   return { addr, missing };
 }
 
-function canManualSyncToShippo(row) {
+/** First-time push to Shippo (creates order + shipment on server). */
+function canShippoTableFirstSync(row) {
   const paid = String(row.status || "").toLowerCase() === "paid";
   const isSyncing = String(row.shippo_sync_status || "") === "syncing";
+  const hasShippoOrder = Boolean(String(row.shippo_order_id || "").trim());
   const { missing } = missingShippoAddressFields(row);
-  return paid && !isSyncing && missing.length === 0;
+  return paid && !isSyncing && !hasShippoOrder && missing.length === 0;
+}
+
+/** Read-only re-fetch of Shippo order/shipment/transaction (GET only; no new shipment). */
+function canShippoTableRefreshRemote(row) {
+  const paid = String(row.status || "").toLowerCase() === "paid";
+  const isSyncing = String(row.shippo_sync_status || "") === "syncing";
+  const hasShippoOrder = Boolean(String(row.shippo_order_id || "").trim());
+  return paid && !isSyncing && hasShippoOrder;
 }
 
 function formatDate(iso) {
@@ -1001,6 +1011,39 @@ function bindOrdersTableEvents() {
       return;
     }
 
+    const shippoRefreshBtn = e.target.closest("[data-shippo-refresh]");
+    if (shippoRefreshBtn) {
+      e.preventDefault();
+      const orderId = shippoRefreshBtn.getAttribute("data-shippo-refresh");
+      if (!orderId || !supabase) {
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        shippoRefreshBtn.disabled = true;
+        const beforeText = shippoRefreshBtn.textContent;
+        shippoRefreshBtn.textContent = "Refreshing…";
+        try {
+          await fetchReportPost("/api/admin-order-shippo-refresh-status", session.access_token, {
+            orderId,
+          });
+          await loadOrders();
+        } catch (err) {
+          alert(err.message || "Could not refresh Shippo status.");
+        } finally {
+          shippoRefreshBtn.disabled = false;
+          shippoRefreshBtn.textContent = beforeText || "Refresh";
+        }
+      })();
+      return;
+    }
+
     const saveShippingBtn = e.target.closest("[data-save-shipping-address]");
     if (saveShippingBtn) {
       e.preventDefault();
@@ -1263,12 +1306,6 @@ function renderTable() {
       const id = row.id;
       const orderRef = row.order_ref || "—";
       const os = normalizeFulfillment(row);
-      const { lines } = describeLineItems(row.items);
-      const itemsCell =
-        lines.length === 0
-          ? "—"
-          : `<ul class="admin-order-items">${lines.map((l) => `<li>${l.html}</li>`).join("")}</ul>`;
-
       const awaiting = isPaymentAwaiting(row);
       const selectHtml = FULFILLMENT_OPTIONS.map(
         ([value, label]) =>
@@ -1322,42 +1359,24 @@ function renderTable() {
 
       const manualTag =
         String(row.order_source) === "manual"
-          ? `<div class="admin-order-tag admin-order-tag--manual" title="Created from staff dashboard">Phone / manual</div>`
+          ? `<div class="admin-order-tag admin-order-tag--manual" title="Created from staff dashboard">Manual</div>`
           : "";
       const walkInTag = isWalkInOrder(row)
         ? `<div class="admin-order-tag admin-order-tag--walk-in" title="In-store walk-in sale">Walk-in</div>`
         : "";
       const shippoId = String(row.shippo_order_id || "").trim();
       const shippoTracking = String(row.shippo_tracking_number || "").trim();
-      const shippoError = String(row.shippo_sync_error || "").trim();
-      const shippoDiag = missingShippoAddressFields(row);
-      const syncBtn = canManualSyncToShippo(row)
+      const shippoAction = canShippoTableFirstSync(row)
         ? `<button type="button" class="admin-btn admin-btn--small" data-shippo-sync="${escapeHtml(String(id))}" style="margin-top:0.45rem">Sync to Shippo</button>`
-        : "";
-      const pc = shippoParcelPieceCount(row);
-      const shipmentObj = Boolean(String(row.shippo_shipment_object_id || "").trim());
-      const rates = shippoRatesList(row);
-      const ratesReady = shipmentReadyForRates(row);
-      const upsRates = rates.filter((r) => isUpsRate(r));
-      const hintRate = upsRates[0] || rates[0];
-      const estShip =
-        hintRate != null
-          ? `${formatShippoMoney(hintRate.amount, hintRate.currency)} · ${escapeHtml(
-              String(hintRate.servicelevel_name || hintRate.servicelevel_token || "—"),
-            )}`
-          : "—";
+        : canShippoTableRefreshRemote(row)
+          ? `<button type="button" class="admin-btn admin-btn--small" data-shippo-refresh="${escapeHtml(String(id))}" style="margin-top:0.45rem">Refresh</button>`
+          : "";
       const shippoCell = `
         <span class="${shippoSyncBadgeClass(row)}">${escapeHtml(shippoSyncLabel(row))}</span>
-        <div class="admin-muted">ID: ${escapeHtml(shippoId || "—")}</div>
+        <div class="admin-muted admin-shippo-agent__id">ID: ${escapeHtml(shippoId || "—")}</div>
         <div class="admin-muted">Order ship. status: ${escapeHtml(shippoShipmentLabel(row))}</div>
-        <div class="admin-muted">Parcels: ${pc != null ? escapeHtml(String(pc)) : "—"}</div>
-        <div class="admin-muted">Shipment ready: ${ratesReady ? "yes" : "no"}</div>
-        <div class="admin-muted">Rates: ${rates.length ? escapeHtml(String(rates.length)) : "—"}${upsRates.length ? ` (${escapeHtml(String(upsRates.length))} UPS)` : ""}</div>
-        <div class="admin-muted" title="First UPS rate if present, else cheapest listed">Est. rate: ${estShip}</div>
         <div class="admin-muted">Tracking: ${escapeHtml(shippoTracking || "—")}</div>
-        ${shippoDiag.missing.length ? `<div class="admin-error" style="margin-top:0.35rem">Missing ${escapeHtml(shippoDiag.missing.join(", "))}</div>` : ""}
-        ${syncBtn}
-        ${shippoError ? `<div class="admin-error" style="margin-top:0.35rem">${escapeHtml(shippoError)}</div>` : ""}
+        ${shippoAction}
       `;
 
       return `
@@ -1372,8 +1391,7 @@ function renderTable() {
           <td>${escapeHtml(row.customer_name || "—")}<br /><span class="admin-muted">${escapeHtml(row.customer_email || "")}</span></td>
           <td><span class="${badgeClass(paymentBadgeKey(row))}">${escapeHtml(formatPaymentColumnLabel(row))}</span></td>
           <td>${statusCell}</td>
-          <td>${itemsCell}</td>
-          <td>${shippoCell}</td>
+          <td class="admin-shippo-agent-cell">${shippoCell}</td>
           <td>${escapeHtml(formatDate(row.created_at))}</td>
           <td>
             <button type="button" class="admin-btn admin-btn--small" data-detail-id="${escapeHtml(String(id))}">Details</button>
