@@ -1072,3 +1072,201 @@ body.admin-page {
   overflow-wrap: anywhere;
   line-height: 1.35;
 }
+
+/* Order details: fulfillment progress */
+.admin-fulfillment-progress {
+  padding: 0.5rem 0 0.25rem;
+}
+
+.admin-fulfillment-progress__title {
+  margin: 0 0 0.65rem;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.admin-fulfillment-progress__track {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+  gap: 0.15rem 0;
+}
+
+.admin-fulfillment-progress__step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 6.5rem;
+  min-width: 4.5rem;
+}
+
+.admin-fulfillment-progress__dot {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+  border: 2px solid #d1d5db;
+  background: #fff;
+  color: #9ca3af;
+}
+
+.admin-fulfillment-progress__step--pending .admin-fulfillment-progress__dot {
+  border-color: #e5e7eb;
+  color: #9ca3af;
+}
+
+.admin-fulfillment-progress__step--active .admin-fulfillment-progress__dot {
+  border-color: #2563eb;
+  color: #1d4ed8;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+}
+
+.admin-fulfillment-progress__step--done .admin-fulfillment-progress__dot {
+  border-color: #16a34a;
+  background: #ecfdf5;
+  color: #15803d;
+  font-size: 14px;
+}
+
+.admin-fulfillment-progress__label {
+  font-size: 11px;
+  line-height: 1.3;
+  color: #6b7280;
+}
+
+.admin-fulfillment-progress__step--active .admin-fulfillment-progress__label {
+  color: #1f2937;
+  font-weight: 600;
+}
+
+.admin-fulfillment-progress__step--done .admin-fulfillment-progress__label {
+  color: #374151;
+}
+
+.admin-fulfillment-progress__connector {
+  flex: 1 1 1.25rem;
+  min-width: 0.75rem;
+  max-width: 2.5rem;
+  height: 3px;
+  margin-top: 1rem;
+  border-radius: 2px;
+  background: #e5e7eb;
+}
+
+.admin-fulfillment-progress__connector--done {
+  background: linear-gradient(90deg, #16a34a, #22c55e);
+}
+
+.admin-fulfillment-progress--cancelled .admin-fulfillment-progress__title {
+  margin-bottom: 0.35rem;
+}
+
+/* Modal: section head + edit icon */
+.admin-modal__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.admin-icon-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #4b5563;
+  cursor: pointer;
+}
+
+.admin-icon-btn:hover {
+  border-color: #9ca3af;
+  color: #111827;
+  background: #f9fafb;
+}
+
+.admin-ship-to-readonly {
+  margin: 0.35rem 0 0;
+  padding: 0.5rem 0.65rem;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.admin-shipping-edit-wrap {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.admin-inline-toast {
+  margin: 0.5rem 0 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.admin-inline-toast--success {
+  background: #ecfdf5;
+  border: 1px solid #6ee7b7;
+  color: #065f46;
+}
+
+.admin-modal-shippo-details {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.35rem 0.65rem 0.65rem;
+  background: #fafafa;
+}
+
+.admin-modal-shippo-details__summary {
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0.35rem 0;
+  list-style: none;
+}
+
+.admin-modal-shippo-details__summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-modal-shippo-details__body {
+  padding-top: 0.35rem;
+}
+
+.admin-modal-shippo-details__meta {
+  margin: 0;
+  padding: 0.5rem 0.55rem;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.admin-modal__rates-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.85rem;
+}
