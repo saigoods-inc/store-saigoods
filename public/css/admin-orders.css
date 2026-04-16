@@ -1237,39 +1237,14 @@ body.admin-page {
   margin-top: 0.25rem;
 }
 
-.admin-modal-footer-details {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 0.25rem 0.55rem 0.55rem;
-  background: #fafafa;
+/* Lightweight <details> in order modal (same pattern as server preview toggles) */
+.admin-modal__section .admin-modal-details + .admin-modal-details {
+  margin-top: 0.35rem;
 }
 
-.admin-modal-footer-details__summary {
+.admin-modal__section .admin-modal-details > summary {
   cursor: pointer;
   font-size: 13px;
-  padding: 0.35rem 0;
-  list-style: none;
-  color: #4b5563;
-}
-
-.admin-modal-footer-details__summary::-webkit-details-marker {
-  display: none;
-}
-
-.admin-modal-footer-details__body {
-  padding-top: 0.25rem;
-}
-
-.admin-modal-footer-details__pre {
-  margin: 0;
-  padding: 0.5rem 0.55rem;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1.45;
-  overflow: auto;
-  max-height: 16rem;
 }
 
 .admin-shippo-preview-panel-host {

@@ -431,24 +431,24 @@ async function loadShippoPreviewPanel(orderId) {
       : escapeHtml(preview.payloadError || "Could not build payload.");
     panel.innerHTML = `
       <h4 class="admin-muted" style="margin:0 0 0.35rem;font-size:13px">Server preview (same merge + payload as Shippo sync)</h4>
-      <details open>
-        <summary class="admin-muted" style="cursor:pointer">Resolved shipping for sync</summary>
+      <details class="admin-modal-details" open>
+        <summary class="admin-muted">Resolved shipping for sync</summary>
         <pre>${escapeHtml(jsonPrettyOrNull(preview.resolvedShippingForSync))}</pre>
       </details>
-      <details style="margin-top:0.35rem">
-        <summary class="admin-muted" style="cursor:pointer">Raw <code>shipping_address</code> from DB (parsed)</summary>
+      <details class="admin-modal-details">
+        <summary class="admin-muted">Raw <code>shipping_address</code> from DB (parsed)</summary>
         <pre>${escapeHtml(jsonPrettyOrNull(preview.rawShippingAddressFromDb))}</pre>
       </details>
-      <details style="margin-top:0.35rem">
-        <summary class="admin-muted" style="cursor:pointer">Line items (weight / qty)</summary>
+      <details class="admin-modal-details">
+        <summary class="admin-muted">Line items (weight / qty)</summary>
         <pre>${escapeHtml(jsonPrettyOrNull(preview.lineItems))}</pre>
       </details>
-      <details style="margin-top:0.35rem">
-        <summary class="admin-muted" style="cursor:pointer">Final Shippo API payload</summary>
+      <details class="admin-modal-details">
+        <summary class="admin-muted">Final Shippo API payload</summary>
         <pre>${payloadBlock}</pre>
       </details>
-      <details style="margin-top:0.35rem">
-        <summary class="admin-muted" style="cursor:pointer">Parcel plan (for Shipment / rates)</summary>
+      <details class="admin-modal-details">
+        <summary class="admin-muted">Parcel plan (for Shipment / rates)</summary>
         <pre>${
           preview.parcelPlan
             ? escapeHtml(jsonPrettyOrNull(preview.parcelPlan))
@@ -1672,11 +1672,10 @@ Total: ${escapeHtml(fmt(row.total_cents))}</pre>
     </div>
     <div class="admin-modal__section admin-modal__section--technical-footer">
       <h3 class="admin-muted" style="margin:0 0 0.5rem;font-size:13px;font-weight:600">Troubleshooting &amp; detail</h3>
-      <details class="admin-modal-footer-details">
-        <summary class="admin-modal-footer-details__summary">Technical details (IDs, sync times &amp; errors)</summary>
-        <div class="admin-modal-footer-details__body">
-          ${shippoPanelErrorHtml}
-          <pre class="admin-modal-footer-details__pre">Shippo synced: ${escapeHtml(shippoSyncLabel(row))}
+      <details class="admin-modal-details">
+        <summary class="admin-muted">Technical details (IDs, sync times &amp; errors)</summary>
+        ${shippoPanelErrorHtml}
+        <pre>Shippo synced: ${escapeHtml(shippoSyncLabel(row))}
 Shippo order ID: ${escapeHtml(row.shippo_order_id || "—")}
 Shippo shipment status: ${escapeHtml(shippoShipmentLabel(row))}
 Shipment ready (rates): ${shipmentReadyForRates(row) ? "yes" : "no"}
@@ -1690,14 +1689,11 @@ Last Shippo event: ${escapeHtml(formatDate(row.shippo_last_event_at))}
 Order sync error: ${escapeHtml(row.shippo_sync_error || "—")}
 Shipment sync error: ${escapeHtml(row.shippo_shipment_sync_error || "—")}
 Label purchase error: ${escapeHtml(row.shippo_label_sync_error || "—")}</pre>
-        </div>
       </details>
-      <details class="admin-modal-footer-details" style="margin-top:0.45rem">
-        <summary class="admin-modal-footer-details__summary">Parcel plan (audit)</summary>
-        <div class="admin-modal-footer-details__body">
-          ${parcelSummaryHtml}
-          ${multiNoteHtml}
-        </div>
+      <details class="admin-modal-details">
+        <summary class="admin-muted">Parcel plan (audit)</summary>
+        ${parcelSummaryHtml}
+        ${multiNoteHtml}
       </details>
     </div>
     <div id="admin-shippo-preview-panel" class="admin-modal__section admin-shippo-preview-panel-host"></div>
