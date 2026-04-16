@@ -1230,29 +1230,37 @@ body.admin-page {
   color: #065f46;
 }
 
-.admin-modal-shippo-details {
+/* Modal: technical footers (collapsed by default) */
+.admin-modal__section--technical-footer {
+  padding-top: 0.25rem;
+  border-top: 1px solid #e5e7eb;
+  margin-top: 0.25rem;
+}
+
+.admin-modal-footer-details {
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  padding: 0.35rem 0.65rem 0.65rem;
+  padding: 0.25rem 0.55rem 0.55rem;
   background: #fafafa;
 }
 
-.admin-modal-shippo-details__summary {
+.admin-modal-footer-details__summary {
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   padding: 0.35rem 0;
   list-style: none;
+  color: #4b5563;
 }
 
-.admin-modal-shippo-details__summary::-webkit-details-marker {
+.admin-modal-footer-details__summary::-webkit-details-marker {
   display: none;
 }
 
-.admin-modal-shippo-details__body {
-  padding-top: 0.35rem;
+.admin-modal-footer-details__body {
+  padding-top: 0.25rem;
 }
 
-.admin-modal-shippo-details__meta {
+.admin-modal-footer-details__pre {
   margin: 0;
   padding: 0.5rem 0.55rem;
   background: #fff;
@@ -1260,6 +1268,14 @@ body.admin-page {
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.45;
+  overflow: auto;
+  max-height: 16rem;
+}
+
+.admin-shippo-preview-panel-host {
+  margin-top: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e5e7eb;
 }
 
 .admin-modal__rates-head {

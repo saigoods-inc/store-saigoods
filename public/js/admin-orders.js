@@ -1524,7 +1524,7 @@ function openModal(row, options = {}) {
     buyBlock = canBuy
       ? `<div style="margin-top:0.65rem">
     <button type="button" class="admin-btn admin-btn--small admin-btn--primary" data-shippo-buy-label="${escapeHtml(String(row.id))}">Buy label (selected rate)</button>
-    <p class="admin-muted" style="margin:0.35rem 0 0;font-size:11px">Purchases via Shippo Transaction API. Prefer UPS rates for your workflow when available.</p>
+    <p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">Uses the rate selected in the table above.</p>
   </div>`
       : !labelPurchased
         ? `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">Load rates from Shippo first, then select a rate and buy.</p>`
@@ -1640,7 +1640,6 @@ function openModal(row, options = {}) {
         </div>
       </div>
       <p id="admin-shipping-save-toast" class="admin-inline-toast admin-inline-toast--success" role="status" hidden></p>
-      <div id="admin-shippo-preview-panel" class="admin-shippo-preview-attach" style="margin-top:0.75rem"></div>
     </div>
     <div class="admin-modal__section">
       <h3>Line items (pack these)</h3>
@@ -1656,11 +1655,28 @@ Tax: ${escapeHtml(fmt(row.tax_cents))}
 Total: ${escapeHtml(fmt(row.total_cents))}</pre>
     </div>
     <div class="admin-modal__section">
-      <details class="admin-modal-shippo-details">
-        <summary class="admin-modal-shippo-details__summary"><strong>Shippo</strong> <span class="admin-muted">(order → shipment → rates → label)</span></summary>
-        <div class="admin-modal-shippo-details__body">
-      ${shippoPanelErrorHtml}
-      <pre class="admin-modal-shippo-details__meta">Shippo synced: ${escapeHtml(shippoSyncLabel(row))}
+      <h3>Shippo <span class="admin-muted" style="font-size:14px;font-weight:400">(order → shipment → rates → label)</span></h3>
+      <p class="admin-shippo-quick-status" style="margin:0.35rem 0 0;font-size:14px;line-height:1.5;color:#374151">
+        <span><strong>Sync</strong> ${escapeHtml(shippoSyncLabel(row))}</span> ·
+        <span><strong>Status</strong> ${escapeHtml(shippoShipmentLabel(row))}</span> ·
+        <span><strong>Rates</strong> ${escapeHtml(shipmentReadyForRates(row) ? "Available" : String(row.shippo_shipment_rate_status || "—"))}</span> ·
+        <span><strong>Tracking</strong> ${escapeHtml(row.shippo_tracking_number || "—")}</span>
+      </p>
+      <div class="admin-modal__rates-head" style="margin-top:0.85rem">
+        <h4 class="admin-muted" style="margin:0;font-size:13px">Available rates</h4>
+        ${ratesRefreshBtnHtml}
+      </div>
+      ${ratesRowsHtml}
+      ${labelBlock}
+      ${buyBlock}
+    </div>
+    <div class="admin-modal__section admin-modal__section--technical-footer">
+      <h3 class="admin-muted" style="margin:0 0 0.5rem;font-size:13px;font-weight:600">Troubleshooting &amp; detail</h3>
+      <details class="admin-modal-footer-details">
+        <summary class="admin-modal-footer-details__summary">Technical details (IDs, sync times &amp; errors)</summary>
+        <div class="admin-modal-footer-details__body">
+          ${shippoPanelErrorHtml}
+          <pre class="admin-modal-footer-details__pre">Shippo synced: ${escapeHtml(shippoSyncLabel(row))}
 Shippo order ID: ${escapeHtml(row.shippo_order_id || "—")}
 Shippo shipment status: ${escapeHtml(shippoShipmentLabel(row))}
 Shipment ready (rates): ${shipmentReadyForRates(row) ? "yes" : "no"}
@@ -1674,19 +1690,17 @@ Last Shippo event: ${escapeHtml(formatDate(row.shippo_last_event_at))}
 Order sync error: ${escapeHtml(row.shippo_sync_error || "—")}
 Shipment sync error: ${escapeHtml(row.shippo_shipment_sync_error || "—")}
 Label purchase error: ${escapeHtml(row.shippo_label_sync_error || "—")}</pre>
-      <h4 class="admin-muted" style="margin:0.75rem 0 0.35rem;font-size:13px">Parcel summary (audit)</h4>
-      ${parcelSummaryHtml}
-      ${multiNoteHtml}
-      <div class="admin-modal__rates-head">
-        <h4 class="admin-muted" style="margin:0;font-size:13px">Available rates</h4>
-        ${ratesRefreshBtnHtml}
-      </div>
-      ${ratesRowsHtml}
-      ${labelBlock}
-      ${buyBlock}
+        </div>
+      </details>
+      <details class="admin-modal-footer-details" style="margin-top:0.45rem">
+        <summary class="admin-modal-footer-details__summary">Parcel plan (audit)</summary>
+        <div class="admin-modal-footer-details__body">
+          ${parcelSummaryHtml}
+          ${multiNoteHtml}
         </div>
       </details>
     </div>
+    <div id="admin-shippo-preview-panel" class="admin-modal__section admin-shippo-preview-panel-host"></div>
   `;
   } catch (e) {
     console.error("[admin] openModal render", e);
