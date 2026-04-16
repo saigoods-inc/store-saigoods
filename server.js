@@ -14,6 +14,9 @@ import adminManualOrderDraftsHandler from "./api/admin-manual-order-drafts.js";
 import adminManualOrderEstimateHandler from "./api/admin-manual-order-estimate.js";
 import adminOrderShippoSyncHandler from "./api/admin-order-shippo-sync.js";
 import adminOrderShippoPreviewHandler from "./api/admin-order-shippo-preview.js";
+import adminOrderShippoShipmentHandler from "./api/admin-order-shippo-shipment.js";
+import adminOrderShippoPurchaseLabelHandler from "./api/admin-order-shippo-purchase-label.js";
+import adminOrderParcelOverrideHandler from "./api/admin-order-parcel-override.js";
 import adminOrderUpdateShippingAddressHandler from "./api/admin-order-update-shipping-address.js";
 import adminManualOrderSendLinkHandler from "./api/admin-manual-order-send-link.js";
 import adminManualOrderUpdateDraftHandler from "./api/admin-manual-order-update-draft.js";
@@ -228,6 +231,33 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/admin-order-shippo-preview" && req.method === "POST") {
       const body = await readJsonBody(req);
       await adminOrderShippoPreviewHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-order-shippo-shipment" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminOrderShippoShipmentHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-order-shippo-purchase-label" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminOrderShippoPurchaseLabelHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-order-parcel-override" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminOrderParcelOverrideHandler(
         { method: "POST", body, headers: req.headers },
         adaptExpressStyleResponse(res),
       );

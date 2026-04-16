@@ -60,6 +60,85 @@ function shippoShipmentLabel(row) {
   return s.replace(/_/g, " ");
 }
 
+function shippoParcelPieceCount(row) {
+  const a = row.shippo_parcel_audit_json;
+  if (!a || typeof a !== "object") {
+    return null;
+  }
+  if (typeof a.parcelCount === "number") {
+    return a.parcelCount;
+  }
+  if (Array.isArray(a.parcels)) {
+    return a.parcels.length;
+  }
+  return null;
+}
+
+function shippoRatesList(row) {
+  const raw = row.shippo_shipment_rates_json;
+  if (!raw) {
+    return [];
+  }
+  if (Array.isArray(raw)) {
+    return raw;
+  }
+  if (typeof raw === "object" && Array.isArray(raw.rates)) {
+    return raw.rates;
+  }
+  return [];
+}
+
+function formatShippoMoney(amount, currency) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) {
+    return "—";
+  }
+  const cur = String(currency || "USD").toUpperCase();
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: cur }).format(n);
+  } catch {
+    return `${n} ${cur}`;
+  }
+}
+
+function isUpsRate(r) {
+  const p = String(r?.provider || "").toUpperCase();
+  return p.includes("UPS") || p === "UPS";
+}
+
+function parcelAuditSummaryLines(row) {
+  const a = row.shippo_parcel_audit_json;
+  if (!a || typeof a !== "object") {
+    return [];
+  }
+  const audit = Array.isArray(a.parcels) ? a.parcels : null;
+  if (audit && audit.length) {
+    return audit.map((p, i) => {
+      const spec = p.spec;
+      if (spec) {
+        return `${i + 1}. ${spec.length}×${spec.width}×${spec.height} in · ${spec.weightLb} lb`;
+      }
+      return `${i + 1}. (see parcel audit JSON)`;
+    });
+  }
+  const req = Array.isArray(a.requestParcels) ? a.requestParcels : [];
+  return req.map((p, i) => `${i + 1}. ${p.length}×${p.width}×${p.height} in · ${p.weight} ${p.mass_unit || "lb"}`);
+}
+
+function shipmentReadyForRates(row) {
+  const sid = String(row.shippo_shipment_object_id || "").trim();
+  const st = String(row.shippo_shipment_rate_status || "");
+  return Boolean(sid && st === "rates_available");
+}
+
+function firstPreferredRateIndex(rates) {
+  if (!rates.length) {
+    return 0;
+  }
+  const ups = rates.findIndex((r) => isUpsRate(r));
+  return ups >= 0 ? ups : 0;
+}
+
 function parseCustomerAddressText(text) {
   const lines = String(text || "")
     .split(/\r?\n/)
@@ -147,10 +226,9 @@ function missingShippoAddressFields(row) {
 
 function canManualSyncToShippo(row) {
   const paid = String(row.status || "").toLowerCase() === "paid";
-  const hasShippoId = Boolean(String(row.shippo_order_id || "").trim());
   const isSyncing = String(row.shippo_sync_status || "") === "syncing";
   const { missing } = missingShippoAddressFields(row);
-  return paid && !hasShippoId && !isSyncing && missing.length === 0;
+  return paid && !isSyncing && missing.length === 0;
 }
 
 function formatDate(iso) {
@@ -213,6 +291,14 @@ async function loadShippoPreviewPanel(orderId) {
       <details style="margin-top:0.35rem">
         <summary class="admin-muted" style="cursor:pointer">Final Shippo API payload</summary>
         <pre>${payloadBlock}</pre>
+      </details>
+      <details style="margin-top:0.35rem">
+        <summary class="admin-muted" style="cursor:pointer">Parcel plan (for Shipment / rates)</summary>
+        <pre>${
+          preview.parcelPlan
+            ? escapeHtml(jsonPrettyOrNull(preview.parcelPlan))
+            : escapeHtml(preview.parcelError || "—")
+        }</pre>
       </details>
     `;
   } catch (e) {
@@ -545,6 +631,189 @@ function setStatusRowLocked(tr, locked) {
   applyRowStatusTheme(tr, sel.value, locked);
 }
 
+function bindModalShippoActions() {
+  if (document.body.dataset.shippoModalBound === "1") {
+    return;
+  }
+  document.body.dataset.shippoModalBound = "1";
+
+  document.addEventListener("click", (e) => {
+    const createBtn = e.target.closest("[data-shippo-create-shipment]");
+    if (createBtn) {
+      e.preventDefault();
+      const orderId = createBtn.getAttribute("data-shippo-create-shipment");
+      if (!orderId || !supabase) {
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        createBtn.disabled = true;
+        const prev = createBtn.textContent;
+        createBtn.textContent = "Creating…";
+        try {
+          await fetchReportPost("/api/admin-order-shippo-shipment", session.access_token, {
+            orderId,
+            force: true,
+          });
+          await loadOrders();
+          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
+          if (refreshed) {
+            openModal(refreshed);
+          }
+        } catch (err) {
+          alert(err.message || "Could not create shipment.");
+        } finally {
+          createBtn.disabled = false;
+          createBtn.textContent = prev || "Create or refresh shipment";
+        }
+      })();
+      return;
+    }
+
+    const saveOv = e.target.closest("[data-shippo-save-parcel-override]");
+    if (saveOv) {
+      e.preventDefault();
+      const orderId = saveOv.getAttribute("data-shippo-save-parcel-override");
+      const ta = document.getElementById("admin-parcel-override-json");
+      if (!orderId || !supabase || !ta) {
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        let override = null;
+        const raw = ta.value.trim();
+        if (raw) {
+          try {
+            override = JSON.parse(raw);
+          } catch {
+            alert("Invalid JSON in parcel override.");
+            return;
+          }
+        }
+        saveOv.disabled = true;
+        try {
+          await fetchReportPost("/api/admin-order-parcel-override", session.access_token, {
+            orderId,
+            override,
+          });
+          await loadOrders();
+          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
+          if (refreshed) {
+            openModal(refreshed);
+          }
+        } catch (err) {
+          alert(err.message || "Could not save override.");
+        } finally {
+          saveOv.disabled = false;
+        }
+      })();
+      return;
+    }
+
+    const buyLabelBtn = e.target.closest("[data-shippo-buy-label]");
+    if (buyLabelBtn) {
+      e.preventDefault();
+      const orderId = buyLabelBtn.getAttribute("data-shippo-buy-label");
+      const picked = document.querySelector('input[name="admin-shippo-rate-pick"]:checked');
+      const rateObjectId = picked?.value?.trim();
+      if (!orderId || !supabase) {
+        return;
+      }
+      if (!rateObjectId) {
+        alert("Select a Shippo rate first.");
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        buyLabelBtn.disabled = true;
+        const prev = buyLabelBtn.textContent;
+        buyLabelBtn.textContent = "Purchasing…";
+        try {
+          await fetchReportPost("/api/admin-order-shippo-purchase-label", session.access_token, {
+            orderId,
+            rateObjectId,
+          });
+          await loadOrders();
+          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
+          if (refreshed) {
+            openModal(refreshed);
+          }
+        } catch (err) {
+          if (err instanceof ReportPostError && err.body?.order) {
+            const idx = ordersCache.findIndex((r) => String(r.id) === String(orderId));
+            if (idx >= 0) {
+              ordersCache[idx] = err.body.order;
+            }
+            renderTable();
+            openModal(err.body.order);
+          }
+          alert(err.message || "Could not purchase label.");
+        } finally {
+          buyLabelBtn.disabled = false;
+          buyLabelBtn.textContent = prev || "Buy label (selected rate)";
+        }
+      })();
+      return;
+    }
+
+    const clearOv = e.target.closest("[data-shippo-clear-parcel-override]");
+    if (clearOv) {
+      e.preventDefault();
+      const orderId = clearOv.getAttribute("data-shippo-clear-parcel-override");
+      const ta = document.getElementById("admin-parcel-override-json");
+      if (!orderId || !supabase) {
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        clearOv.disabled = true;
+        try {
+          await fetchReportPost("/api/admin-order-parcel-override", session.access_token, {
+            orderId,
+            override: null,
+          });
+          if (ta) {
+            ta.value = "";
+          }
+          await loadOrders();
+          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
+          if (refreshed) {
+            openModal(refreshed);
+          }
+        } catch (err) {
+          alert(err.message || "Could not clear override.");
+        } finally {
+          clearOv.disabled = false;
+        }
+      })();
+    }
+  });
+}
+
 function bindOrdersTableEvents() {
   const table = document.getElementById("orders-table");
   if (!table || table.dataset.delegationBound === "1") {
@@ -799,6 +1068,7 @@ async function init() {
     renderAdminNav("orders");
     await loadCatalog();
     bindOrdersTableEvents();
+    bindModalShippoActions();
     await loadOrders();
   } else {
     showLogin();
@@ -814,6 +1084,7 @@ async function init() {
       renderAdminNav("orders");
       await loadCatalog();
       bindOrdersTableEvents();
+      bindModalShippoActions();
       await loadOrders();
     }
     if (event === "SIGNED_OUT") {
@@ -844,6 +1115,7 @@ async function init() {
     renderAdminNav("orders");
     await loadCatalog();
     bindOrdersTableEvents();
+    bindModalShippoActions();
     await loadOrders();
   });
 
@@ -1010,10 +1282,26 @@ function renderTable() {
       const syncBtn = canManualSyncToShippo(row)
         ? `<button type="button" class="admin-btn admin-btn--small" data-shippo-sync="${escapeHtml(String(id))}" style="margin-top:0.45rem">Sync to Shippo</button>`
         : "";
+      const pc = shippoParcelPieceCount(row);
+      const shipmentObj = Boolean(String(row.shippo_shipment_object_id || "").trim());
+      const rates = shippoRatesList(row);
+      const ratesReady = shipmentReadyForRates(row);
+      const upsRates = rates.filter((r) => isUpsRate(r));
+      const hintRate = upsRates[0] || rates[0];
+      const estShip =
+        hintRate != null
+          ? `${formatShippoMoney(hintRate.amount, hintRate.currency)} · ${escapeHtml(
+              String(hintRate.servicelevel_name || hintRate.servicelevel_token || "—"),
+            )}`
+          : "—";
       const shippoCell = `
         <span class="${shippoSyncBadgeClass(row)}">${escapeHtml(shippoSyncLabel(row))}</span>
         <div class="admin-muted">ID: ${escapeHtml(shippoId || "—")}</div>
-        <div class="admin-muted">Shipment: ${escapeHtml(shippoShipmentLabel(row))}</div>
+        <div class="admin-muted">Order ship. status: ${escapeHtml(shippoShipmentLabel(row))}</div>
+        <div class="admin-muted">Parcels: ${pc != null ? escapeHtml(String(pc)) : "—"}</div>
+        <div class="admin-muted">Shipment ready: ${ratesReady ? "yes" : "no"}</div>
+        <div class="admin-muted">Rates: ${rates.length ? escapeHtml(String(rates.length)) : "—"}${upsRates.length ? ` (${escapeHtml(String(upsRates.length))} UPS)` : ""}</div>
+        <div class="admin-muted" title="First UPS rate if present, else cheapest listed">Est. rate: ${estShip}</div>
         <div class="admin-muted">Tracking: ${escapeHtml(shippoTracking || "—")}</div>
         ${shippoDiag.missing.length ? `<div class="admin-error" style="margin-top:0.35rem">Missing ${escapeHtml(shippoDiag.missing.join(", "))}</div>` : ""}
         ${syncBtn}
@@ -1060,10 +1348,81 @@ function openModal(row) {
   const { lines: itemLines } = describeLineItems(row.items);
   const diag = missingShippoAddressFields(row);
   const addr = diag.addr;
+  const pieceCount = shippoParcelPieceCount(row) ?? "—";
+  const overrideDefault = row.shippo_parcels_override_json
+    ? escapeHtml(jsonPrettyOrNull(row.shippo_parcels_override_json))
+    : "";
   const fmt = (cents) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
       (Number(cents) || 0) / 100,
     );
+
+  const rates = shippoRatesList(row);
+  const pickIdx = firstPreferredRateIndex(rates);
+  const parcelLines = parcelAuditSummaryLines(row);
+  const multiNote =
+    row.shippo_parcel_audit_json && typeof row.shippo_parcel_audit_json === "object"
+      ? row.shippo_parcel_audit_json.multiPieceCarrierNote
+      : null;
+  const ratesRowsHtml =
+    rates.length === 0
+      ? `<p class="admin-muted">No rates loaded yet. Use <strong>Sync to Shippo</strong> on the orders table, or <strong>Create or refresh shipment</strong> below.</p>`
+      : `<div style="overflow:auto;max-width:100%"><table class="admin-table" style="font-size:12px;margin-top:0.25rem;width:100%"><thead><tr><th></th><th>Carrier</th><th>Service</th><th>Est. cost</th><th>Transit</th><th>Rate ID</th></tr></thead><tbody>${rates
+          .map((r, idx) => {
+            const oid = String(r.object_id || "").trim();
+            const ups = isUpsRate(r);
+            const transit =
+              r.estimated_days != null ? `${r.estimated_days} days` : String(r.duration_terms || "—");
+            return `<tr class="${ups ? "admin-shippo-rate--ups" : ""}">
+  <td><input type="radio" name="admin-shippo-rate-pick" value="${escapeHtml(oid)}" ${idx === pickIdx ? "checked" : ""} ${!oid ? "disabled" : ""} /></td>
+  <td>${escapeHtml(String(r.provider || "—"))}${ups ? ' <span class="admin-muted">(UPS)</span>' : ""}</td>
+  <td>${escapeHtml(String(r.servicelevel_name || r.servicelevel_token || "—"))}</td>
+  <td>${escapeHtml(formatShippoMoney(r.amount, r.currency))}</td>
+  <td>${escapeHtml(transit)}</td>
+  <td class="admin-muted" style="word-break:break-all;font-size:11px">${escapeHtml(oid)}</td>
+</tr>`;
+          })
+          .join("")}</tbody></table></div>`;
+  const parcelSummaryHtml =
+    parcelLines.length > 0
+      ? `<ul style="margin:0.35rem 0 0;padding-left:1.1rem;font-size:12px;line-height:1.45">${parcelLines
+          .map((line) => `<li>${escapeHtml(line)}</li>`)
+          .join("")}</ul>`
+      : `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">No parcel audit yet — sync or refresh shipment after packing rules apply.</p>`;
+  const multiNoteHtml =
+    multiNote && String(multiNote).trim()
+      ? `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;line-height:1.45">${escapeHtml(String(multiNote))}</p>`
+      : "";
+  const labelPurchased =
+    Boolean(String(row.shippo_label_url || "").trim()) &&
+    String(row.shippo_transaction_status || "").toUpperCase() === "SUCCESS";
+  const labelBlock = labelPurchased
+    ? `<div style="margin-top:0.65rem;padding:0.6rem;border:1px solid rgba(0,0,0,0.12);border-radius:6px">
+  <p style="margin:0 0 0.35rem;font-weight:600">Label purchased</p>
+  <p class="admin-muted" style="margin:0.35rem 0">Carrier: ${escapeHtml(row.shippo_label_carrier || "—")} · Service: ${escapeHtml(row.shippo_label_service || "—")}</p>
+  <p class="admin-muted" style="margin:0.35rem 0">Tracking: ${escapeHtml(row.shippo_tracking_number || "—")} (${escapeHtml(row.shippo_tracking_status || "—")})</p>
+  <p style="margin:0.35rem 0;display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center">
+    <a class="admin-btn admin-btn--small admin-btn--primary" href="${escapeHtml(String(row.shippo_label_url))}" target="_blank" rel="noopener">Open / print label</a>
+    ${
+      row.shippo_tracking_url_provider
+        ? `<a class="admin-btn admin-btn--small" href="${escapeHtml(String(row.shippo_tracking_url_provider))}" target="_blank" rel="noopener">Carrier tracking page</a>`
+        : ""
+    }
+  </p>
+  <p class="admin-muted" style="margin:0.35rem 0;font-size:11px">Transaction: ${escapeHtml(row.shippo_transaction_id || "—")} · Purchased: ${escapeHtml(formatDate(row.shippo_label_purchased_at))}</p>
+</div>`
+    : "";
+  const canBuy =
+    rates.length > 0 &&
+    !labelPurchased;
+  const buyBlock = canBuy
+    ? `<div style="margin-top:0.65rem">
+    <button type="button" class="admin-btn admin-btn--small admin-btn--primary" data-shippo-buy-label="${escapeHtml(String(row.id))}">Buy label (selected rate)</button>
+    <p class="admin-muted" style="margin:0.35rem 0 0;font-size:11px">Purchases via Shippo Transaction API. Prefer UPS rates for your workflow when available.</p>
+  </div>`
+    : !labelPurchased
+      ? `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">Load rates (sync or refresh shipment), then select a row and buy.</p>`
+      : `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">A label is already on file. Void in Shippo if you must repurchase.</p>`;
 
   const body = document.getElementById("order-modal-body");
   body.innerHTML = `
@@ -1194,23 +1553,58 @@ Tax: ${escapeHtml(fmt(row.tax_cents))}
 Total: ${escapeHtml(fmt(row.total_cents))}</pre>
     </div>
     <div class="admin-modal__section">
-      <h3>Shippo sync</h3>
-      <pre>Shippo synced: ${escapeHtml(shippoSyncLabel(row))}
+      <h3>Shippo (order → shipment → rates → label)</h3>
+      <pre style="font-size:12px">Shippo synced: ${escapeHtml(shippoSyncLabel(row))}
 Shippo order ID: ${escapeHtml(row.shippo_order_id || "—")}
 Shippo shipment status: ${escapeHtml(shippoShipmentLabel(row))}
-Tracking number: ${escapeHtml(row.shippo_tracking_number || "—")}
+Shipment ready (rates): ${shipmentReadyForRates(row) ? "yes" : "no"}
+Parcel count: ${escapeHtml(String(pieceCount))}
+Shipment object ID: ${escapeHtml(row.shippo_shipment_object_id || "—")}
+Rate status: ${escapeHtml(row.shippo_shipment_rate_status || "—")}
+Tracking (label): ${escapeHtml(row.shippo_tracking_number || "—")}
 Tracking status: ${escapeHtml(row.shippo_tracking_status || "—")}
 Last Shippo sync: ${escapeHtml(formatDate(row.shippo_last_sync_at))}
 Last Shippo event: ${escapeHtml(formatDate(row.shippo_last_event_at))}
-Sync error: ${escapeHtml(row.shippo_sync_error || "—")}</pre>
+Order sync error: ${escapeHtml(row.shippo_sync_error || "—")}
+Shipment sync error: ${escapeHtml(row.shippo_shipment_sync_error || "—")}
+Label purchase error: ${escapeHtml(row.shippo_label_sync_error || "—")}</pre>
+      <h4 class="admin-muted" style="margin:0.75rem 0 0.35rem;font-size:13px">Parcel summary (audit)</h4>
+      ${parcelSummaryHtml}
+      ${multiNoteHtml}
+      <h4 class="admin-muted" style="margin:0.85rem 0 0.35rem;font-size:13px">Available rates</h4>
+      ${ratesRowsHtml}
+      ${labelBlock}
+      ${buyBlock}
       <details style="margin-top:0.5rem">
-        <summary class="admin-muted" style="cursor:pointer">Last payload sent to Shippo (stored on failure)</summary>
+        <summary class="admin-muted" style="cursor:pointer">Last order payload (failure)</summary>
         <pre>${escapeHtml(jsonPrettyOrNull(row.shippo_last_attempt_payload))}</pre>
       </details>
       <details style="margin-top:0.5rem">
-        <summary class="admin-muted" style="cursor:pointer">Last Shippo API error body (stored on failure)</summary>
+        <summary class="admin-muted" style="cursor:pointer">Last Shippo order API error body</summary>
         <pre>${escapeHtml(jsonPrettyOrNull(row.shippo_last_error_response))}</pre>
       </details>
+      <details style="margin-top:0.5rem">
+        <summary class="admin-muted" style="cursor:pointer">Raw parcel audit JSON</summary>
+        <pre style="white-space:pre-wrap;word-break:break-all">${escapeHtml(jsonPrettyOrNull(row.shippo_parcel_audit_json))}</pre>
+      </details>
+      ${
+        row.shippo_order_id
+          ? `<div style="margin-top:0.65rem">
+        <p class="admin-muted" style="margin:0 0 0.35rem;font-size:12px;line-height:1.45">
+          <strong>Sync to Shippo</strong> on the orders table creates/refreshes the Shippo Order, then recreates the Shipment and reloads rates. Use <strong>Create or refresh shipment</strong> here if you only need a shipment refresh.
+        </p>
+        <button type="button" class="admin-btn admin-btn--small" data-shippo-create-shipment="${escapeHtml(String(row.id))}">
+          Create or refresh shipment
+        </button>
+        <label class="admin-muted" style="display:block;margin-top:0.65rem;font-size:12px">Parcel override (optional JSON)</label>
+        <textarea id="admin-parcel-override-json" class="admin-input" style="width:100%;min-height:120px;font-family:ui-monospace,monospace;font-size:12px;margin-top:0.25rem" spellcheck="false">${overrideDefault}</textarea>
+        <div style="margin-top:0.35rem;display:flex;flex-wrap:wrap;gap:0.35rem">
+          <button type="button" class="admin-btn admin-btn--small" data-shippo-save-parcel-override="${escapeHtml(String(row.id))}">Save parcel override</button>
+          <button type="button" class="admin-btn admin-btn--small" data-shippo-clear-parcel-override="${escapeHtml(String(row.id))}">Clear override</button>
+        </div>
+      </div>`
+          : ""
+      }
     </div>
   `;
   document.getElementById("order-modal").hidden = false;

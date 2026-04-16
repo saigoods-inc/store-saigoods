@@ -1054,3 +1054,8 @@ body.admin-page {
   margin-top: 0.2rem;
   flex-shrink: 0;
 }
+
+/* Shippo admin: highlight UPS rows in rate table */
+.admin-shippo-rate--ups td {
+  background: rgba(59, 130, 246, 0.07);
+}

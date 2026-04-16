@@ -1,6 +1,7 @@
 import { getOrderByIdForService } from "../lib/orders.js";
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
 import { syncWebsiteOrderToShippo } from "../lib/shippo-order-sync.js";
+import { createShippoShipmentForWebsiteOrder } from "../lib/shippo-shipment-sync.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -25,13 +26,9 @@ export default async function handler(req, res) {
       res.status(400).json({ error: "Only paid orders can be synced to Shippo." });
       return;
     }
-    if (order.shippo_order_id) {
-      res.status(200).json({ ok: true, skipped: true, reason: "already_synced" });
-      return;
-    }
 
-    const result = await syncWebsiteOrderToShippo(order.id);
-    const refreshed = await getOrderByIdForService(order.id);
+    const result = await syncWebsiteOrderToShippo(order.id, { skipAutoShipment: true });
+    let refreshed = await getOrderByIdForService(order.id);
 
     if (!result.ok && !result.skipped) {
       res.status(502).json({
@@ -43,9 +40,35 @@ export default async function handler(req, res) {
       return;
     }
 
+    if (!refreshed?.shippo_order_id) {
+      res.status(502).json({
+        error: "Shippo Order was not created; cannot build shipment.",
+        order: refreshed,
+        sync: result,
+      });
+      return;
+    }
+
+    let shipment = null;
+    try {
+      shipment = await createShippoShipmentForWebsiteOrder(refreshed, { force: true });
+    } catch (e) {
+      console.error("[admin] Shippo shipment refresh after sync", e);
+      refreshed = await getOrderByIdForService(order.id);
+      res.status(502).json({
+        error: e?.message || "Shippo shipment could not be created or refreshed.",
+        order: refreshed,
+        sync: result,
+        shipment: { ok: false, error: String(e?.message || e) },
+      });
+      return;
+    }
+
+    refreshed = await getOrderByIdForService(order.id);
     res.status(200).json({
       ok: true,
       ...result,
+      shipment,
       order: refreshed,
     });
   } catch (error) {

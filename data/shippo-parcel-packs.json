@@ -1,0 +1,90 @@
+{
+  "$schema": "sai-shippo-parcel-packs",
+  "description": "Physical pack dimensions (in) and weight (lb) by product slug, glove size, and bundle id (box_1, box_5, case_1, case_5). Non-Small sizes copy Small until you add measured values.",
+  "distance_unit": "in",
+  "mass_unit": "lb",
+  "products": {
+    "nitrile-standard": {
+      "Small": {
+        "box_1": { "length": 10, "width": 5, "height": 3, "weightLb": 1 },
+        "box_5": { "length": 16, "width": 10, "height": 6, "weightLb": 5 },
+        "case_1": { "length": 15, "width": 11, "height": 10, "weightLb": 10 },
+        "case_5": { "length": 72, "width": 52, "height": 50, "weightLb": 50 }
+      },
+      "Medium": {
+        "box_1": { "length": 10, "width": 5, "height": 3, "weightLb": 1 },
+        "box_5": { "length": 16, "width": 10, "height": 6, "weightLb": 5 },
+        "case_1": { "length": 15, "width": 11, "height": 10, "weightLb": 10 },
+        "case_5": { "length": 72, "width": 52, "height": 50, "weightLb": 50 }
+      },
+      "Large": {
+        "box_1": { "length": 10, "width": 5, "height": 3, "weightLb": 1 },
+        "box_5": { "length": 16, "width": 10, "height": 6, "weightLb": 5 },
+        "case_1": { "length": 15, "width": 11, "height": 10, "weightLb": 10 },
+        "case_5": { "length": 72, "width": 52, "height": 50, "weightLb": 50 }
+      },
+      "X Large": {
+        "box_1": { "length": 10, "width": 5, "height": 3, "weightLb": 1 },
+        "box_5": { "length": 16, "width": 10, "height": 6, "weightLb": 5 },
+        "case_1": { "length": 15, "width": 11, "height": 10, "weightLb": 10 },
+        "case_5": { "length": 72, "width": 52, "height": 50, "weightLb": 50 }
+      }
+    },
+    "black-nitrile-general": {
+      "Small": {
+        "box_1": { "length": 10, "width": 5, "height": 3, "weightLb": 2 },
+        "box_5": { "length": 16, "width": 10, "height": 6, "weightLb": 10 },
+        "case_1": { "length": 12, "width": 10, "height": 10, "weightLb": 12 },
+        "case_5": { "length": 72, "width": 52, "height": 50, "weightLb": 60 }
+      },
+      "Medium": {
+        "box_1": { "length": 10, "width": 5, "height": 3, "weightLb": 2 },
+        "box_5": { "length": 16, "width": 10, "height": 6, "weightLb": 10 },
+        "case_1": { "length": 12, "width": 10, "height": 10, "weightLb": 12 },
+        "case_5": { "length": 72, "width": 52, "height": 50, "weightLb": 60 }
+      },
+      "Large": {
+        "box_1": { "length": 10, "width": 5, "height": 3, "weightLb": 2 },
+        "box_5": { "length": 16, "width": 10, "height": 6, "weightLb": 10 },
+        "case_1": { "length": 12, "width": 10, "height": 10, "weightLb": 12 },
+        "case_5": { "length": 72, "width": 52, "height": 50, "weightLb": 60 }
+      },
+      "X Large": {
+        "box_1": { "length": 10, "width": 5, "height": 3, "weightLb": 2 },
+        "box_5": { "length": 16, "width": 10, "height": 6, "weightLb": 10 },
+        "case_1": { "length": 12, "width": 10, "height": 10, "weightLb": 12 },
+        "case_5": { "length": 72, "width": 52, "height": 50, "weightLb": 60 }
+      }
+    },
+    "black-nitrile-heavy-duty": {
+      "Small": {
+        "box_1": { "length": 10, "width": 6, "height": 4, "weightLb": 2 },
+        "box_5": { "length": 16, "width": 10, "height": 6, "weightLb": 10 },
+        "case_1": { "length": 17, "width": 11, "height": 11, "weightLb": 20 },
+        "case_5": { "length": 72, "width": 52, "height": 50, "weightLb": 100 }
+      },
+      "Medium": {
+        "box_1": { "length": 10, "width": 6, "height": 4, "weightLb": 2 },
+        "box_5": { "length": 16, "width": 10, "height": 6, "weightLb": 10 },
+        "case_1": { "length": 17, "width": 11, "height": 11, "weightLb": 20 },
+        "case_5": { "length": 72, "width": 52, "height": 50, "weightLb": 100 }
+      },
+      "Large": {
+        "box_1": { "length": 10, "width": 6, "height": 4, "weightLb": 2 },
+        "box_5": { "length": 16, "width": 10, "height": 6, "weightLb": 10 },
+        "case_1": { "length": 17, "width": 11, "height": 11, "weightLb": 20 },
+        "case_5": { "length": 72, "width": 52, "height": 50, "weightLb": 100 }
+      },
+      "X Large": {
+        "box_1": { "length": 10, "width": 6, "height": 4, "weightLb": 2 },
+        "box_5": { "length": 16, "width": 10, "height": 6, "weightLb": 10 },
+        "case_1": { "length": 17, "width": 11, "height": 11, "weightLb": 20 },
+        "case_5": { "length": 72, "width": 52, "height": 50, "weightLb": 100 }
+      }
+    }
+  },
+  "splitRules": {
+    "case_10": { "parcelCount": 2, "usePackKey": "case_5", "note": "Two pallets of 5 cases each using case_5 dims/weight per parcel." },
+    "case_20": { "parcelCount": 4, "usePackKey": "case_5", "note": "Four pallets of 5 cases each." }
+  }
+}
