@@ -9,16 +9,10 @@ import {
   shouldBootstrapAdminSignedIn,
 } from "./admin-shared.js";
 
-/** Staff can only set these fulfillment statuses (payment column shows payment state). */
-const FULFILLMENT_OPTIONS = [
-  ["ready_to_ship", "Ready to ship"],
-  ["shipped", "Shipped"],
-  ["cancelled", "Cancelled"],
-];
-
 let supabase = null;
 let ordersCache = [];
-const statusLockByOrderId = new Map();
+/** When set, background Shippo refresh may re-render the open modal for this order id. */
+let modalOpenOrderId = null;
 
 /** slug:bundleId -> label (from /api/products). */
 const bundleLabelBySlugId = new Map();
@@ -303,58 +297,274 @@ function formatMergedShipToDisplay(row) {
   return ca || "—";
 }
 
+function labelPurchasedSuccessfully(row) {
+  return (
+    Boolean(String(row?.shippo_label_url || "").trim()) &&
+    String(row?.shippo_transaction_status || "").toUpperCase() === "SUCCESS"
+  );
+}
+
+function isTrackingDelivered(row) {
+  return String(row?.shippo_tracking_status || "").toUpperCase() === "DELIVERED";
+}
+
+function isTrackingInTransit(row) {
+  const t = String(row?.shippo_tracking_status || "").toUpperCase();
+  if (!t || t === "UNKNOWN" || t === "PRE_TRANSIT" || t === "DELIVERED") {
+    return false;
+  }
+  if (["TRANSIT", "IN_TRANSIT", "OUT_FOR_DELIVERY"].includes(t)) {
+    return true;
+  }
+  return t.includes("TRANSIT");
+}
+
 /**
- * Visual stepper: paid → label → handoff → shipped (UI only; uses existing row fields).
+ * Single derived workflow for table, modal, and filters (no manual fulfillment status).
+ * @returns {{ key: string, label: string, nextAction: string, activeStepIndex: number, blockingIssue: string | null, variant: "default" | "error" | "cancelled" }}
+ */
+function computeFulfillmentWorkflow(row) {
+  const base = (patch) => ({
+    key: "unknown",
+    label: "Unknown",
+    nextAction: "View details",
+    activeStepIndex: 0,
+    blockingIssue: null,
+    variant: "default",
+    ...patch,
+  });
+
+  const os = String(row?.order_status || "");
+  if (os === "cancelled") {
+    return base({
+      key: "cancelled",
+      label: "Cancelled",
+      nextAction: "—",
+      activeStepIndex: -1,
+      variant: "cancelled",
+    });
+  }
+
+  if (isWalkInOrder(row) && os === "draft") {
+    return base({
+      key: "walk_in_draft",
+      label: "Walk-in draft",
+      nextAction: "Complete walk-in",
+      activeStepIndex: 0,
+    });
+  }
+  if (String(row?.order_source) === "manual" && os === "draft") {
+    return base({
+      key: "manual_draft",
+      label: "Manual draft",
+      nextAction: "Email payment link",
+      activeStepIndex: 0,
+    });
+  }
+  if (String(row?.order_source) === "manual" && os === "payment_link_sent") {
+    return base({
+      key: "payment_link_sent",
+      label: "Payment link sent",
+      nextAction: "Await payment",
+      activeStepIndex: 0,
+    });
+  }
+
+  const paymentPaid = String(row?.status || "").toLowerCase() === "paid";
+  if (!paymentPaid) {
+    return base({
+      key: "awaiting_payment",
+      label: "Awaiting payment",
+      nextAction: "Await payment",
+      activeStepIndex: 0,
+    });
+  }
+
+  const missing = missingShippoAddressFields(row).missing;
+  const syncing = String(row?.shippo_sync_status || "") === "syncing";
+  const syncFailed = String(row?.shippo_sync_status || "") === "error";
+  const hasOrder = Boolean(String(row?.shippo_order_id || "").trim());
+  const hasShipment = Boolean(String(row?.shippo_shipment_object_id || "").trim());
+  const rates = shippoRatesList(row);
+  const hasRates = rates.length > 0;
+  const ratesReady = shipmentReadyForRates(row);
+  const labelOk = labelPurchasedSuccessfully(row);
+  const txStatus = String(row?.shippo_transaction_status || "").toUpperCase();
+  const shipErr = String(row?.shippo_shipment_sync_error || "").trim();
+  const labelErr = String(row?.shippo_label_sync_error || "").trim();
+
+  if (syncFailed && !hasOrder) {
+    return base({
+      key: "exception",
+      label: "Exception / issue",
+      nextAction: "Fix shipping issue",
+      activeStepIndex: 1,
+      blockingIssue: String(row?.shippo_sync_error || "Shippo order sync failed.").trim() || "Shippo sync error.",
+      variant: "error",
+    });
+  }
+
+  if (missing.length > 0 && !hasOrder) {
+    return base({
+      key: "address_required",
+      label: "Paid · address incomplete",
+      nextAction: "Complete ship-to",
+      activeStepIndex: 1,
+      blockingIssue: `Missing: ${missing.join(", ")}`,
+      variant: "error",
+    });
+  }
+
+  if (syncing) {
+    return base({
+      key: "syncing",
+      label: "Syncing to Shippo…",
+      nextAction: "Wait…",
+      activeStepIndex: 1,
+    });
+  }
+
+  if (!hasOrder) {
+    return base({
+      key: "paid_ready_to_sync",
+      label: "Paid · ready to sync",
+      nextAction: "Sync to Shippo",
+      activeStepIndex: 1,
+    });
+  }
+
+  if (shipErr && !hasShipment) {
+    return base({
+      key: "exception",
+      label: "Exception / issue",
+      nextAction: "Fix shipping issue",
+      activeStepIndex: 1,
+      blockingIssue: shipErr,
+      variant: "error",
+    });
+  }
+
+  if (!hasShipment) {
+    return base({
+      key: "order_linked_shipment_pending",
+      label: "Order linked · shipment pending",
+      nextAction: "Refresh Shippo status",
+      activeStepIndex: 1,
+    });
+  }
+
+  if (shipErr && hasShipment && !labelOk) {
+    return base({
+      key: "exception",
+      label: "Exception / issue",
+      nextAction: "Fix shipping issue",
+      activeStepIndex: 2,
+      blockingIssue: shipErr,
+      variant: "error",
+    });
+  }
+
+  if (txStatus === "ERROR" || labelErr) {
+    return base({
+      key: "exception",
+      label: "Exception / issue",
+      nextAction: "Fix shipping issue",
+      activeStepIndex: 2,
+      blockingIssue: labelErr || "Label purchase failed.",
+      variant: "error",
+    });
+  }
+
+  if (!labelOk) {
+    if (!hasRates && !ratesReady) {
+      return base({
+        key: "ready_choose_rate",
+        label: "Synced · get rates",
+        nextAction: "Refresh rates",
+        activeStepIndex: 2,
+      });
+    }
+    return base({
+      key: "ready_buy_label",
+      label: "Synced · ready to buy label",
+      nextAction: "Buy label",
+      activeStepIndex: 2,
+    });
+  }
+
+  if (isTrackingDelivered(row)) {
+    return base({
+      key: "delivered",
+      label: "Delivered",
+      nextAction: "—",
+      activeStepIndex: 5,
+    });
+  }
+  if (isTrackingInTransit(row)) {
+    return base({
+      key: "in_transit",
+      label: "In transit",
+      nextAction: "Track package",
+      activeStepIndex: 4,
+    });
+  }
+
+  return base({
+    key: "label_handoff",
+    label: "Label purchased · handoff",
+    nextAction: "Print label · schedule pickup",
+    activeStepIndex: 3,
+  });
+}
+
+/**
+ * Visual stepper from payment + Shippo data (no manual admin status).
  */
 function buildFulfillmentProgressHtml(row) {
-  const fk = normalizeFulfillment(row);
-  if (fk === "cancelled") {
+  const wf = computeFulfillmentWorkflow(row);
+  if (wf.variant === "cancelled") {
     return `<div class="admin-fulfillment-progress admin-fulfillment-progress--cancelled" role="status">
       <p class="admin-fulfillment-progress__title">Fulfillment progress</p>
       <p class="admin-muted" style="margin:0;font-size:13px">This order is <strong>cancelled</strong>.</p>
     </div>`;
   }
 
-  const paid = String(row.status || "").toLowerCase() === "paid";
-  const labelPurchased =
-    Boolean(String(row.shippo_label_url || "").trim()) &&
-    String(row.shippo_transaction_status || "").toUpperCase() === "SUCCESS";
-  const shipped = fk === "shipped";
+  const steps = [
+    "Order created & paid",
+    "Synced to Shippo",
+    "Label purchased",
+    "Pickup / drop-off",
+    "In transit",
+    "Delivered",
+  ];
 
-  const steps = ["Order created & paid", "Buying label", "Waiting for pickup / drop-off", "Shipped"];
-
-  let activeIndex = 0;
-  if (paid && !labelPurchased) {
-    activeIndex = 1;
-  } else if (paid && labelPurchased && !shipped) {
-    activeIndex = 2;
-  } else if (paid && labelPurchased && shipped) {
-    activeIndex = 3;
-  } else if (!paid) {
-    activeIndex = 0;
-  }
+  const delivered = wf.key === "delivered";
 
   function stateFor(i) {
-    if (shipped) {
+    if (delivered) {
       return "done";
     }
-    if (i < activeIndex) {
+    const a = wf.activeStepIndex;
+    if (a < 0) {
+      return "pending";
+    }
+    if (i < a) {
       return "done";
     }
-    if (i === activeIndex) {
-      return "active";
+    if (i === a) {
+      return wf.variant === "error" ? "error" : "active";
     }
     return "pending";
   }
 
   const chunks = [
-    `<div class="admin-fulfillment-progress" aria-label="Fulfillment progress">`,
+    `<div class="admin-fulfillment-progress admin-fulfillment-progress--${wf.variant === "error" ? "has-error" : "ok"}" aria-label="Fulfillment progress">`,
     `<p class="admin-fulfillment-progress__title">Fulfillment progress</p>`,
     `<div class="admin-fulfillment-progress__track">`,
   ];
   for (let i = 0; i < steps.length; i++) {
     const st = stateFor(i);
-    const dot = st === "done" ? "✓" : String(i + 1);
+    const dot = st === "done" ? "✓" : st === "error" ? "!" : String(i + 1);
     chunks.push(
       `<div class="admin-fulfillment-progress__step admin-fulfillment-progress__step--${st}"><span class="admin-fulfillment-progress__dot" aria-hidden="true">${dot}</span><span class="admin-fulfillment-progress__label">${escapeHtml(steps[i])}</span></div>`,
     );
@@ -426,11 +636,27 @@ async function loadShippoPreviewPanel(orderId) {
       panel.innerHTML = `<p class="admin-muted">No preview.</p>`;
       return;
     }
-    const payloadBlock = preview.payload
-      ? escapeHtml(jsonPrettyOrNull(preview.payload))
-      : escapeHtml(preview.payloadError || "Could not build payload.");
+    const audit = safeShippoParcelAuditJson(data.order);
+    const lastStoredReq = audit?.lastShipmentCreateRequest;
+    const lastStoredAt = audit?.lastShipmentCreateRequestAt;
+    const lastStoredBlock = lastStoredReq
+      ? `<details class="admin-modal-details">
+        <summary class="admin-muted">Last stored Shipment POST body (DB, last create attempt)</summary>
+        <p class="admin-muted" style="margin:0 0 0.35rem;font-size:12px;line-height:1.45">Saved at <code>${escapeHtml(
+          lastStoredAt || "—",
+        )}</code>. Compare to <strong>Shippo Shipment API payload</strong> above (live preview from current order row).</p>
+        <pre>${escapeHtml(jsonPrettyOrNull(lastStoredReq))}</pre>
+      </details>`
+      : `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;line-height:1.45">No <code>lastShipmentCreateRequest</code> in DB yet — it is written when the server POSTs <code>/shipments/</code> (success or HTTP error).</p>`;
+    const orderPayload = preview.orderPayload ?? preview.payload;
+    const orderPayloadBlock = orderPayload
+      ? escapeHtml(jsonPrettyOrNull(orderPayload))
+      : escapeHtml(preview.payloadError || "Could not build order payload.");
+    const shipmentPayloadBlock = preview.shipmentCreatePayload
+      ? escapeHtml(jsonPrettyOrNull(preview.shipmentCreatePayload))
+      : escapeHtml(preview.shipmentCreatePayloadError || "—");
     panel.innerHTML = `
-      <h4 class="admin-muted" style="margin:0 0 0.35rem;font-size:13px">Server preview (same merge + payload as Shippo sync)</h4>
+      <h4 class="admin-muted" style="margin:0 0 0.35rem;font-size:13px">Server preview (same merge as Shippo sync — no live API calls)</h4>
       <details class="admin-modal-details" open>
         <summary class="admin-muted">Resolved shipping for sync</summary>
         <pre>${escapeHtml(jsonPrettyOrNull(preview.resolvedShippingForSync))}</pre>
@@ -444,8 +670,14 @@ async function loadShippoPreviewPanel(orderId) {
         <pre>${escapeHtml(jsonPrettyOrNull(preview.lineItems))}</pre>
       </details>
       <details class="admin-modal-details">
-        <summary class="admin-muted">Final Shippo API payload</summary>
-        <pre>${payloadBlock}</pre>
+        <summary class="admin-muted">Shippo Order API payload (POST /orders/)</summary>
+        <p class="admin-muted" style="margin:0 0 0.35rem;font-size:12px;line-height:1.45">Order object: line items, totals, aggregate <code>weight</code>. Does not include per-parcel dimensions.</p>
+        <pre>${orderPayloadBlock}</pre>
+      </details>
+      <details class="admin-modal-details">
+        <summary class="admin-muted">Shippo Shipment API payload (POST /shipments/)</summary>
+        <p class="admin-muted" style="margin:0 0 0.35rem;font-size:12px;line-height:1.45">Shipment object: <code>address_from</code>, <code>address_to</code>, and <code>parcels</code> (length, width, height, <code>distance_unit</code>, weight, <code>mass_unit</code>) used for rates and labels.</p>
+        <pre>${shipmentPayloadBlock}</pre>
       </details>
       <details class="admin-modal-details">
         <summary class="admin-muted">Parcel plan (for Shipment / rates)</summary>
@@ -455,6 +687,7 @@ async function loadShippoPreviewPanel(orderId) {
             : escapeHtml(preview.parcelError || "—")
         }</pre>
       </details>
+      ${lastStoredBlock}
     `;
   } catch (e) {
     panel.innerHTML = `<p class="admin-error">${escapeHtml(e.message || "Preview failed.")}</p>`;
@@ -535,30 +768,15 @@ function isWalkInOrder(row) {
   return String(row.order_type || "") === "walk_in" || String(row.order_source || "") === "walk_in";
 }
 
-/**
- * Normalized fulfillment key for filters + dropdown (maps legacy `paid` → ready_to_ship).
- */
-function normalizeFulfillment(row) {
-  if (isWalkInOrder(row)) {
-    const os = String(row.order_status || "");
-    if (os === "draft") {
-      return "walk_in_draft";
-    }
-    if (os === "paid") {
-      return "walk_in_paid";
-    }
-    if (os === "cancelled") {
-      return "cancelled";
-    }
+function applyWorkflowRowTheme(tr, row) {
+  if (!tr || !row) {
+    return;
   }
-  const os = row.order_status;
-  if (os === "draft" || os === "payment_link_sent") {
-    return os;
-  }
-  if (os === "paid") return "ready_to_ship";
-  if (FULFILLMENT_OPTIONS.some(([v]) => v === os)) return os;
-  if (os === "awaiting_payment") return "awaiting_payment";
-  return "awaiting_payment";
+  const wf = computeFulfillmentWorkflow(row);
+  tr.classList.toggle("admin-order-row--delivered", wf.key === "delivered");
+  tr.classList.toggle("admin-order-row--in-transit", wf.key === "in_transit");
+  tr.classList.toggle("admin-order-row--cancelled", wf.key === "cancelled");
+  tr.classList.toggle("admin-order-row--issue", wf.variant === "error");
 }
 
 function paymentBadgeKey(row) {
@@ -593,11 +811,6 @@ function formatPaymentColumnLabel(row) {
     }
   }
   return formatPaymentStatus(row.status);
-}
-
-function fulfillmentLabel(value) {
-  const row = FULFILLMENT_OPTIONS.find(([v]) => v === value);
-  return row ? row[1] : value;
 }
 
 /**
@@ -766,26 +979,6 @@ function showApp() {
   document.getElementById("admin-app").hidden = false;
 }
 
-function applyRowStatusTheme(tr, statusValue, locked) {
-  if (!tr) return;
-  tr.classList.toggle("admin-order-row--shipped", locked && statusValue === "shipped");
-  tr.classList.toggle("admin-order-row--cancelled", locked && statusValue === "cancelled");
-}
-
-function setStatusRowLocked(tr, locked) {
-  if (!tr) return;
-  const sel = tr.querySelector("[data-order-status-select]");
-  const btn = tr.querySelector("[data-order-status-confirm]");
-  const popup = tr.querySelector("[data-order-edit-warning]");
-  if (!sel || !btn) return;
-
-  sel.disabled = locked;
-  btn.textContent = locked ? "Edit" : "Update";
-  btn.dataset.mode = locked ? "edit" : "update";
-  if (popup) popup.hidden = true;
-  applyRowStatusTheme(tr, sel.value, locked);
-}
-
 function bindModalShippoActions() {
   if (document.body.dataset.shippoModalBound === "1") {
     return;
@@ -793,6 +986,96 @@ function bindModalShippoActions() {
   document.body.dataset.shippoModalBound = "1";
 
   document.addEventListener("click", (e) => {
+    const shippoSyncBtn = e.target.closest("[data-shippo-sync]");
+    if (shippoSyncBtn) {
+      e.preventDefault();
+      const orderId = shippoSyncBtn.getAttribute("data-shippo-sync");
+      if (!orderId || !supabase) {
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        shippoSyncBtn.disabled = true;
+        const beforeText = shippoSyncBtn.textContent;
+        shippoSyncBtn.textContent = "Syncing…";
+        try {
+          await fetchReportPost("/api/admin-order-shippo-sync", session.access_token, {
+            orderId,
+          });
+          await loadOrders();
+          renderTable();
+          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
+          if (refreshed && String(modalOpenOrderId) === String(orderId)) {
+            openModal(refreshed, { skipShippoAutoRefresh: true });
+          }
+        } catch (err) {
+          if (err instanceof ReportPostError && err.body?.order) {
+            const idx = ordersCache.findIndex((r) => String(r.id) === String(orderId));
+            if (idx >= 0) {
+              ordersCache[idx] = err.body.order;
+            }
+            renderTable();
+            if (String(modalOpenOrderId) === String(orderId)) {
+              openModal(err.body.order, { skipShippoAutoRefresh: true });
+            }
+          }
+          const parts = [err.message || "Shippo sync failed."];
+          if (err instanceof ReportPostError && err.body?.shippo_last_error_response != null) {
+            parts.push(`Shippo response:\n${JSON.stringify(err.body.shippo_last_error_response, null, 2)}`);
+          }
+          alert(parts.join("\n\n"));
+        } finally {
+          shippoSyncBtn.disabled = false;
+          shippoSyncBtn.textContent = beforeText || "Sync to Shippo";
+        }
+      })();
+      return;
+    }
+
+    const shippoRefreshBtn = e.target.closest("[data-shippo-refresh]");
+    if (shippoRefreshBtn) {
+      e.preventDefault();
+      const orderId = shippoRefreshBtn.getAttribute("data-shippo-refresh");
+      if (!orderId || !supabase) {
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        shippoRefreshBtn.disabled = true;
+        const beforeText = shippoRefreshBtn.textContent;
+        shippoRefreshBtn.textContent = "Refreshing…";
+        try {
+          await fetchReportPost("/api/admin-order-shippo-refresh-status", session.access_token, {
+            orderId,
+          });
+          await loadOrders();
+          renderTable();
+          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
+          if (refreshed && String(modalOpenOrderId) === String(orderId)) {
+            openModal(refreshed, { skipShippoAutoRefresh: true });
+          }
+        } catch (err) {
+          alert(err.message || "Could not refresh Shippo status.");
+        } finally {
+          shippoRefreshBtn.disabled = false;
+          shippoRefreshBtn.textContent = beforeText || "Refresh Shippo";
+        }
+      })();
+      return;
+    }
+
     const toggleShipEdit = e.target.closest("[data-toggle-shipping-edit]");
     if (toggleShipEdit) {
       e.preventDefault();
@@ -827,15 +1110,54 @@ function bindModalShippoActions() {
             orderId,
           });
           await loadOrders();
+          renderTable();
           const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
           if (refreshed) {
-            openModal(refreshed);
+            openModal(refreshed, { skipShippoAutoRefresh: true });
           }
         } catch (err) {
           alert(err.message || "Could not refresh rates.");
         } finally {
           modalRatesRefresh.disabled = false;
           modalRatesRefresh.textContent = prev || "Refresh rates";
+        }
+      })();
+      return;
+    }
+
+    const modalShippoRefresh = e.target.closest("[data-shippo-modal-refresh-status]");
+    if (modalShippoRefresh) {
+      e.preventDefault();
+      const orderId = modalShippoRefresh.getAttribute("data-shippo-modal-refresh-status");
+      if (!orderId || !supabase) {
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        modalShippoRefresh.disabled = true;
+        const prev = modalShippoRefresh.textContent;
+        modalShippoRefresh.textContent = "Refreshing…";
+        try {
+          await fetchReportPost("/api/admin-order-shippo-refresh-status", session.access_token, {
+            orderId,
+          });
+          await loadOrders();
+          renderTable();
+          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
+          if (refreshed && String(modalOpenOrderId) === String(orderId)) {
+            openModal(refreshed, { skipShippoAutoRefresh: true });
+          }
+        } catch (err) {
+          alert(err.message || "Could not refresh Shippo status.");
+        } finally {
+          modalShippoRefresh.disabled = false;
+          modalShippoRefresh.textContent = prev || "Refresh Shippo status";
         }
       })();
       return;
@@ -871,9 +1193,10 @@ function bindModalShippoActions() {
             rateObjectId,
           });
           await loadOrders();
+          renderTable();
           const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
           if (refreshed) {
-            openModal(refreshed);
+            openModal(refreshed, { skipShippoAutoRefresh: true });
           }
         } catch (err) {
           if (err instanceof ReportPostError && err.body?.order) {
@@ -882,7 +1205,7 @@ function bindModalShippoActions() {
               ordersCache[idx] = err.body.order;
             }
             renderTable();
-            openModal(err.body.order);
+            openModal(err.body.order, { skipShippoAutoRefresh: true });
           }
           alert(err.message || "Could not purchase label.");
         } finally {
@@ -949,125 +1272,6 @@ function bindOrdersTableEvents() {
       return;
     }
 
-    const confirmBtn = e.target.closest("[data-order-status-confirm]");
-    if (confirmBtn) {
-      e.preventDefault();
-      const tr = confirmBtn.closest("tr");
-      const orderId = tr?.dataset.orderId;
-      if (!orderId || !supabase) return;
-
-      const sel = tr.querySelector("[data-order-status-select]");
-      if (!sel) return;
-      const mode = confirmBtn.dataset.mode || "update";
-
-      if (mode === "edit") {
-        const popup = tr.querySelector("[data-order-edit-warning]");
-        if (popup) popup.hidden = false;
-        return;
-      }
-
-      void (async () => {
-        const next = sel.value;
-        const prev = sel.dataset.prevValue ?? sel.value;
-        confirmBtn.disabled = true;
-        const originalText = confirmBtn.textContent;
-        confirmBtn.textContent = "Saving…";
-
-        const { error } = await supabase.from("orders").update({ order_status: next }).eq("id", orderId);
-        confirmBtn.disabled = false;
-        confirmBtn.textContent = originalText;
-
-        if (error) {
-          alert(error.message);
-          sel.value = prev;
-          return;
-        }
-
-        const row = ordersCache.find((r) => String(r.id) === String(orderId));
-        if (row) row.order_status = next;
-        sel.dataset.prevValue = next;
-        statusLockByOrderId.set(String(orderId), true);
-        setStatusRowLocked(tr, true);
-      })();
-    }
-
-    const shippoSyncBtn = e.target.closest("[data-shippo-sync]");
-    if (shippoSyncBtn) {
-      e.preventDefault();
-      const orderId = shippoSyncBtn.getAttribute("data-shippo-sync");
-      if (!orderId || !supabase) {
-        return;
-      }
-      void (async () => {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (!session?.access_token) {
-          alert("Sign in again.");
-          return;
-        }
-        shippoSyncBtn.disabled = true;
-        const beforeText = shippoSyncBtn.textContent;
-        shippoSyncBtn.textContent = "Syncing…";
-        try {
-          await fetchReportPost("/api/admin-order-shippo-sync", session.access_token, {
-            orderId,
-          });
-          await loadOrders();
-        } catch (err) {
-          if (err instanceof ReportPostError && err.body?.order) {
-            const idx = ordersCache.findIndex((r) => String(r.id) === String(orderId));
-            if (idx >= 0) {
-              ordersCache[idx] = err.body.order;
-            }
-            renderTable();
-          }
-          const parts = [err.message || "Shippo sync failed."];
-          if (err instanceof ReportPostError && err.body?.shippo_last_error_response != null) {
-            parts.push(`Shippo response:\n${JSON.stringify(err.body.shippo_last_error_response, null, 2)}`);
-          }
-          alert(parts.join("\n\n"));
-        } finally {
-          shippoSyncBtn.disabled = false;
-          shippoSyncBtn.textContent = beforeText || "Sync to Shippo";
-        }
-      })();
-      return;
-    }
-
-    const shippoRefreshBtn = e.target.closest("[data-shippo-refresh]");
-    if (shippoRefreshBtn) {
-      e.preventDefault();
-      const orderId = shippoRefreshBtn.getAttribute("data-shippo-refresh");
-      if (!orderId || !supabase) {
-        return;
-      }
-      void (async () => {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (!session?.access_token) {
-          alert("Sign in again.");
-          return;
-        }
-        shippoRefreshBtn.disabled = true;
-        const beforeText = shippoRefreshBtn.textContent;
-        shippoRefreshBtn.textContent = "Refreshing…";
-        try {
-          await fetchReportPost("/api/admin-order-shippo-refresh-status", session.access_token, {
-            orderId,
-          });
-          await loadOrders();
-        } catch (err) {
-          alert(err.message || "Could not refresh Shippo status.");
-        } finally {
-          shippoRefreshBtn.disabled = false;
-          shippoRefreshBtn.textContent = beforeText || "Refresh";
-        }
-      })();
-      return;
-    }
-
     const saveShippingBtn = e.target.closest("[data-save-shipping-address]");
     if (saveShippingBtn) {
       e.preventDefault();
@@ -1119,7 +1323,7 @@ function bindOrdersTableEvents() {
           }
           const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
           if (refreshed) {
-            openModal(refreshed, { shippingSaved: true });
+            openModal(refreshed, { shippingSaved: true, skipShippoAutoRefresh: true });
           }
         } catch (err) {
           alert(err.message || "Could not update shipping address.");
@@ -1129,24 +1333,6 @@ function bindOrdersTableEvents() {
         }
       })();
       return;
-    }
-
-    const cancelEditBtn = e.target.closest("[data-order-edit-cancel]");
-    if (cancelEditBtn) {
-      e.preventDefault();
-      const popup = cancelEditBtn.closest("[data-order-edit-warning]");
-      if (popup) popup.hidden = true;
-      return;
-    }
-
-    const continueEditBtn = e.target.closest("[data-order-edit-continue]");
-    if (continueEditBtn) {
-      e.preventDefault();
-      const tr = continueEditBtn.closest("tr");
-      const orderId = tr?.dataset.orderId;
-      if (!tr || !orderId) return;
-      statusLockByOrderId.set(String(orderId), false);
-      setStatusRowLocked(tr, false);
     }
   });
 }
@@ -1276,7 +1462,6 @@ async function loadOrders() {
     }
 
     ordersCache = Array.isArray(data) ? data : [];
-    statusLockByOrderId.clear();
     updateTimeFilterLabels();
     renderTable();
   } finally {
@@ -1307,18 +1492,32 @@ function getFilteredOrders() {
     if (filter === "awaiting_payment") {
       return isPaymentAwaiting(r);
     }
-    const fk = normalizeFulfillment(r);
-    return fk === filter;
+    if (filter === "need_sync") {
+      const wf = computeFulfillmentWorkflow(r);
+      return ["paid_ready_to_sync", "address_required", "syncing"].includes(wf.key);
+    }
+    if (filter === "need_label") {
+      const wf = computeFulfillmentWorkflow(r);
+      return ["ready_choose_rate", "ready_buy_label", "order_linked_shipment_pending"].includes(wf.key);
+    }
+    if (filter === "shipping_active") {
+      const wf = computeFulfillmentWorkflow(r);
+      return wf.key === "label_handoff";
+    }
+    if (filter === "in_transit") {
+      return computeFulfillmentWorkflow(r).key === "in_transit";
+    }
+    if (filter === "delivered") {
+      return computeFulfillmentWorkflow(r).key === "delivered";
+    }
+    if (filter === "issues") {
+      return computeFulfillmentWorkflow(r).variant === "error";
+    }
+    if (filter === "cancelled") {
+      return computeFulfillmentWorkflow(r).key === "cancelled";
+    }
+    return false;
   });
-}
-
-function currentFulfillmentSelectValue(row) {
-  const fk = normalizeFulfillment(row);
-  if (fk === "walk_in_draft" || fk === "walk_in_paid") {
-    return fk;
-  }
-  if (FULFILLMENT_OPTIONS.some(([v]) => v === fk)) return fk;
-  return "ready_to_ship";
 }
 
 function renderTable() {
@@ -1329,48 +1528,22 @@ function renderTable() {
     .map((row) => {
       const id = row.id;
       const orderRef = row.order_ref || "—";
-      const os = normalizeFulfillment(row);
-      const awaiting = isPaymentAwaiting(row);
-      const selectHtml = FULFILLMENT_OPTIONS.map(
-        ([value, label]) =>
-          `<option value="${escapeHtml(value)}" ${value === currentFulfillmentSelectValue(row) ? "selected" : ""}>${escapeHtml(label)}</option>`,
-      ).join("");
-
+      const wf = computeFulfillmentWorkflow(row);
       const osRaw = String(row.order_status || "");
       const walkInDraft = isWalkInOrder(row) && osRaw === "draft";
-      const walkInPaid = isWalkInOrder(row) && osRaw === "paid";
-      const manualDraft =
-        String(row.order_source) === "manual" && osRaw === "draft";
-      const manualLinkSent =
-        String(row.order_source) === "manual" && osRaw === "payment_link_sent";
+      const manualDraft = String(row.order_source) === "manual" && osRaw === "draft";
 
-      const statusCell = walkInDraft
-        ? `<div>
-            <p class="admin-muted" style="margin:0">Walk-in draft</p>
-            <p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;">Complete on <a href="/admin/walk-in-order.html">Walk-in order</a> page.</p>
-          </div>`
-        : walkInPaid
-          ? `<span class="admin-muted">Paid in store (${escapeHtml(String(row.payment_method || "—"))})</span>`
-        : manualDraft
-        ? `<div>
-            <p class="admin-muted" style="margin:0">Draft</p>
-            <button type="button" class="admin-btn admin-btn--small" data-send-pay-link="${escapeHtml(String(id))}" style="margin-top:0.4rem">Email payment link</button>
-          </div>`
-        : manualLinkSent
-          ? `<span class="admin-muted">Payment link sent</span><p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;">Payment must complete before fulfillment status can be set.</p>`
-        : awaiting
-          ? `<span class="admin-muted">Awaiting payment</span><p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;">Payment must complete before fulfillment status can be set.</p>`
-          : `<div class="admin-status-actions"><select class="admin-status-select" data-order-status-select aria-label="Fulfillment status" data-prev-value="${escapeHtml(
-              currentFulfillmentSelectValue(row),
-            )}">${selectHtml}</select><button type="button" class="admin-btn admin-btn--small admin-status-confirm" data-order-status-confirm data-mode="update">Update</button><div class="admin-status-warning" data-order-edit-warning hidden><p class="admin-status-warning__text">Unlock this row to edit status?</p><div class="admin-status-warning__actions"><button type="button" class="admin-btn admin-btn--small" data-order-edit-cancel>Cancel</button><button type="button" class="admin-btn admin-btn--small admin-btn--primary admin-status-warning__continue" data-order-edit-continue>Continue</button></div></div></div>`;
-
-      const locked = statusLockByOrderId.get(String(id)) === true;
-      const rowClasses = [
-        locked && os === "shipped" ? "admin-order-row--shipped" : "",
-        locked && os === "cancelled" ? "admin-order-row--cancelled" : "",
-      ]
-        .filter(Boolean)
-        .join(" ");
+      let nextActionHtml;
+      if (walkInDraft) {
+        nextActionHtml = `<div class="admin-next-action"><strong class="admin-next-action__primary">Complete walk-in</strong><p class="admin-muted admin-next-action__hint"><a href="/admin/walk-in-order.html">Open walk-in order</a></p></div>`;
+      } else if (manualDraft) {
+        nextActionHtml = `<div class="admin-next-action"><strong class="admin-next-action__primary">Email payment link</strong><p class="admin-muted admin-next-action__hint">Draft — not paid yet</p></div>`;
+      } else {
+        const issueLine = wf.blockingIssue
+          ? `<p class="admin-next-action__issue">${escapeHtml(wf.blockingIssue)}</p>`
+          : `<p class="admin-muted admin-next-action__hint">${escapeHtml(wf.label)}</p>`;
+        nextActionHtml = `<div class="admin-next-action"><strong class="admin-next-action__primary">${escapeHtml(wf.nextAction)}</strong>${issueLine}</div>`;
+      }
 
       const hardinTag =
         row.is_hardin_discount === true
@@ -1388,23 +1561,22 @@ function renderTable() {
       const walkInTag = isWalkInOrder(row)
         ? `<div class="admin-order-tag admin-order-tag--walk-in" title="In-store walk-in sale">Walk-in</div>`
         : "";
-      const shippoId = String(row.shippo_order_id || "").trim();
-      const shippoTracking = String(row.shippo_tracking_number || "").trim();
-      const shippoAction = canShippoTableFirstSync(row)
-        ? `<button type="button" class="admin-btn admin-btn--small" data-shippo-sync="${escapeHtml(String(id))}" style="margin-top:0.45rem">Sync to Shippo</button>`
-        : canShippoTableRefreshRemote(row)
-          ? `<button type="button" class="admin-btn admin-btn--small" data-shippo-refresh="${escapeHtml(String(id))}" style="margin-top:0.45rem">Refresh</button>`
-          : "";
-      const shippoCell = `
-        <span class="${shippoSyncBadgeClass(row)}">${escapeHtml(shippoSyncLabel(row))}</span>
-        <div class="admin-muted admin-shippo-agent__id">ID: ${escapeHtml(shippoId || "—")}</div>
-        <div class="admin-muted">Order ship. status: ${escapeHtml(shippoShipmentLabel(row))}</div>
-        <div class="admin-muted">Tracking: ${escapeHtml(shippoTracking || "—")}</div>
-        ${shippoAction}
-      `;
+
+      const shippoActionRow =
+        !isPaymentAwaiting(row) && canShippoTableFirstSync(row)
+          ? `<button type="button" class="admin-btn admin-btn--small" data-shippo-sync="${escapeHtml(String(id))}">Sync to Shippo</button>`
+          : !isPaymentAwaiting(row) && canShippoTableRefreshRemote(row)
+            ? `<button type="button" class="admin-btn admin-btn--small" data-shippo-refresh="${escapeHtml(String(id))}">Refresh Shippo</button>`
+            : "";
+
+      const trackShort = String(row.shippo_tracking_number || "").trim() || "—";
+      const shippoCell = `<span class="${shippoSyncBadgeClass(row)}">${escapeHtml(shippoSyncLabel(row))}</span>
+        <div class="admin-muted" style="margin-top:0.3rem;font-size:12px;line-height:1.4">${escapeHtml(shippoShipmentLabel(row))}</div>
+        <div class="admin-muted" style="margin-top:0.15rem;font-size:12px">Tracking: ${escapeHtml(trackShort)}</div>
+        ${shippoActionRow ? `<div style="margin-top:0.4rem">${shippoActionRow}</div>` : ""}`;
 
       return `
-        <tr data-order-id="${escapeHtml(String(id))}" class="${rowClasses}">
+        <tr data-order-id="${escapeHtml(String(id))}">
           <td>
             <div class="admin-order-ref">${escapeHtml(orderRef)}</div>
             <div class="admin-order-id">${escapeHtml(String(id))}</div>
@@ -1414,8 +1586,8 @@ function renderTable() {
           </td>
           <td>${escapeHtml(row.customer_name || "—")}<br /><span class="admin-muted">${escapeHtml(row.customer_email || "")}</span></td>
           <td><span class="${badgeClass(paymentBadgeKey(row))}">${escapeHtml(formatPaymentColumnLabel(row))}</span></td>
-          <td>${statusCell}</td>
           <td class="admin-shippo-agent-cell">${shippoCell}</td>
+          <td class="admin-next-action-cell">${nextActionHtml}</td>
           <td>${escapeHtml(formatDate(row.created_at))}</td>
           <td>
             <button type="button" class="admin-btn admin-btn--small" data-detail-id="${escapeHtml(String(id))}">Details</button>
@@ -1425,20 +1597,111 @@ function renderTable() {
     })
     .join("");
 
-  tbody.querySelectorAll("[data-order-status-select]").forEach((sel) => {
-    sel.addEventListener("focus", () => {
-      sel.dataset.prevValue = sel.value;
-    });
-  });
-
   tbody.querySelectorAll("tr[data-order-id]").forEach((tr) => {
     const id = tr.dataset.orderId;
-    const locked = statusLockByOrderId.get(String(id)) === true;
-    setStatusRowLocked(tr, locked);
+    const row = ordersCache.find((r) => String(r.id) === String(id));
+    if (row) {
+      applyWorkflowRowTheme(tr, row);
+    }
   });
 }
 
+function shouldAutoRefreshShippoOnOpen(row) {
+  if (String(row?.status || "").toLowerCase() !== "paid") {
+    return false;
+  }
+  return Boolean(
+    String(row?.shippo_order_id || "").trim() ||
+      String(row?.shippo_shipment_object_id || "").trim() ||
+      String(row?.shippo_transaction_id || "").trim(),
+  );
+}
+
+function tryShippoBackgroundRefresh(orderId) {
+  if (!supabase) {
+    return;
+  }
+  void (async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        return;
+      }
+      await fetchReportPost("/api/admin-order-shippo-refresh-status", session.access_token, { orderId });
+      await loadOrders();
+      renderTable();
+      const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
+      if (refreshed && String(modalOpenOrderId) === String(orderId)) {
+        openModal(refreshed, { skipShippoAutoRefresh: true });
+      }
+    } catch {
+      /* optional; stale row is fine */
+    }
+  })();
+}
+
+function buildPickupScheduleLinks(row) {
+  if (!labelPurchasedSuccessfully(row)) {
+    return "";
+  }
+  const c = String(row.shippo_label_carrier || "").toUpperCase();
+  const links = [];
+  if (c.includes("UPS")) {
+    links.push(
+      `<a class="admin-btn admin-btn--small" href="https://www.ups.com/ship/pickup?loc=en_US" target="_blank" rel="noopener">Schedule UPS pickup</a>`,
+    );
+  }
+  if (c.includes("USPS") || c.includes("POST")) {
+    links.push(
+      `<a class="admin-btn admin-btn--small" href="https://tools.usps.com/schedule-pickup-steps.htm" target="_blank" rel="noopener">Schedule USPS pickup</a>`,
+    );
+  }
+  if (!links.length) {
+    return `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">If your carrier offers scheduled pickup, book it on their website.</p>`;
+  }
+  return `<div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-top:0.45rem">${links.join("")}</div>`;
+}
+
+/** Primary buttons for the current fulfillment step (modal). */
+function buildModalShippingActionsHtml(row) {
+  const id = escapeHtml(String(row.id));
+  const parts = [];
+  if (canShippoTableFirstSync(row)) {
+    parts.push(
+      `<button type="button" class="admin-btn admin-btn--small admin-btn--primary" data-shippo-sync="${id}">Sync to Shippo</button>`,
+    );
+  }
+  if (!isPaymentAwaiting(row) && shouldAutoRefreshShippoOnOpen(row)) {
+    parts.push(
+      `<button type="button" class="admin-btn admin-btn--small" data-shippo-modal-refresh-status="${id}">Refresh Shippo status</button>`,
+    );
+  }
+  if (labelPurchasedSuccessfully(row) && row.shippo_label_url) {
+    parts.push(
+      `<a class="admin-btn admin-btn--small admin-btn--primary" href="${escapeHtml(String(row.shippo_label_url))}" target="_blank" rel="noopener">Print label</a>`,
+    );
+    if (row.shippo_tracking_url_provider) {
+      parts.push(
+        `<a class="admin-btn admin-btn--small" href="${escapeHtml(String(row.shippo_tracking_url_provider))}" target="_blank" rel="noopener">Track package</a>`,
+      );
+    }
+  }
+  const rates = shippoRatesList(row);
+  if (!labelPurchasedSuccessfully(row) && rates.length > 0) {
+    parts.push(
+      `<button type="button" class="admin-btn admin-btn--small admin-btn--primary" data-shippo-buy-label="${id}">Buy label</button>`,
+    );
+  }
+  if (!parts.length) {
+    return `<p class="admin-muted" style="margin:0">No shipping actions for this step.</p>`;
+  }
+  return `<div class="admin-modal-actions-row" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">${parts.join("")}</div>${buildPickupScheduleLinks(row)}`;
+}
+
 function openModal(row, options = {}) {
+  const wf = computeFulfillmentWorkflow(row);
   let itemLines = [];
   try {
     itemLines = describeLineItems(row.items).lines;
@@ -1474,7 +1737,7 @@ function openModal(row, options = {}) {
     }
     ratesRowsHtml =
       rates.length === 0
-        ? `<p class="admin-muted">No rates loaded yet. Use <strong>Sync to Shippo</strong> on the orders table (or <strong>Refresh</strong> if already linked), then open this section again.</p>`
+        ? `<p class="admin-muted">No rates yet. Use <strong>Sync to Shippo</strong> or <strong>Refresh Shippo status</strong> above, then <strong>Refresh rates</strong> if needed.</p>`
         : `<div style="overflow:auto;max-width:100%"><table class="admin-table" style="font-size:12px;margin-top:0.25rem;width:100%"><thead><tr><th></th><th>Carrier</th><th>Service</th><th>Est. cost</th><th>Transit</th><th>Rate ID</th></tr></thead><tbody>${rates
             .map((r, idx) => {
               const oid = String(r.object_id || "").trim();
@@ -1501,34 +1764,14 @@ function openModal(row, options = {}) {
       multiNote && String(multiNote).trim()
         ? `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;line-height:1.45">${escapeHtml(String(multiNote))}</p>`
         : "";
-    const labelPurchased =
-      Boolean(String(row.shippo_label_url || "").trim()) &&
-      String(row.shippo_transaction_status || "").toUpperCase() === "SUCCESS";
-    labelBlock = labelPurchased
-      ? `<div style="margin-top:0.65rem;padding:0.6rem;border:1px solid rgba(0,0,0,0.12);border-radius:6px">
-  <p style="margin:0 0 0.35rem;font-weight:600">Label purchased</p>
-  <p class="admin-muted" style="margin:0.35rem 0">Carrier: ${escapeHtml(row.shippo_label_carrier || "—")} · Service: ${escapeHtml(row.shippo_label_service || "—")}</p>
-  <p class="admin-muted" style="margin:0.35rem 0">Tracking: ${escapeHtml(row.shippo_tracking_number || "—")} (${escapeHtml(row.shippo_tracking_status || "—")})</p>
-  <p style="margin:0.35rem 0;display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center">
-    <a class="admin-btn admin-btn--small admin-btn--primary" href="${escapeHtml(String(row.shippo_label_url))}" target="_blank" rel="noopener">Open / print label</a>
-    ${
-      row.shippo_tracking_url_provider
-        ? `<a class="admin-btn admin-btn--small" href="${escapeHtml(String(row.shippo_tracking_url_provider))}" target="_blank" rel="noopener">Carrier tracking page</a>`
-        : ""
-    }
-  </p>
-  <p class="admin-muted" style="margin:0.35rem 0;font-size:11px">Transaction: ${escapeHtml(row.shippo_transaction_id || "—")} · Purchased: ${escapeHtml(formatDate(row.shippo_label_purchased_at))}</p>
+    labelBlock = labelPurchasedSuccessfully(row)
+      ? `<div class="admin-modal__highlight" style="margin-top:0.5rem;padding:0.55rem;border:1px solid rgba(0,0,0,0.1);border-radius:6px">
+  <p style="margin:0 0 0.35rem;font-weight:600">Label on file</p>
+  <p class="admin-muted" style="margin:0;font-size:13px">${escapeHtml(row.shippo_label_carrier || "—")} · ${escapeHtml(row.shippo_label_service || "—")}</p>
+  <p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">Transaction ${escapeHtml(row.shippo_transaction_id || "—")} · ${escapeHtml(formatDate(row.shippo_label_purchased_at))}</p>
 </div>`
       : "";
-    const canBuy = rates.length > 0 && !labelPurchased;
-    buyBlock = canBuy
-      ? `<div style="margin-top:0.65rem">
-    <button type="button" class="admin-btn admin-btn--small admin-btn--primary" data-shippo-buy-label="${escapeHtml(String(row.id))}">Buy label (selected rate)</button>
-    <p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">Uses the rate selected in the table above.</p>
-  </div>`
-      : !labelPurchased
-        ? `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">Load rates from Shippo first, then select a rate and buy.</p>`
-        : `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">A label is already on file. Void in Shippo if you must repurchase.</p>`;
+    buyBlock = "";
   } catch (e) {
     console.error("[admin] Shippo modal panel", e);
     shippoPanelErrorHtml = `<div class="admin-error" style="margin:0.35rem 0 0.5rem;padding:0.5rem;border-radius:6px;border:1px solid rgba(180,40,40,0.35);background:rgba(180,40,40,0.06)">
@@ -1541,58 +1784,53 @@ function openModal(row, options = {}) {
   }
 
   const body = document.getElementById("order-modal-body");
+  const ratesCountForHint = shippoRatesList(row).length;
   try {
     body.innerHTML = `
     <h2>${escapeHtml(row.order_ref || "Order")}</h2>
     <div class="admin-modal__section">${buildFulfillmentProgressHtml(row)}</div>
-    <div class="admin-modal__section">
-      <h3>Fulfillment / workflow</h3>
-      <p><span class="${badgeClass(isPaymentAwaiting(row) ? "awaiting_payment" : currentFulfillmentSelectValue(row))}">${escapeHtml(
-        isWalkInOrder(row) && row.order_status === "draft"
-          ? "Walk-in draft"
-          : isWalkInOrder(row) && row.order_status === "paid"
-            ? `Walk-in paid (${String(row.payment_method || "")})`
-            : row.order_status === "draft"
-              ? "Draft"
-              : row.order_status === "payment_link_sent"
-                ? "Payment link sent"
-                : isPaymentAwaiting(row)
-                  ? "Awaiting payment"
-                  : fulfillmentLabel(currentFulfillmentSelectValue(row)),
-      )}</span></p>
+    <div class="admin-modal__section admin-modal__section--fulfillment-summary">
+      <h3>Fulfillment status</h3>
+      <p style="margin:0;font-size:1.05rem;font-weight:600">${escapeHtml(wf.label)}</p>
+      <p class="admin-muted" style="margin:0.4rem 0 0;font-size:14px"><strong>Next:</strong> ${escapeHtml(wf.nextAction)}</p>
       ${
-        String(row.order_source) === "manual" && row.order_status === "payment_link_sent"
-          ? `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;">Payment must complete before fulfillment status can be set.</p>`
+        wf.blockingIssue
+          ? `<p class="admin-error" style="margin:0.5rem 0 0;font-size:13px;line-height:1.45">${escapeHtml(wf.blockingIssue)}</p>`
           : ""
       }
     </div>
     <div class="admin-modal__section">
-      <h3>Payment</h3>
-      <p>${escapeHtml(formatPaymentColumnLabel(row))} · ID: ${escapeHtml(row.payment_id || "—")}${
-        row.paid_at ? ` · Paid at: ${escapeHtml(formatDate(row.paid_at))}` : ""
-      }</p>
+      <h3>Shipping actions</h3>
+      ${buildModalShippingActionsHtml(row)}
       ${
-        row.payment_link_url
-          ? `<p class="admin-muted" style="margin-top:0.5rem;word-break:break-all">Payment link: ${escapeHtml(String(row.payment_link_url))}</p>`
+        ratesCountForHint > 0 && !labelPurchasedSuccessfully(row)
+          ? `<p class="admin-muted" style="margin:0.45rem 0 0;font-size:12px">Choose a <strong>carrier / service</strong> (radio), then <strong>Buy label</strong>.</p>`
           : ""
       }
-    </div>
-    ${
-      row.is_hardin_discount === true
-        ? `<div class="admin-modal__section">
-      <h3>Promotion</h3>
-      <p><span class="admin-order-tag admin-order-tag--inline">Admin discount applied</span></p>
-      <p class="admin-muted">Code: ${escapeHtml(row.discount_code_used || "—")}</p>
-    </div>`
-        : ""
-    }
-    <div class="admin-modal__section">
-      <h3>Customer</h3>
-      <pre>${escapeHtml(row.customer_name || "—")}\n${escapeHtml(row.customer_email || "—")}\n${escapeHtml(row.customer_phone || "—")}</pre>
+      <div class="admin-modal__rates-head" style="margin-top:0.75rem">
+        <h4 class="admin-muted" style="margin:0;font-size:13px">Available rates</h4>
+        ${ratesRefreshBtnHtml}
+      </div>
+      ${ratesRowsHtml}
+      ${labelBlock}
     </div>
     <div class="admin-modal__section">
+      <h3>Tracking &amp; shipment</h3>
+      <ul class="admin-tracking-list" style="margin:0;padding-left:1.1rem;font-size:13px;line-height:1.55">
+        <li><strong>Carrier</strong> ${escapeHtml(row.shippo_label_carrier || "—")}</li>
+        <li><strong>Service</strong> ${escapeHtml(row.shippo_label_service || "—")}</li>
+        <li><strong>Tracking #</strong> ${escapeHtml(row.shippo_tracking_number || "—")}</li>
+        <li><strong>Label status</strong> ${escapeHtml(String(row.shippo_transaction_status || "—"))}</li>
+        <li><strong>Tracking status</strong> ${escapeHtml(row.shippo_tracking_status || "—")}</li>
+        <li><strong>Shipment state</strong> ${escapeHtml(shippoShipmentLabel(row))}</li>
+        <li><strong>Last Shippo event</strong> ${escapeHtml(formatDate(row.shippo_last_event_at))}</li>
+      </ul>
+    </div>
+    <div class="admin-modal__section">
+      <h3>Customer &amp; ship to</h3>
+      <pre style="margin:0 0 0.5rem">${escapeHtml(row.customer_name || "—")}\n${escapeHtml(row.customer_email || "—")}\n${escapeHtml(row.customer_phone || "—")}</pre>
       <div class="admin-modal__section-head">
-        <h3 style="margin:0">Ship to</h3>
+        <h4 class="admin-muted" style="margin:0;font-size:12px;text-transform:uppercase;letter-spacing:0.04em">Ship to</h4>
         <button type="button" class="admin-icon-btn" data-toggle-shipping-edit aria-expanded="false" aria-label="Edit shipping address" title="Edit shipping address">
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
@@ -1648,28 +1886,29 @@ function openModal(row, options = {}) {
       }</div>
     </div>
     <div class="admin-modal__section">
-      <h3>Totals</h3>
-      <pre>Subtotal: ${escapeHtml(fmt(row.subtotal_cents))}
+      <h3>Payment &amp; totals</h3>
+      <p style="margin:0 0 0.5rem;font-size:13px">${escapeHtml(formatPaymentColumnLabel(row))} · Payment ID: ${escapeHtml(row.payment_id || "—")}${
+        row.paid_at ? ` · Paid at: ${escapeHtml(formatDate(row.paid_at))}` : ""
+      }</p>
+      ${
+        row.payment_link_url
+          ? `<p class="admin-muted" style="margin:0 0 0.5rem;word-break:break-all;font-size:12px">Payment link: ${escapeHtml(String(row.payment_link_url))}</p>`
+          : ""
+      }
+      <pre style="margin:0">Subtotal: ${escapeHtml(fmt(row.subtotal_cents))}
 Shipping: ${escapeHtml(fmt(row.shipping_cents))}
 Tax: ${escapeHtml(fmt(row.tax_cents))}
 Total: ${escapeHtml(fmt(row.total_cents))}</pre>
     </div>
-    <div class="admin-modal__section">
-      <h3>Shippo <span class="admin-muted" style="font-size:14px;font-weight:400">(order → shipment → rates → label)</span></h3>
-      <p class="admin-shippo-quick-status" style="margin:0.35rem 0 0;font-size:14px;line-height:1.5;color:#374151">
-        <span><strong>Sync</strong> ${escapeHtml(shippoSyncLabel(row))}</span> ·
-        <span><strong>Status</strong> ${escapeHtml(shippoShipmentLabel(row))}</span> ·
-        <span><strong>Rates</strong> ${escapeHtml(shipmentReadyForRates(row) ? "Available" : String(row.shippo_shipment_rate_status || "—"))}</span> ·
-        <span><strong>Tracking</strong> ${escapeHtml(row.shippo_tracking_number || "—")}</span>
-      </p>
-      <div class="admin-modal__rates-head" style="margin-top:0.85rem">
-        <h4 class="admin-muted" style="margin:0;font-size:13px">Available rates</h4>
-        ${ratesRefreshBtnHtml}
-      </div>
-      ${ratesRowsHtml}
-      ${labelBlock}
-      ${buyBlock}
-    </div>
+    ${
+      row.is_hardin_discount === true
+        ? `<div class="admin-modal__section">
+      <h3>Promotion</h3>
+      <p><span class="admin-order-tag admin-order-tag--inline">Admin discount applied</span></p>
+      <p class="admin-muted">Code: ${escapeHtml(row.discount_code_used || "—")}</p>
+    </div>`
+        : ""
+    }
     <div class="admin-modal__section admin-modal__section--technical-footer">
       <h3 class="admin-muted" style="margin:0 0 0.5rem;font-size:13px;font-weight:600">Troubleshooting &amp; detail</h3>
       <details class="admin-modal-details">
@@ -1708,8 +1947,12 @@ Label purchase error: ${escapeHtml(row.shippo_label_sync_error || "—")}</pre>
         <p class="admin-muted" style="margin-top:0.5rem;font-size:12px;line-height:1.45">If this involves missing Shippo columns, run <code>sql/patch-orders-shippo-schema-complete.sql</code> in Supabase, then reload the API schema.</p>
       </div>`;
   }
+  modalOpenOrderId = String(row.id);
   document.getElementById("order-modal").hidden = false;
   void loadShippoPreviewPanel(String(row.id));
+  if (!options.skipShippoAutoRefresh && shouldAutoRefreshShippoOnOpen(row)) {
+    tryShippoBackgroundRefresh(String(row.id));
+  }
   if (options.shippingSaved) {
     const toast = document.getElementById("admin-shipping-save-toast");
     if (toast) {
@@ -1724,6 +1967,7 @@ Label purchase error: ${escapeHtml(row.shippo_label_sync_error || "—")}</pre>
 }
 
 function closeModal() {
+  modalOpenOrderId = null;
   document.getElementById("order-modal").hidden = true;
 }
 

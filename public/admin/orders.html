@@ -30,7 +30,7 @@
       <header class="admin-header">
         <div>
           <h1>Orders</h1>
-          <p class="admin-muted">Fulfillment queue — update status as you pack and ship.</p>
+          <p class="admin-muted">Fulfillment queue — payment and Shippo drive status; use the suggested next action.</p>
         </div>
         <div class="admin-header__actions">
           <span id="admin-user-email" class="admin-muted"></span>
@@ -51,16 +51,20 @@
           </select>
         </label>
         <label class="admin-filter">
-          <span>Status</span>
-          <select id="filter-status" aria-label="Filter by order status">
+          <span>Fulfillment</span>
+          <select id="filter-status" aria-label="Filter by fulfillment stage">
             <option value="">All orders</option>
             <option value="awaiting_payment">Awaiting payment</option>
             <option value="manual_draft">Manual · draft</option>
             <option value="walk_in_draft">Walk-in · draft</option>
             <option value="walk_in_paid">Walk-in · paid</option>
             <option value="payment_link_sent">Payment link sent</option>
-            <option value="ready_to_ship">Ready to ship</option>
-            <option value="shipped">Shipped</option>
+            <option value="need_sync">Need Shippo sync</option>
+            <option value="need_label">Need label / rates</option>
+            <option value="shipping_active">Label bought · shipping</option>
+            <option value="in_transit">In transit</option>
+            <option value="delivered">Delivered</option>
+            <option value="issues">Issues / errors</option>
             <option value="cancelled">Cancelled</option>
           </select>
         </label>
@@ -77,8 +81,8 @@
               <th>Order</th>
               <th>Customer</th>
               <th>Payment</th>
-              <th>Order status</th>
-              <th>Shippo Agent</th>
+              <th>Shippo</th>
+              <th>Next action</th>
               <th>Created</th>
               <th></th>
             </tr>

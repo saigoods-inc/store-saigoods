@@ -1,9 +1,10 @@
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
 import { getOrderByIdForService } from "../lib/orders.js";
 import { describeShippoOrderSync } from "../lib/shippo-order-sync.js";
+import { describeShipmentCreatePreview } from "../lib/shippo-shipment-sync.js";
 
 /**
- * Returns the same merge + payload preview the server uses for Shippo POST /orders/
+ * Returns the same merge + payloads the server uses for Shippo POST /orders/ and POST /shipments/
  * (no API call to Shippo).
  */
 export default async function handler(req, res) {
@@ -26,7 +27,10 @@ export default async function handler(req, res) {
       return;
     }
 
-    const preview = describeShippoOrderSync(order);
+    const preview = {
+      ...describeShippoOrderSync(order),
+      ...describeShipmentCreatePreview(order),
+    };
     res.status(200).json({ ok: true, order, preview });
   } catch (error) {
     console.error(error);

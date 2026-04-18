@@ -452,12 +452,46 @@ body.admin-page {
   width: auto;
 }
 
-.admin-order-row--shipped td {
+.admin-order-row--delivered td {
   background: #ecfdf3;
+}
+
+.admin-order-row--in-transit td {
+  background: #eff6ff;
+}
+
+.admin-order-row--issue td {
+  background: #fef2f2;
 }
 
 .admin-order-row--cancelled td {
   background: #fff4e8;
+}
+
+.admin-next-action__primary {
+  display: block;
+  font-size: 14px;
+  color: #111827;
+}
+
+.admin-next-action__hint {
+  margin: 0.25rem 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.admin-next-action__issue {
+  margin: 0.35rem 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #b91c1c;
+}
+
+.admin-modal__section--fulfillment-summary {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem;
 }
 
 .admin-badge {
@@ -1134,6 +1168,18 @@ body.admin-page {
   background: #ecfdf5;
   color: #15803d;
   font-size: 14px;
+}
+
+.admin-fulfillment-progress__step--error .admin-fulfillment-progress__dot {
+  border-color: #dc2626;
+  background: #fef2f2;
+  color: #b91c1c;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.18);
+}
+
+.admin-fulfillment-progress__step--error .admin-fulfillment-progress__label {
+  color: #991b1b;
+  font-weight: 600;
 }
 
 .admin-fulfillment-progress__label {
