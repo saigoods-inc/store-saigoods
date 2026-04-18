@@ -52,5 +52,10 @@ alter table public.orders add column if not exists shippo_last_error_response js
 comment on column public.orders.shippo_last_attempt_payload is 'Last JSON body sent to Shippo POST /orders/ (for debugging failed syncs).';
 comment on column public.orders.shippo_last_error_response is 'Last parsed JSON error body from Shippo on failed sync.';
 
+-- --- Ship / pickup date for Shippo POST /shipments/ (patch-orders-shippo-shipment-date.sql) ---
+alter table public.orders add column if not exists shippo_shipment_date text;
+
+comment on column public.orders.shippo_shipment_date is 'Calendar date YYYY-MM-DD for carrier tender / pickup; sent to Shippo as shipment_date when creating the shipment.';
+
 -- Refresh PostgREST / Supabase API schema cache
 notify pgrst, 'reload schema';

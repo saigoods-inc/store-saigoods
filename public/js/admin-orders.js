@@ -1272,6 +1272,102 @@ function bindOrdersTableEvents() {
       return;
     }
 
+    const saveShipDateBtn = e.target.closest("[data-save-shippo-shipment-date]");
+    if (saveShipDateBtn) {
+      e.preventDefault();
+      const orderId = saveShipDateBtn.getAttribute("data-save-shippo-shipment-date");
+      if (!orderId || !supabase) {
+        return;
+      }
+      const input = saveShipDateBtn.parentElement?.querySelector("[data-shippo-shipment-date-input]");
+      const shipmentDate = input && "value" in input ? String(input.value || "").trim() : "";
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        saveShipDateBtn.disabled = true;
+        const prev = saveShipDateBtn.textContent;
+        saveShipDateBtn.textContent = "Saving…";
+        try {
+          const data = await fetchReportPost("/api/admin-order-shippo-shipment-date", session.access_token, {
+            orderId,
+            shipmentDate: shipmentDate || null,
+          });
+          await loadOrders();
+          renderTable();
+          if (data.order) {
+            const idx = ordersCache.findIndex((r) => String(r.id) === String(orderId));
+            if (idx >= 0) {
+              ordersCache[idx] = data.order;
+            }
+          }
+          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
+          if (refreshed && String(modalOpenOrderId) === String(orderId)) {
+            openModal(refreshed, { skipShippoAutoRefresh: true });
+          }
+        } catch (err) {
+          alert(err.message || "Could not save ship date.");
+        } finally {
+          saveShipDateBtn.disabled = false;
+          saveShipDateBtn.textContent = prev || "Save date";
+        }
+      })();
+      return;
+    }
+
+    const clearShipDateBtn = e.target.closest("[data-clear-shippo-shipment-date]");
+    if (clearShipDateBtn) {
+      e.preventDefault();
+      const orderId = clearShipDateBtn.getAttribute("data-clear-shippo-shipment-date");
+      if (!orderId || !supabase) {
+        return;
+      }
+      const input = clearShipDateBtn.parentElement?.querySelector("[data-shippo-shipment-date-input]");
+      if (input && "value" in input) {
+        input.value = "";
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        clearShipDateBtn.disabled = true;
+        const prev = clearShipDateBtn.textContent;
+        clearShipDateBtn.textContent = "…";
+        try {
+          const data = await fetchReportPost("/api/admin-order-shippo-shipment-date", session.access_token, {
+            orderId,
+            shipmentDate: null,
+          });
+          await loadOrders();
+          renderTable();
+          if (data.order) {
+            const idx = ordersCache.findIndex((r) => String(r.id) === String(orderId));
+            if (idx >= 0) {
+              ordersCache[idx] = data.order;
+            }
+          }
+          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
+          if (refreshed && String(modalOpenOrderId) === String(orderId)) {
+            openModal(refreshed, { skipShippoAutoRefresh: true });
+          }
+        } catch (err) {
+          alert(err.message || "Could not clear ship date.");
+        } finally {
+          clearShipDateBtn.disabled = false;
+          clearShipDateBtn.textContent = prev || "Clear";
+        }
+      })();
+      return;
+    }
+
     const saveShippingBtn = e.target.closest("[data-save-shipping-address]");
     if (saveShippingBtn) {
       e.preventDefault();
@@ -1454,7 +1550,7 @@ async function loadOrders() {
         "Could not load orders. Run sql/orders_admin_rls.sql in Supabase and confirm you are signed in.";
       if (/schema cache|could not find.*column/i.test(String(msg))) {
         msg +=
-          " Run sql/patch-orders-shippo-schema-complete.sql in the Supabase SQL editor, then execute NOTIFY pgrst, 'reload schema'; (included at end of that file) or use Dashboard → Settings → API → Reload schema.";
+          " Run sql/patch-orders-shippo-schema-complete.sql (and sql/patch-orders-shippo-shipment-date.sql if the error names shippo_shipment_date) in the Supabase SQL editor, then execute NOTIFY pgrst, 'reload schema'; (included at end of those files) or use Dashboard → Settings → API → Reload schema.";
       }
       errEl.textContent = msg;
       errEl.hidden = false;
@@ -1664,6 +1760,22 @@ function buildPickupScheduleLinks(row) {
   return `<div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-top:0.45rem">${links.join("")}</div>`;
 }
 
+function buildShipDateControlHtml(row) {
+  const id = escapeHtml(String(row.id));
+  const raw = String(row.shippo_shipment_date || "").trim();
+  const safeForDateInput = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : "";
+  const valueAttr = safeForDateInput ? ` value="${escapeHtml(safeForDateInput)}"` : "";
+  return `<div style="margin:0 0 0.65rem">
+    <label class="admin-muted" style="display:block;font-size:12px;margin-bottom:0.25rem">Carrier ship / pickup date</label>
+    <div style="display:flex;flex-wrap:wrap;gap:0.45rem;align-items:center">
+      <input type="date" class="admin-input-date" aria-label="Carrier ship or pickup date"${valueAttr} data-shippo-shipment-date-input="${id}" />
+      <button type="button" class="admin-btn admin-btn--small" data-save-shippo-shipment-date="${id}">Save date</button>
+      <button type="button" class="admin-btn admin-btn--small" data-clear-shippo-shipment-date="${id}">Clear</button>
+    </div>
+    <p class="admin-muted" style="margin:0.35rem 0 0;font-size:11px;line-height:1.45">Stored on this order and sent to Shippo as <code>shipment_date</code> when the shipment is created. Leave empty for Shippo’s default (request time). After changing it, use <strong>Sync to Shippo</strong> again so the shipment is recreated with the new date.</p>
+  </div>`;
+}
+
 /** Primary buttons for the current fulfillment step (modal). */
 function buildModalShippingActionsHtml(row) {
   const id = escapeHtml(String(row.id));
@@ -1801,6 +1913,7 @@ function openModal(row, options = {}) {
     </div>
     <div class="admin-modal__section">
       <h3>Shipping actions</h3>
+      ${buildShipDateControlHtml(row)}
       ${buildModalShippingActionsHtml(row)}
       ${
         ratesCountForHint > 0 && !labelPurchasedSuccessfully(row)
@@ -1920,6 +2033,7 @@ Shippo shipment status: ${escapeHtml(shippoShipmentLabel(row))}
 Shipment ready (rates): ${shipmentReadyForRates(row) ? "yes" : "no"}
 Parcel count: ${escapeHtml(String(pieceCount))}
 Shipment object ID: ${escapeHtml(row.shippo_shipment_object_id || "—")}
+Ship / pickup date (order): ${escapeHtml(row.shippo_shipment_date || "—")}
 Rate status: ${escapeHtml(row.shippo_shipment_rate_status || "—")}
 Tracking (label): ${escapeHtml(row.shippo_tracking_number || "—")}
 Tracking status: ${escapeHtml(row.shippo_tracking_status || "—")}
