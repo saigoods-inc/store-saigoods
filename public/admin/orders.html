@@ -30,7 +30,7 @@
       <header class="admin-header">
         <div>
           <h1>Orders</h1>
-          <p class="admin-muted">Guided fulfillment: review, buy label, print, summary, then confirm handoff. Shippo sync runs from the Label step.</p>
+          <p class="admin-muted">Fulfillment: copy order details to your shipping tool, then record carrier, tracking, and documents before marking shipped.</p>
         </div>
         <div class="admin-header__actions">
           <span id="admin-user-email" class="admin-muted"></span>
@@ -59,9 +59,9 @@
             <option value="walk_in_draft">Walk-in · draft</option>
             <option value="walk_in_paid">Walk-in · paid</option>
             <option value="payment_link_sent">Payment link sent</option>
-            <option value="need_sync">Need Shippo sync</option>
-            <option value="need_label">Need label / rates</option>
-            <option value="shipping_active">Label bought · shipping</option>
+            <option value="need_label_records">Need label records</option>
+            <option value="ready_mark_shipped">Ready to mark shipped</option>
+            <option value="shipping_active">Label recorded · not shipped</option>
             <option value="in_transit">In transit</option>
             <option value="delivered">Delivered</option>
             <option value="issues">Issues / errors</option>
@@ -81,7 +81,7 @@
               <th>Order</th>
               <th>Customer</th>
               <th>Payment</th>
-              <th>Shippo</th>
+              <th>Shipping</th>
               <th>Next action</th>
               <th>Created</th>
               <th></th>

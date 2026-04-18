@@ -1,20 +1,22 @@
 /**
- * Single source for admin guided fulfillment (5 steps).
- * Keep in sync with server checks in lib/orders.js (checkpoints + handoff).
+ * Admin fulfillment: external label purchase, platform-agnostic (3 steps).
  */
 
-export const FULFILLMENT_STEP_LABELS = [
-  "Order created & paid",
-  "Label purchased",
-  "Print label",
-  "Summary",
-  "Status update",
-];
+export const FULFILLMENT_STEP_LABELS = ["Order created & paid", "Label records", "Shipped"];
 
+/** Legacy Shippo-purchased label (still shown in technical details when present). */
 export function orderLabelPurchased(row) {
   return (
     Boolean(String(row?.shippo_label_url || "").trim()) &&
     String(row?.shippo_transaction_status || "").toUpperCase() === "SUCCESS"
+  );
+}
+
+export function manualFulfillmentRecordComplete(row) {
+  return (
+    Boolean(String(row?.admin_external_carrier || "").trim()) &&
+    Boolean(String(row?.admin_external_tracking_number || "").trim()) &&
+    Boolean(String(row?.admin_external_label_storage_path || "").trim())
   );
 }
 
@@ -26,9 +28,11 @@ export function isPaymentPaid(row) {
   return String(row?.status || "").toLowerCase() === "paid";
 }
 
-/**
- * @returns {number} 0–4 active step, 5 = all complete, -1 = not in guided flow (unpaid / cancelled pre-flow)
- */
+export function isOrderShipped(row) {
+  return String(row?.order_status || "") === "shipped" || Boolean(row?.admin_handoff_at);
+}
+
+/** @returns {number} 0–2 active step hint for tab UI; -1 unpaid/cancelled */
 export function deriveActiveFulfillmentStepIndex(row) {
   if (!row || isOrderCancelled(row)) {
     return -1;
@@ -36,38 +40,34 @@ export function deriveActiveFulfillmentStepIndex(row) {
   if (!isPaymentPaid(row)) {
     return -1;
   }
-  if (!orderLabelPurchased(row)) {
-    return 1;
-  }
-  if (!row.admin_fulfillment_print_done_at) {
+  if (isOrderShipped(row)) {
     return 2;
   }
-  if (!row.admin_fulfillment_summary_done_at) {
-    return 3;
+  if (!manualFulfillmentRecordComplete(row)) {
+    return 1;
   }
-  if (!row.admin_handoff_at && String(row.order_status || "") !== "shipped") {
-    return 4;
-  }
-  return 5;
+  return 2;
 }
 
 export function canNavigateToFulfillmentTab(row, tabIndex) {
-  const a = deriveActiveFulfillmentStepIndex(row);
-  if (a < 0) {
-    return tabIndex === 0;
-  }
-  if (a >= 5) {
-    return tabIndex >= 0 && tabIndex <= 4;
-  }
-  return tabIndex >= 0 && tabIndex <= a;
-}
-
-export function canEditFulfillmentTab(row, tabIndex) {
-  const a = deriveActiveFulfillmentStepIndex(row);
-  if (a < 0 || a >= 5) {
+  if (tabIndex < 0 || tabIndex > 2) {
     return false;
   }
-  return tabIndex === a;
+  if (!isPaymentPaid(row) || isOrderCancelled(row)) {
+    return tabIndex === 0;
+  }
+  return true;
+}
+
+/** All paid-order tabs allow interaction (no “only active step” lock). */
+export function canEditFulfillmentTab(row, tabIndex) {
+  if (!isPaymentPaid(row) || isOrderCancelled(row)) {
+    return false;
+  }
+  if (isOrderShipped(row)) {
+    return tabIndex !== 2;
+  }
+  return tabIndex >= 0 && tabIndex <= 2;
 }
 
 export function fulfillmentTabDone(row, tabIndex) {
@@ -75,16 +75,10 @@ export function fulfillmentTabDone(row, tabIndex) {
     return isPaymentPaid(row);
   }
   if (tabIndex === 1) {
-    return orderLabelPurchased(row);
+    return manualFulfillmentRecordComplete(row);
   }
   if (tabIndex === 2) {
-    return Boolean(row?.admin_fulfillment_print_done_at);
-  }
-  if (tabIndex === 3) {
-    return Boolean(row?.admin_fulfillment_summary_done_at);
-  }
-  if (tabIndex === 4) {
-    return Boolean(row?.admin_handoff_at) || String(row?.order_status || "") === "shipped";
+    return isOrderShipped(row);
   }
   return false;
 }
@@ -94,35 +88,12 @@ export function fulfillmentVariantForRow(row) {
   if (isOrderCancelled(row)) {
     return "cancelled";
   }
-  const syncFailed = String(row?.shippo_sync_status || "") === "error";
-  const shipErr = String(row?.shippo_shipment_sync_error || "").trim();
-  const labelErr = String(row?.shippo_label_sync_error || "").trim();
-  const tx = String(row?.shippo_transaction_status || "").toUpperCase();
-  if (syncFailed && !String(row?.shippo_order_id || "").trim()) {
-    return "error";
-  }
-  if (shipErr || labelErr || tx === "ERROR") {
-    return "error";
-  }
   return "default";
 }
 
 export function fulfillmentBlockingIssue(row) {
   if (!isPaymentPaid(row)) {
     return null;
-  }
-  const syncFailed = String(row?.shippo_sync_status || "") === "error";
-  if (syncFailed && !String(row?.shippo_order_id || "").trim()) {
-    return String(row?.shippo_sync_error || "Shippo order sync failed.").trim() || "Shippo sync error.";
-  }
-  const shipErr = String(row?.shippo_shipment_sync_error || "").trim();
-  const labelErr = String(row?.shippo_label_sync_error || "").trim();
-  const tx = String(row?.shippo_transaction_status || "").toUpperCase();
-  if (shipErr) {
-    return shipErr;
-  }
-  if (tx === "ERROR" || labelErr) {
-    return labelErr || "Label purchase failed.";
   }
   return null;
 }
@@ -134,23 +105,13 @@ export function fulfillmentNextActionLabel(row) {
   if (!isPaymentPaid(row)) {
     return "Await payment";
   }
-  const a = deriveActiveFulfillmentStepIndex(row);
-  if (a === 1) {
-    return orderLabelPurchased(row) ? "Continue" : "Set up label & buy";
-  }
-  if (a === 2) {
-    return "Print / download";
-  }
-  if (a === 3) {
-    return "Review summary";
-  }
-  if (a === 4) {
-    return "Confirm handoff";
-  }
-  if (a >= 5) {
+  if (isOrderShipped(row)) {
     return "Complete";
   }
-  return "View order";
+  if (!manualFulfillmentRecordComplete(row)) {
+    return "Record label & uploads";
+  }
+  return "Mark shipped";
 }
 
 export function fulfillmentSummaryTitle(row) {
@@ -160,21 +121,11 @@ export function fulfillmentSummaryTitle(row) {
   if (!isPaymentPaid(row)) {
     return "Awaiting payment";
   }
-  const a = deriveActiveFulfillmentStepIndex(row);
-  if (a >= 5) {
-    return "Shipped · complete";
+  if (isOrderShipped(row)) {
+    return "Shipped";
   }
-  if (a === 1 && !orderLabelPurchased(row)) {
-    return "Label & shipping";
+  if (!manualFulfillmentRecordComplete(row)) {
+    return "Label records";
   }
-  if (a === 2) {
-    return "Print documents";
-  }
-  if (a === 3) {
-    return "Summary";
-  }
-  if (a === 4) {
-    return "Handoff confirmation";
-  }
-  return "Order review";
+  return "Ready to ship";
 }

@@ -123,9 +123,11 @@ export default async function handler(req, res) {
         buyerName: parsed.name,
       });
 
-      const shippoSync = await syncWebsiteOrderToShippo(pending.id);
-      if (!shippoSync.ok && !shippoSync.skipped) {
-        console.error("[shippo] checkout sync failed:", shippoSync.error || shippoSync.reason || "unknown");
+      if (process.env.ENABLE_SHIPPO_ORDER_SYNC === "true") {
+        const shippoSync = await syncWebsiteOrderToShippo(pending.id);
+        if (!shippoSync.ok && !shippoSync.skipped) {
+          console.error("[shippo] checkout sync failed:", shippoSync.error || shippoSync.reason || "unknown");
+        }
       }
 
       void sendResendOrderConfirmation({

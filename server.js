@@ -25,6 +25,9 @@ import adminOrderFulfillmentHandoffHandler from "./api/admin-order-fulfillment-h
 import adminOrderFulfillmentAddressesHandler from "./api/admin-order-fulfillment-addresses.js";
 import adminOrderPackingSlipHtmlHandler from "./api/admin-order-packing-slip-html.js";
 import adminOrderBuyerShippingNotifyHandler from "./api/admin-order-buyer-shipping-notify.js";
+import adminOrderShipFromDisplayHandler from "./api/admin-order-ship-from-display.js";
+import adminOrderExternalFulfillmentSaveHandler from "./api/admin-order-external-fulfillment-save.js";
+import adminOrderFulfillmentDocLinksHandler from "./api/admin-order-fulfillment-doc-links.js";
 import adminManualOrderSendLinkHandler from "./api/admin-manual-order-send-link.js";
 import adminManualOrderUpdateDraftHandler from "./api/admin-manual-order-update-draft.js";
 import adminWalkInOrderCreateHandler from "./api/admin-walk-in-order-create.js";
@@ -343,6 +346,33 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === "/api/admin-order-ship-from-display" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminOrderShipFromDisplayHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-order-external-fulfillment-save" && req.method === "POST") {
+      const body = await readJsonBodyWithLimit(req, 18_000_000);
+      await adminOrderExternalFulfillmentSaveHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-order-fulfillment-doc-links" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminOrderFulfillmentDocLinksHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
     if (pathname === "/api/admin-manual-order-drafts" && req.method === "GET") {
       await adminManualOrderDraftsHandler(
         { method: "GET", headers: req.headers, url: req.url },
@@ -634,6 +664,35 @@ async function readJsonBody(req) {
   for await (const chunk of req) {
     rawBody += chunk;
   }
+
+  if (!rawBody) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(rawBody);
+  } catch {
+    const error = new Error("Invalid JSON body.");
+    error.statusCode = 400;
+    throw error;
+  }
+}
+
+async function readJsonBodyWithLimit(req, maxBytes) {
+  const chunks = [];
+  let total = 0;
+
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > maxBytes) {
+      const error = new Error("Request body too large.");
+      error.statusCode = 413;
+      throw error;
+    }
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  }
+
+  const rawBody = Buffer.concat(chunks).toString("utf8");
 
   if (!rawBody) {
     return {};
