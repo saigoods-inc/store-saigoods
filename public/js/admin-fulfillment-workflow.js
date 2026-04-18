@@ -12,10 +12,21 @@ export function orderLabelPurchased(row) {
   );
 }
 
+function externalTrackingLinesFromRow(row) {
+  const s = String(row?.admin_external_tracking_number || "").trim();
+  if (!s) {
+    return [];
+  }
+  return s
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
 export function manualFulfillmentRecordComplete(row) {
   return (
     Boolean(String(row?.admin_external_carrier || "").trim()) &&
-    Boolean(String(row?.admin_external_tracking_number || "").trim()) &&
+    externalTrackingLinesFromRow(row).length > 0 &&
     Boolean(String(row?.admin_external_label_storage_path || "").trim())
   );
 }

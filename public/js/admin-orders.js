@@ -37,6 +37,37 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
+function formatExternalTrackingDisplay(row) {
+  const raw = String(row?.admin_external_tracking_number || "").trim();
+  if (!raw) {
+    return "—";
+  }
+  const lines = raw
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return lines.length ? lines.join(", ") : "—";
+}
+
+function formatTrackingListHtml(row) {
+  const ext = String(row?.admin_external_tracking_number || "").trim();
+  if (ext) {
+    const lines = ext
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (lines.length) {
+      return `<ul style="margin:0.35rem 0 0;padding-left:1.1rem;font-size:13px;line-height:1.55">${lines
+        .map((l) => `<li>${escapeHtml(l)}</li>`)
+        .join("")}</ul>`;
+    }
+  }
+  const leg = String(row?.shippo_tracking_number || "").trim();
+  return leg
+    ? `<p style="margin:0.35rem 0 0;font-size:13px">${escapeHtml(leg)}</p>`
+    : `<p class="admin-muted" style="margin:0.35rem 0 0">—</p>`;
+}
+
 function formatPaymentStatus(status) {
   if (status === "paid") return "Paid";
   if (status === "pending") return "Awaiting payment";
@@ -429,7 +460,7 @@ function computeFulfillmentWorkflow(row) {
     return base({
       key: "need_label_records",
       label: "Paid · record shipment",
-      nextAction: "Open details · Label records",
+      nextAction: "",
       activeStepIndex: 1,
     });
   }
@@ -931,16 +962,6 @@ function bindModalShippoActions() {
       }
       return;
     }
-    const tRet = e.target.closest("[data-toggle-return-override]");
-    if (tRet) {
-      e.preventDefault();
-      const w = document.getElementById("admin-return-override-wrap");
-      if (w) {
-        w.hidden = !w.hidden;
-      }
-      return;
-    }
-
     const saveFromOv = e.target.closest("[data-save-from-override]");
     if (saveFromOv) {
       e.preventDefault();
@@ -993,58 +1014,6 @@ function bindModalShippoActions() {
       return;
     }
 
-    const saveRetOv = e.target.closest("[data-save-return-override]");
-    if (saveRetOv) {
-      e.preventDefault();
-      const orderId = saveRetOv.getAttribute("data-save-return-override");
-      const form = document.getElementById("admin-return-override-form");
-      if (!orderId || !form || !supabase) {
-        return;
-      }
-      void (async () => {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (!session?.access_token) {
-          alert("Sign in again.");
-          return;
-        }
-        const fd = new FormData(form);
-        const returnOverride = {
-          name: String(fd.get("name") || "").trim(),
-          line1: String(fd.get("line1") || "").trim(),
-          line2: String(fd.get("line2") || "").trim(),
-          city: String(fd.get("city") || "").trim(),
-          state: String(fd.get("state") || "").trim(),
-          postalCode: String(fd.get("postalCode") || "").trim(),
-          country: String(fd.get("country") || "").trim(),
-          email: String(fd.get("email") || "").trim(),
-          phone: String(fd.get("phone") || "").trim(),
-        };
-        try {
-          const data = await fetchReportPost("/api/admin-order-fulfillment-addresses", session.access_token, {
-            orderId,
-            returnOverride,
-          });
-          await loadOrders();
-          renderTable();
-          if (data.order) {
-            const idx = ordersCache.findIndex((r) => String(r.id) === String(orderId));
-            if (idx >= 0) {
-              ordersCache[idx] = data.order;
-            }
-          }
-          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
-          if (refreshed && String(modalOpenOrderId) === String(orderId)) {
-            openModal(refreshed, { skipShippoAutoRefresh: true, fulfillmentTab: 0 });
-          }
-        } catch (err) {
-          alert(err.message || "Could not save return address.");
-        }
-      })();
-      return;
-    }
-
     const saveExt = e.target.closest("[data-save-external-fulfillment]");
     if (saveExt && !saveExt.disabled) {
       e.preventDefault();
@@ -1064,7 +1033,7 @@ function bindModalShippoActions() {
         const fd = new FormData(form);
         const carrier = String(fd.get("carrier") || "").trim();
         const service = String(fd.get("service") || "").trim();
-        const trackingNumber = String(fd.get("trackingNumber") || "").trim();
+        const trackingNumbers = String(fd.get("trackingNumbers") || "").trim();
         const shippedDate = String(fd.get("shippedDate") || "").trim();
         const costRaw = String(fd.get("labelCost") || "").trim();
         let labelCostCents = null;
@@ -1074,8 +1043,8 @@ function bindModalShippoActions() {
             labelCostCents = n;
           }
         }
-        const labelInput = form.querySelector('input[name="labelFile"]');
-        const slipInput = form.querySelector('input[name="packingSlipFile"]');
+        const labelInput = document.getElementById("admin-ext-label-file");
+        const slipInput = document.getElementById("admin-ext-slip-file");
         const readB64 = (input) =>
           new Promise((resolve, reject) => {
             const file = input?.files?.[0];
@@ -1099,7 +1068,7 @@ function bindModalShippoActions() {
             orderId,
             carrier,
             service,
-            trackingNumber,
+            trackingNumbers,
             shippedDate,
             labelCostCents,
           };
@@ -1911,7 +1880,11 @@ function renderTable() {
         const issueLine = wf.blockingIssue
           ? `<p class="admin-next-action__issue">${escapeHtml(wf.blockingIssue)}</p>`
           : `<p class="admin-muted admin-next-action__hint">${escapeHtml(wf.label)}</p>`;
-        nextActionHtml = `<div class="admin-next-action"><strong class="admin-next-action__primary">${escapeHtml(wf.nextAction)}</strong>${issueLine}</div>`;
+        const primary =
+          String(wf.nextAction || "").trim() === ""
+            ? ""
+            : `<strong class="admin-next-action__primary">${escapeHtml(wf.nextAction)}</strong>`;
+        nextActionHtml = `<div class="admin-next-action">${primary}${issueLine}</div>`;
       }
 
       const hardinTag =
@@ -2134,7 +2107,6 @@ async function openModal(row, options = {}) {
   }
   const diag = missingShippoAddressFields(row);
   const addr = diag.addr;
-  const pieceCount = shippoParcelPieceCount(row) ?? "—";
   const shipToReadonlyEscaped = escapeHtml(formatMergedShipToDisplay(row));
   const fmt = (cents) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
@@ -2143,7 +2115,6 @@ async function openModal(row, options = {}) {
 
   let parcelSummaryHtml = "";
   let multiNoteHtml = "";
-  let shippoPanelErrorHtml = "";
   try {
     const parcelLines = parcelAuditSummaryLines(row);
     const audit = safeShippoParcelAuditJson(row);
@@ -2160,10 +2131,6 @@ async function openModal(row, options = {}) {
         : "";
   } catch (e) {
     console.error("[admin] parcel summary", e);
-    shippoPanelErrorHtml = `<div class="admin-error" style="margin:0.35rem 0 0.5rem;padding:0.5rem;border-radius:6px;border:1px solid rgba(180,40,40,0.35);background:rgba(180,40,40,0.06)">
-      <strong>Parcel summary could not render.</strong>
-      <p style="margin:0.35rem 0 0;font-size:13px">${escapeHtml(String(e?.message || e || "Unknown error"))}</p>
-    </div>`;
     parcelSummaryHtml = `<p class="admin-muted">—</p>`;
   }
 
@@ -2215,41 +2182,22 @@ async function openModal(row, options = {}) {
     }
     return {};
   })();
-  const ovRet = (() => {
-    const raw = row?.shippo_return_address_override_json;
-    if (raw && typeof raw === "object") {
-      return raw;
-    }
-    if (typeof raw === "string") {
-      try {
-        const p = JSON.parse(raw);
-        return p && typeof p === "object" ? p : {};
-      } catch {
-        return {};
-      }
-    }
-    return {};
-  })();
-  const returnBlock =
-    formatAddressFromOverrideJson(row, "shippo_return_address_override_json") ||
-    `<p class="admin-muted" style="margin:0">Same as ship-from unless you save a return override below.</p>`;
-
   const canEditAddresses = paymentPaid && !isOrderShipped(row);
   const tabVis = (n) => (selectedTab === n ? "block" : "none");
 
   const extCarrier = escapeHtml(row.admin_external_carrier || "");
   const extService = escapeHtml(row.admin_external_service || "");
-  const extTrack = escapeHtml(row.admin_external_tracking_number || "");
+  const extTrackingTextarea = String(row.admin_external_tracking_number || "");
   const extDate = escapeHtml(row.admin_external_shipped_date || "");
   const extCostDollars =
     row.admin_external_label_cost_cents != null && Number.isFinite(Number(row.admin_external_label_cost_cents))
       ? escapeHtml(String(Number(row.admin_external_label_cost_cents) / 100))
       : "";
 
-  const labelLinkHtml = docLinkLabel
-    ? `<p style="margin:0.5rem 0 0"><a class="admin-btn admin-btn--small" href="${escapeHtml(docLinkLabel)}" target="_blank" rel="noopener">Download shipping label</a></p>`
+  const labelBelowFile = docLinkLabel
+    ? `<p style="margin:0.35rem 0 0"><a class="admin-btn admin-btn--small" href="${escapeHtml(docLinkLabel)}" target="_blank" rel="noopener">Download shipping label</a></p>`
     : `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">No shipping label file on file yet.</p>`;
-  const slipLinkHtml = docLinkPacking
+  const slipBelowFile = docLinkPacking
     ? `<p style="margin:0.35rem 0 0"><a class="admin-btn admin-btn--small" href="${escapeHtml(docLinkPacking)}" target="_blank" rel="noopener">Download packing slip</a></p>`
     : `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">No packing slip file on file yet.</p>`;
 
@@ -2262,7 +2210,6 @@ async function openModal(row, options = {}) {
     <div class="admin-modal__section admin-modal__section--fulfillment-summary">
       <h3>Status</h3>
       <p style="margin:0;font-size:1.05rem;font-weight:600">${escapeHtml(wf.label)}</p>
-      <p class="admin-muted" style="margin:0.4rem 0 0;font-size:14px"><strong>Next:</strong> ${escapeHtml(wf.nextAction)}</p>
       ${
         wf.blockingIssue
           ? `<p class="admin-error" style="margin:0.5rem 0 0;font-size:13px;line-height:1.45">${escapeHtml(wf.blockingIssue)}</p>`
@@ -2273,13 +2220,62 @@ async function openModal(row, options = {}) {
     <div class="admin-fulfillment-panel" data-fulfillment-panel="0" style="display:${tabVis(0)}">
       <div class="admin-modal__section">
         <h3>Order created &amp; paid</h3>
-        <p class="admin-muted" style="margin:0 0 0.75rem;font-size:12px;line-height:1.45">Use this summary while you buy the label in UPS, USPS, Pirate Ship, Shippo, or any other platform. Then use <strong>Label records</strong> to save tracking and uploads.</p>
         <h4 class="admin-muted" style="margin:0 0 0.35rem;font-size:12px;text-transform:uppercase">Customer</h4>
         <pre style="margin:0 0 1rem;font-family:inherit;font-size:13px">${escapeHtml(row.customer_name || "—")}\n${escapeHtml(row.customer_email || "—")}\n${escapeHtml(row.customer_phone || "—")}</pre>
         <h4 class="admin-muted" style="margin:0 0 0.35rem;font-size:12px;text-transform:uppercase">Ship from</h4>
-        ${shipFromHtml}
+        <div class="admin-address-row">
+          <div class="admin-address-row__body">${shipFromHtml}</div>
+          ${
+            canEditAddresses
+              ? `<button type="button" class="admin-icon-btn" data-toggle-from-override aria-label="Edit ship-from" title="Edit ship-from"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
+              : `<span class="admin-muted" style="font-size:11px;align-self:flex-start">Locked</span>`
+          }
+        </div>
+        <div id="admin-from-override-wrap" class="admin-shipping-edit-wrap" hidden>
+          <form id="admin-from-override-form" class="admin-shipping-edit-grid">
+            <label>Name<input name="name" value="${escapeHtml(ovFrom.name || "")}" required /></label>
+            <label>Street<input name="line1" value="${escapeHtml(ovFrom.line1 || "")}" required /></label>
+            <label>Line 2<input name="line2" value="${escapeHtml(ovFrom.line2 || "")}" /></label>
+            <label>City<input name="city" value="${escapeHtml(ovFrom.city || "")}" required /></label>
+            <label>State<input name="state" maxlength="2" value="${escapeHtml(ovFrom.state || "")}" required /></label>
+            <label>ZIP<input name="postalCode" value="${escapeHtml(ovFrom.postalCode || "")}" required /></label>
+            <label>Country<input name="country" maxlength="2" value="${escapeHtml(ovFrom.country || "US")}" required /></label>
+            <label>Email<input name="email" type="email" value="${escapeHtml(ovFrom.email || "")}" /></label>
+            <label>Phone<input name="phone" value="${escapeHtml(ovFrom.phone || "")}" /></label>
+          </form>
+          <button type="button" class="admin-btn admin-btn--small" data-save-from-override="${escapeHtml(String(row.id))}">Save sender</button>
+        </div>
         <h4 class="admin-muted" style="margin:0.85rem 0 0.35rem;font-size:12px;text-transform:uppercase">Ship to</h4>
-        <pre class="admin-address-card" style="margin:0;padding:0.5rem;background:#fafafa;border-radius:6px;font-family:inherit;font-size:13px">${shipToReadonlyEscaped}</pre>
+        <div class="admin-address-row">
+          <pre class="admin-address-card admin-address-row__body" style="margin:0;padding:0.5rem;background:#fafafa;border-radius:6px;font-family:inherit;font-size:13px;white-space:pre-wrap;min-width:0">${shipToReadonlyEscaped}</pre>
+          ${
+            canEditAddresses
+              ? `<button type="button" class="admin-icon-btn" data-toggle-shipping-edit aria-expanded="false" aria-label="Edit ship-to" title="Edit ship-to"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
+              : `<span class="admin-muted" style="font-size:11px;align-self:flex-start">Locked</span>`
+          }
+        </div>
+        <div id="admin-shipping-edit-wrap" class="admin-shipping-edit-wrap" hidden>
+          <form id="admin-shipping-edit-form" class="admin-shipping-edit-grid">
+            <label>Full name<input name="name" value="${escapeHtml(addr.name || "")}" required /></label>
+            <label>Email<input name="email" type="email" value="${escapeHtml(addr.email || "")}" /></label>
+            <label>Phone<input name="phone" value="${escapeHtml(addr.phone || "")}" /></label>
+            <label>Street<input name="line1" value="${escapeHtml(addr.line1 || "")}" required /></label>
+            <label>Line 2<input name="line2" value="${escapeHtml(addr.line2 || "")}" /></label>
+            <label>City<input name="city" value="${escapeHtml(addr.city || "")}" required /></label>
+            <label>State<input name="state" value="${escapeHtml(addr.state || "")}" maxlength="2" required /></label>
+            <label>ZIP<input name="postalCode" value="${escapeHtml(addr.postalCode || "")}" required /></label>
+            <label>Country<input name="country" value="${escapeHtml(addr.country || "")}" maxlength="2" required /></label>
+          </form>
+          <div style="margin-top:0.55rem">
+            <button type="button" class="admin-btn admin-btn--small" data-save-shipping-address="${escapeHtml(String(row.id))}">Save recipient</button>
+          </div>
+        </div>
+        <p id="admin-shipping-save-toast" class="admin-inline-toast admin-inline-toast--success" role="status" hidden></p>
+        ${
+          diag.missing.length
+            ? `<p class="admin-error" style="margin:0.5rem 0 0">Ship-to incomplete: ${escapeHtml(diag.missing.join(", "))}</p>`
+            : ""
+        }
         <h4 class="admin-muted" style="margin:1rem 0 0.35rem;font-size:12px;text-transform:uppercase">Items</h4>
         <div class="admin-modal__line-items">${
           itemLines.length ? itemLines.map((l) => l.html).join("") : `<p class="admin-muted">—</p>`
@@ -2292,113 +2288,30 @@ async function openModal(row, options = {}) {
 Subtotal ${escapeHtml(fmt(row.subtotal_cents))} · Shipping ${escapeHtml(fmt(row.shipping_cents))} · Tax ${escapeHtml(fmt(row.tax_cents))} · Total ${escapeHtml(
       fmt(row.total_cents),
     )}</pre>
-
-        <details style="margin-top:1rem" class="admin-modal-details">
-          <summary class="admin-muted">Edit addresses (optional)</summary>
-          <p class="admin-muted" style="margin:0.5rem 0;font-size:12px;line-height:1.45">Adjust sender, return, or recipient before buying a label elsewhere. Not required if addresses are already correct.</p>
-          <div class="admin-address-grid">
-            <div class="admin-address-card">
-              <div class="admin-address-card__head">
-                <strong>Sender override</strong>
-                ${
-                  canEditAddresses
-                    ? `<button type="button" class="admin-icon-btn" data-toggle-from-override aria-label="Edit sender" title="Edit"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
-                    : `<span class="admin-muted" style="font-size:11px">Locked</span>`
-                }
-              </div>
-              <div class="admin-address-card__body" style="font-size:13px">${formatAddressFromOverrideJson(row, "shippo_from_address_override_json") || `<span class="admin-muted">Using server warehouse defaults</span>`}</div>
-              <div id="admin-from-override-wrap" class="admin-shipping-edit-wrap" hidden>
-                <form id="admin-from-override-form" class="admin-shipping-edit-grid">
-                  <label>Name<input name="name" value="${escapeHtml(ovFrom.name || "")}" required /></label>
-                  <label>Street<input name="line1" value="${escapeHtml(ovFrom.line1 || "")}" required /></label>
-                  <label>Line 2<input name="line2" value="${escapeHtml(ovFrom.line2 || "")}" /></label>
-                  <label>City<input name="city" value="${escapeHtml(ovFrom.city || "")}" required /></label>
-                  <label>State<input name="state" maxlength="2" value="${escapeHtml(ovFrom.state || "")}" required /></label>
-                  <label>ZIP<input name="postalCode" value="${escapeHtml(ovFrom.postalCode || "")}" required /></label>
-                  <label>Country<input name="country" maxlength="2" value="${escapeHtml(ovFrom.country || "US")}" required /></label>
-                  <label>Email<input name="email" type="email" value="${escapeHtml(ovFrom.email || "")}" /></label>
-                  <label>Phone<input name="phone" value="${escapeHtml(ovFrom.phone || "")}" /></label>
-                </form>
-                <button type="button" class="admin-btn admin-btn--small" data-save-from-override="${escapeHtml(String(row.id))}">Save sender</button>
-              </div>
-            </div>
-            <div class="admin-address-card">
-              <div class="admin-address-card__head">
-                <strong>Return override</strong>
-                ${
-                  canEditAddresses
-                    ? `<button type="button" class="admin-icon-btn" data-toggle-return-override aria-label="Edit return" title="Edit"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
-                    : `<span class="admin-muted" style="font-size:11px">Locked</span>`
-                }
-              </div>
-              <div class="admin-address-card__body" style="font-size:13px">${returnBlock}</div>
-              <div id="admin-return-override-wrap" class="admin-shipping-edit-wrap" hidden>
-                <form id="admin-return-override-form" class="admin-shipping-edit-grid">
-                  <label>Name<input name="name" value="${escapeHtml(ovRet.name || "")}" required /></label>
-                  <label>Street<input name="line1" value="${escapeHtml(ovRet.line1 || "")}" required /></label>
-                  <label>Line 2<input name="line2" value="${escapeHtml(ovRet.line2 || "")}" /></label>
-                  <label>City<input name="city" value="${escapeHtml(ovRet.city || "")}" required /></label>
-                  <label>State<input name="state" maxlength="2" value="${escapeHtml(ovRet.state || "")}" required /></label>
-                  <label>ZIP<input name="postalCode" value="${escapeHtml(ovRet.postalCode || "")}" required /></label>
-                  <label>Country<input name="country" maxlength="2" value="${escapeHtml(ovRet.country || "US")}" required /></label>
-                  <label>Email<input name="email" type="email" value="${escapeHtml(ovRet.email || "")}" /></label>
-                  <label>Phone<input name="phone" value="${escapeHtml(ovRet.phone || "")}" /></label>
-                </form>
-                <button type="button" class="admin-btn admin-btn--small" data-save-return-override="${escapeHtml(String(row.id))}">Save return</button>
-              </div>
-            </div>
-            <div class="admin-address-card">
-              <div class="admin-address-card__head">
-                <strong>Recipient</strong>
-                ${
-                  canEditAddresses
-                    ? `<button type="button" class="admin-icon-btn" data-toggle-shipping-edit aria-expanded="false" aria-label="Edit recipient" title="Edit"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
-                    : `<span class="admin-muted" style="font-size:11px">Locked</span>`
-                }
-              </div>
-              <pre class="admin-address-card__body" style="margin:0;white-space:pre-wrap;font-family:inherit;font-size:13px">${shipToReadonlyEscaped}</pre>
-              <div id="admin-shipping-edit-wrap" class="admin-shipping-edit-wrap" hidden>
-                <form id="admin-shipping-edit-form" class="admin-shipping-edit-grid">
-                  <label>Full name<input name="name" value="${escapeHtml(addr.name || "")}" required /></label>
-                  <label>Email<input name="email" type="email" value="${escapeHtml(addr.email || "")}" /></label>
-                  <label>Phone<input name="phone" value="${escapeHtml(addr.phone || "")}" /></label>
-                  <label>Street<input name="line1" value="${escapeHtml(addr.line1 || "")}" required /></label>
-                  <label>Line 2<input name="line2" value="${escapeHtml(addr.line2 || "")}" /></label>
-                  <label>City<input name="city" value="${escapeHtml(addr.city || "")}" required /></label>
-                  <label>State<input name="state" value="${escapeHtml(addr.state || "")}" maxlength="2" required /></label>
-                  <label>ZIP<input name="postalCode" value="${escapeHtml(addr.postalCode || "")}" required /></label>
-                  <label>Country<input name="country" value="${escapeHtml(addr.country || "")}" maxlength="2" required /></label>
-                </form>
-                <div style="margin-top:0.55rem">
-                  <button type="button" class="admin-btn admin-btn--small" data-save-shipping-address="${escapeHtml(String(row.id))}">Save recipient</button>
-                </div>
-              </div>
-            </div>
-          </div>
-          ${
-            diag.missing.length
-              ? `<p class="admin-error" style="margin:0.5rem 0 0">Ship-to incomplete: ${escapeHtml(diag.missing.join(", "))}</p>`
-              : ""
-          }
-          <p id="admin-shipping-save-toast" class="admin-inline-toast admin-inline-toast--success" role="status" hidden></p>
-        </details>
       </div>
     </div>
 
     <div class="admin-fulfillment-panel" data-fulfillment-panel="1" style="display:${tabVis(1)}">
       <div class="admin-modal__section">
         <h3>Label records</h3>
-        <p class="admin-muted" style="margin:0 0 0.75rem;font-size:12px;line-height:1.45">After you buy the label outside this dashboard, save carrier, tracking, optional cost and date, and upload the label PDF (and packing slip if you like).</p>
-        ${labelLinkHtml}
-        ${slipLinkHtml}
-        <form id="admin-external-fulfillment-form" class="admin-shipping-edit-grid" style="margin-top:0.85rem">
+        <form id="admin-external-fulfillment-form" style="margin-top:0">
+          <div class="admin-shipping-edit-grid">
           <label>Carrier / agent<input name="carrier" type="text" autocomplete="organization" value="${extCarrier}" required placeholder="e.g. UPS, USPS, Pirate Ship" /></label>
           <label>Service (optional)<input name="service" type="text" value="${extService}" placeholder="e.g. UPS Ground" /></label>
           <label>Label cost USD (optional)<input name="labelCost" type="number" min="0" step="0.01" value="${extCostDollars}" placeholder="0.00" /></label>
-          <label>Tracking #<input name="trackingNumber" type="text" value="${extTrack}" required /></label>
+          <label style="grid-column:1/-1">Tracking # (one per line if multiple packages)<textarea name="trackingNumbers" rows="5" required placeholder="Enter one tracking number per line">${escapeHtml(extTrackingTextarea)}</textarea></label>
           <label>Shipment date<input name="shippedDate" type="date" value="${extDate}" /></label>
-          <label style="grid-column:1/-1">Shipping label file (PDF or image)<input name="labelFile" type="file" accept="application/pdf,image/*" /></label>
-          <label style="grid-column:1/-1">Packing slip file (optional)<input name="packingSlipFile" type="file" accept="application/pdf,image/*" /></label>
+          </div>
+        <div class="admin-file-field">
+          <label for="admin-ext-label-file">Shipping label file (PDF or image)</label>
+          <input id="admin-ext-label-file" name="labelFile" type="file" accept="application/pdf,image/*" />
+        </div>
+        ${labelBelowFile}
+        <div class="admin-file-field">
+          <label for="admin-ext-slip-file">Packing slip file (optional)</label>
+          <input id="admin-ext-slip-file" name="packingSlipFile" type="file" accept="application/pdf,image/*" />
+        </div>
+        ${slipBelowFile}
         </form>
         <p id="admin-external-fulfillment-toast" class="admin-inline-toast admin-inline-toast--success" role="status" hidden></p>
         <div style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
@@ -2422,10 +2335,10 @@ Subtotal ${escapeHtml(fmt(row.subtotal_cents))} · Shipping ${escapeHtml(fmt(row
         ${
           isOrderShipped(row)
             ? `<p style="margin:0">Marked <strong>shipped</strong>${row.admin_handoff_at ? ` on ${escapeHtml(formatDate(row.admin_handoff_at))}` : ""}.</p>
-        <ul style="margin:0.75rem 0 0;padding-left:1.1rem;font-size:13px;line-height:1.55">
-          <li><strong>Carrier</strong> ${escapeHtml(row.admin_external_carrier || row.shippo_label_carrier || "—")}</li>
-          <li><strong>Tracking</strong> ${escapeHtml(row.admin_external_tracking_number || row.shippo_tracking_number || "—")}</li>
-        </ul>`
+        <p style="margin:0.75rem 0 0;font-weight:600;font-size:13px">Carrier</p>
+        <p style="margin:0.25rem 0 0;font-size:13px">${escapeHtml(row.admin_external_carrier || row.shippo_label_carrier || "—")}</p>
+        <p style="margin:0.65rem 0 0;font-weight:600;font-size:13px">Tracking</p>
+        ${formatTrackingListHtml(row)}`
             : `<p class="admin-muted" style="margin:0 0 0.75rem">Confirm after the package has left your hands. You must have saved <strong>carrier</strong>, <strong>tracking</strong>, and an uploaded <strong>shipping label</strong> on the Label records tab (or a legacy Shippo label on file).</p>
         <button type="button" class="admin-btn admin-btn--primary" data-fulfillment-handoff="${escapeHtml(String(row.id))}" ${
             canMarkShipped ? "" : "disabled"
@@ -2436,13 +2349,11 @@ Subtotal ${escapeHtml(fmt(row.subtotal_cents))} · Shipping ${escapeHtml(fmt(row
 
     <div class="admin-modal__section">
       <h3>Tracking &amp; shipment</h3>
-      <ul class="admin-tracking-list" style="margin:0;padding-left:1.1rem;font-size:13px;line-height:1.55">
-        <li><strong>Carrier (recorded)</strong> ${escapeHtml(row.admin_external_carrier || row.shippo_label_carrier || "—")}</li>
-        <li><strong>Service</strong> ${escapeHtml(row.admin_external_service || row.shippo_label_service || "—")}</li>
-        <li><strong>Tracking #</strong> ${escapeHtml(row.admin_external_tracking_number || row.shippo_tracking_number || "—")}</li>
-        <li><strong>Label source</strong> ${escapeHtml(row.admin_external_label_storage_path ? "Uploaded" : row.shippo_label_url ? "Shippo" : "—")}</li>
-        <li><strong>Shippo tracking status</strong> ${escapeHtml(row.shippo_tracking_status || "—")}</li>
-      </ul>
+      <p style="margin:0;font-size:13px;line-height:1.55"><strong>Carrier (recorded)</strong> ${escapeHtml(row.admin_external_carrier || row.shippo_label_carrier || "—")}</p>
+      <p style="margin:0.35rem 0 0;font-size:13px;line-height:1.55"><strong>Service</strong> ${escapeHtml(row.admin_external_service || row.shippo_label_service || "—")}</p>
+      <p style="margin:0.5rem 0 0;font-size:13px;font-weight:600">Tracking #</p>
+      <div style="margin:0.25rem 0 0;font-size:13px;line-height:1.55">${formatTrackingListHtml(row)}</div>
+      <p style="margin:0.5rem 0 0;font-size:13px"><strong>Label source</strong> ${escapeHtml(row.admin_external_label_storage_path ? "Uploaded" : row.shippo_label_url ? "Shippo" : "—")}</p>
     </div>
     ${
       row.is_hardin_discount === true
@@ -2453,31 +2364,6 @@ Subtotal ${escapeHtml(fmt(row.subtotal_cents))} · Shipping ${escapeHtml(fmt(row
     </div>`
         : ""
     }
-    <div class="admin-modal__section admin-modal__section--technical-footer">
-      <h3 class="admin-muted" style="margin:0 0 0.5rem;font-size:13px;font-weight:600">Troubleshooting &amp; legacy Shippo</h3>
-      <details class="admin-modal-details">
-        <summary class="admin-muted">Technical details (legacy Shippo IDs &amp; errors)</summary>
-        ${shippoPanelErrorHtml}
-        <pre>Shippo synced: ${escapeHtml(shippoSyncLabel(row))}
-Shippo order ID: ${escapeHtml(row.shippo_order_id || "—")}
-Shippo shipment status: ${escapeHtml(shippoShipmentLabel(row))}
-Shipment ready (rates): ${shipmentReadyForRates(row) ? "yes" : "no"}
-Parcel count: ${escapeHtml(String(pieceCount))}
-Shipment object ID: ${escapeHtml(row.shippo_shipment_object_id || "—")}
-Ship / pickup date (order): ${escapeHtml(row.shippo_shipment_date || "—")}
-Rate status: ${escapeHtml(row.shippo_shipment_rate_status || "—")}
-Tracking (Shippo label): ${escapeHtml(row.shippo_tracking_number || "—")}
-Last Shippo sync: ${escapeHtml(formatDate(row.shippo_last_sync_at))}
-Order sync error: ${escapeHtml(row.shippo_sync_error || "—")}
-Shipment sync error: ${escapeHtml(row.shippo_shipment_sync_error || "—")}
-Label purchase error: ${escapeHtml(row.shippo_label_sync_error || "—")}</pre>
-      </details>
-      <details class="admin-modal-details">
-        <summary class="admin-muted">Parcel plan (audit)</summary>
-        ${parcelSummaryHtml}
-        ${multiNoteHtml}
-      </details>
-    </div>
   `;
   } catch (e) {
     console.error("[admin] openModal render", e);
