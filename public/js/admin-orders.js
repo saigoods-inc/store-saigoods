@@ -8,6 +8,18 @@ import {
   ReportPostError,
   shouldBootstrapAdminSignedIn,
 } from "./admin-shared.js";
+import {
+  FULFILLMENT_STEP_LABELS,
+  canEditFulfillmentTab,
+  canNavigateToFulfillmentTab,
+  deriveActiveFulfillmentStepIndex,
+  fulfillmentBlockingIssue,
+  fulfillmentNextActionLabel,
+  fulfillmentSummaryTitle,
+  fulfillmentTabDone,
+  fulfillmentVariantForRow,
+  orderLabelPurchased,
+} from "./admin-fulfillment-workflow.js";
 
 let supabase = null;
 let ordersCache = [];
@@ -298,10 +310,7 @@ function formatMergedShipToDisplay(row) {
 }
 
 function labelPurchasedSuccessfully(row) {
-  return (
-    Boolean(String(row?.shippo_label_url || "").trim()) &&
-    String(row?.shippo_transaction_status || "").toUpperCase() === "SUCCESS"
-  );
+  return orderLabelPurchased(row);
 }
 
 function isTrackingDelivered(row) {
@@ -509,71 +518,69 @@ function computeFulfillmentWorkflow(row) {
     });
   }
 
+  const block = fulfillmentBlockingIssue(row);
+  const vari = fulfillmentVariantForRow(row);
   return base({
     key: "label_handoff",
-    label: "Label purchased · handoff",
-    nextAction: "Print label · schedule pickup",
-    activeStepIndex: 3,
+    label: fulfillmentSummaryTitle(row),
+    nextAction: fulfillmentNextActionLabel(row),
+    activeStepIndex: deriveActiveFulfillmentStepIndex(row),
+    blockingIssue: block,
+    variant: vari,
   });
 }
 
 /**
- * Visual stepper from payment + Shippo data (no manual admin status).
+ * Clickable 5-step fulfillment stepper (Shippo sync is not a separate tab).
+ * @param {number} [selectedTab] 0–4
  */
-function buildFulfillmentProgressHtml(row) {
+function buildFulfillmentProgressHtml(row, selectedTab = 0) {
   const wf = computeFulfillmentWorkflow(row);
   if (wf.variant === "cancelled") {
     return `<div class="admin-fulfillment-progress admin-fulfillment-progress--cancelled" role="status">
-      <p class="admin-fulfillment-progress__title">Fulfillment progress</p>
+      <p class="admin-fulfillment-progress__title">Fulfillment</p>
       <p class="admin-muted" style="margin:0;font-size:13px">This order is <strong>cancelled</strong>.</p>
     </div>`;
   }
 
-  const steps = [
-    "Order created & paid",
-    "Synced to Shippo",
-    "Label purchased",
-    "Pickup / drop-off",
-    "In transit",
-    "Delivered",
-  ];
-
-  const delivered = wf.key === "delivered";
-
-  function stateFor(i) {
-    if (delivered) {
-      return "done";
-    }
-    const a = wf.activeStepIndex;
-    if (a < 0) {
-      return "pending";
-    }
-    if (i < a) {
-      return "done";
-    }
-    if (i === a) {
-      return wf.variant === "error" ? "error" : "active";
-    }
-    return "pending";
+  const paymentPaid = String(row?.status || "").toLowerCase() === "paid";
+  if (!paymentPaid) {
+    return `<div class="admin-fulfillment-progress admin-fulfillment-progress--ok" role="status">
+      <p class="admin-fulfillment-progress__title">Fulfillment</p>
+      <p class="admin-muted" style="margin:0;font-size:13px">Fulfillment steps unlock after payment.</p>
+    </div>`;
   }
 
+  const sel = Math.min(Math.max(Number.isFinite(selectedTab) ? selectedTab : 0, 0), 4);
+  const err = wf.variant === "error";
+  const activeIdx = deriveActiveFulfillmentStepIndex(row);
+
   const chunks = [
-    `<div class="admin-fulfillment-progress admin-fulfillment-progress--${wf.variant === "error" ? "has-error" : "ok"}" aria-label="Fulfillment progress">`,
-    `<p class="admin-fulfillment-progress__title">Fulfillment progress</p>`,
-    `<div class="admin-fulfillment-progress__track">`,
+    `<div class="admin-fulfillment-progress admin-fulfillment-progress--${err ? "has-error" : "ok"}" aria-label="Fulfillment progress">`,
+    `<p class="admin-fulfillment-progress__title">Fulfillment</p>`,
+    `<div class="admin-fulfillment-progress__tabs" role="tablist" aria-label="Fulfillment steps">`,
   ];
-  for (let i = 0; i < steps.length; i++) {
-    const st = stateFor(i);
-    const dot = st === "done" ? "✓" : st === "error" ? "!" : String(i + 1);
-    chunks.push(
-      `<div class="admin-fulfillment-progress__step admin-fulfillment-progress__step--${st}"><span class="admin-fulfillment-progress__dot" aria-hidden="true">${dot}</span><span class="admin-fulfillment-progress__label">${escapeHtml(steps[i])}</span></div>`,
-    );
-    if (i < steps.length - 1) {
-      const connDone = stateFor(i) === "done";
-      chunks.push(
-        `<div class="admin-fulfillment-progress__connector admin-fulfillment-progress__connector--${connDone ? "done" : "pending"}" aria-hidden="true"></div>`,
-      );
+  for (let i = 0; i < FULFILLMENT_STEP_LABELS.length; i++) {
+    const canNav = canNavigateToFulfillmentTab(row, i);
+    const done = fulfillmentTabDone(row, i);
+    const isSel = i === sel;
+    let st = "pending";
+    if (!canNav) {
+      st = "locked";
+    } else if (isSel) {
+      st = err && i === activeIdx ? "error" : "active";
+    } else if (done) {
+      st = "done";
     }
+    const dot = st === "done" ? "✓" : st === "error" ? "!" : st === "locked" ? "·" : String(i + 1);
+    const disabled = canNav ? "" : ` disabled aria-disabled="true"`;
+    const cls = canNav ? "admin-fulfillment-tab" : "admin-fulfillment-tab admin-fulfillment-tab--locked";
+    chunks.push(
+      `<button type="button" role="tab" class="${cls} admin-fulfillment-tab--${st}" data-fulfillment-tab="${i}" aria-selected="${isSel ? "true" : "false"}"${disabled}>` +
+        `<span class="admin-fulfillment-tab__dot" aria-hidden="true">${dot}</span>` +
+        `<span class="admin-fulfillment-tab__label">${escapeHtml(FULFILLMENT_STEP_LABELS[i])}</span>` +
+        `</button>`,
+    );
   }
   chunks.push(`</div></div>`);
   return chunks.join("");
@@ -777,6 +784,7 @@ function applyWorkflowRowTheme(tr, row) {
   tr.classList.toggle("admin-order-row--in-transit", wf.key === "in_transit");
   tr.classList.toggle("admin-order-row--cancelled", wf.key === "cancelled");
   tr.classList.toggle("admin-order-row--issue", wf.variant === "error");
+  tr.classList.toggle("admin-order-row--handoff", Boolean(row?.admin_handoff_at) || String(row?.order_status || "") === "shipped");
 }
 
 function paymentBadgeKey(row) {
@@ -986,6 +994,298 @@ function bindModalShippoActions() {
   document.body.dataset.shippoModalBound = "1";
 
   document.addEventListener("click", (e) => {
+    const fulfillTab = e.target.closest("[data-fulfillment-tab]");
+    if (fulfillTab && !fulfillTab.disabled) {
+      e.preventDefault();
+      const modal = document.getElementById("order-modal");
+      const orderId = modal?.dataset?.fulfillmentOrderId;
+      const idx = Number(fulfillTab.dataset.fulfillmentTab);
+      const fresh = ordersCache.find((r) => String(r.id) === String(orderId));
+      if (!fresh || !canNavigateToFulfillmentTab(fresh, idx)) {
+        return;
+      }
+      openModal(fresh, { skipShippoAutoRefresh: true, fulfillmentTab: idx });
+      return;
+    }
+
+    const tFrom = e.target.closest("[data-toggle-from-override]");
+    if (tFrom) {
+      e.preventDefault();
+      const w = document.getElementById("admin-from-override-wrap");
+      if (w) {
+        w.hidden = !w.hidden;
+      }
+      return;
+    }
+    const tRet = e.target.closest("[data-toggle-return-override]");
+    if (tRet) {
+      e.preventDefault();
+      const w = document.getElementById("admin-return-override-wrap");
+      if (w) {
+        w.hidden = !w.hidden;
+      }
+      return;
+    }
+
+    const saveFromOv = e.target.closest("[data-save-from-override]");
+    if (saveFromOv) {
+      e.preventDefault();
+      const orderId = saveFromOv.getAttribute("data-save-from-override");
+      const form = document.getElementById("admin-from-override-form");
+      if (!orderId || !form || !supabase) {
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        const fd = new FormData(form);
+        const shipFromOverride = {
+          name: String(fd.get("name") || "").trim(),
+          line1: String(fd.get("line1") || "").trim(),
+          line2: String(fd.get("line2") || "").trim(),
+          city: String(fd.get("city") || "").trim(),
+          state: String(fd.get("state") || "").trim(),
+          postalCode: String(fd.get("postalCode") || "").trim(),
+          country: String(fd.get("country") || "").trim(),
+          email: String(fd.get("email") || "").trim(),
+          phone: String(fd.get("phone") || "").trim(),
+        };
+        try {
+          const data = await fetchReportPost("/api/admin-order-fulfillment-addresses", session.access_token, {
+            orderId,
+            shipFromOverride,
+          });
+          await loadOrders();
+          renderTable();
+          if (data.order) {
+            const idx = ordersCache.findIndex((r) => String(r.id) === String(orderId));
+            if (idx >= 0) {
+              ordersCache[idx] = data.order;
+            }
+          }
+          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
+          if (refreshed && String(modalOpenOrderId) === String(orderId)) {
+            openModal(refreshed, { skipShippoAutoRefresh: true, fulfillmentTab: 1 });
+          }
+        } catch (err) {
+          alert(err.message || "Could not save sender.");
+        }
+      })();
+      return;
+    }
+
+    const saveRetOv = e.target.closest("[data-save-return-override]");
+    if (saveRetOv) {
+      e.preventDefault();
+      const orderId = saveRetOv.getAttribute("data-save-return-override");
+      const form = document.getElementById("admin-return-override-form");
+      if (!orderId || !form || !supabase) {
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        const fd = new FormData(form);
+        const returnOverride = {
+          name: String(fd.get("name") || "").trim(),
+          line1: String(fd.get("line1") || "").trim(),
+          line2: String(fd.get("line2") || "").trim(),
+          city: String(fd.get("city") || "").trim(),
+          state: String(fd.get("state") || "").trim(),
+          postalCode: String(fd.get("postalCode") || "").trim(),
+          country: String(fd.get("country") || "").trim(),
+          email: String(fd.get("email") || "").trim(),
+          phone: String(fd.get("phone") || "").trim(),
+        };
+        try {
+          const data = await fetchReportPost("/api/admin-order-fulfillment-addresses", session.access_token, {
+            orderId,
+            returnOverride,
+          });
+          await loadOrders();
+          renderTable();
+          if (data.order) {
+            const idx = ordersCache.findIndex((r) => String(r.id) === String(orderId));
+            if (idx >= 0) {
+              ordersCache[idx] = data.order;
+            }
+          }
+          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
+          if (refreshed && String(modalOpenOrderId) === String(orderId)) {
+            openModal(refreshed, { skipShippoAutoRefresh: true, fulfillmentTab: 1 });
+          }
+        } catch (err) {
+          alert(err.message || "Could not save return address.");
+        }
+      })();
+      return;
+    }
+
+    const cpBtn = e.target.closest("[data-fulfillment-checkpoint]");
+    if (cpBtn && !cpBtn.disabled) {
+      e.preventDefault();
+      const orderId = cpBtn.getAttribute("data-order-id");
+      const checkpoint = cpBtn.getAttribute("data-fulfillment-checkpoint");
+      if (!orderId || !checkpoint || !supabase) {
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        try {
+          const data = await fetchReportPost("/api/admin-order-fulfillment-checkpoint", session.access_token, {
+            orderId,
+            checkpoint,
+          });
+          await loadOrders();
+          renderTable();
+          if (data.order) {
+            const idx = ordersCache.findIndex((r) => String(r.id) === String(orderId));
+            if (idx >= 0) {
+              ordersCache[idx] = data.order;
+            }
+          }
+          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
+          if (refreshed && String(modalOpenOrderId) === String(orderId)) {
+            const nextTab = checkpoint === "print_done" ? 3 : 4;
+            openModal(refreshed, { skipShippoAutoRefresh: true, fulfillmentTab: nextTab });
+          }
+        } catch (err) {
+          alert(err.message || "Could not save progress.");
+        }
+      })();
+      return;
+    }
+
+    const handoffBtn = e.target.closest("[data-fulfillment-handoff]");
+    if (handoffBtn && !handoffBtn.disabled) {
+      e.preventDefault();
+      const orderId = handoffBtn.getAttribute("data-fulfillment-handoff");
+      if (!orderId || !supabase) {
+        return;
+      }
+      if (
+        !confirm(
+          "Confirm this package has been dropped off or handed to the carrier? This only updates your records — it does not buy a label.",
+        )
+      ) {
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        try {
+          const data = await fetchReportPost("/api/admin-order-fulfillment-handoff", session.access_token, { orderId });
+          await loadOrders();
+          renderTable();
+          if (data.order) {
+            const idx = ordersCache.findIndex((r) => String(r.id) === String(orderId));
+            if (idx >= 0) {
+              ordersCache[idx] = data.order;
+            }
+          }
+          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
+          if (refreshed && String(modalOpenOrderId) === String(orderId)) {
+            openModal(refreshed, { skipShippoAutoRefresh: true, fulfillmentTab: 4 });
+          }
+        } catch (err) {
+          alert(err.message || "Could not confirm handoff.");
+        }
+      })();
+      return;
+    }
+
+    const packSlip = e.target.closest("[data-open-packing-slip]");
+    if (packSlip) {
+      e.preventDefault();
+      const orderId = packSlip.getAttribute("data-open-packing-slip");
+      if (!orderId || !supabase) {
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        try {
+          const data = await fetchReportPost("/api/admin-order-packing-slip-html", session.access_token, { orderId });
+          const html = data.html;
+          if (!html) {
+            alert("No packing slip content returned.");
+            return;
+          }
+          const w = window.open("", "_blank");
+          if (w) {
+            w.document.open();
+            w.document.write(html);
+            w.document.close();
+          }
+        } catch (err) {
+          alert(err.message || "Could not open packing slip.");
+        }
+      })();
+      return;
+    }
+
+    const notifyBtn = e.target.closest("[data-buyer-shipping-notify]");
+    if (notifyBtn) {
+      e.preventDefault();
+      const orderId = notifyBtn.getAttribute("data-buyer-shipping-notify");
+      if (!orderId || !supabase) {
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        try {
+          const data = await fetchReportPost("/api/admin-order-buyer-shipping-notify", session.access_token, { orderId });
+          await loadOrders();
+          renderTable();
+          if (data.order) {
+            const idx = ordersCache.findIndex((r) => String(r.id) === String(orderId));
+            if (idx >= 0) {
+              ordersCache[idx] = data.order;
+            }
+          }
+          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
+          if (refreshed && String(modalOpenOrderId) === String(orderId)) {
+            openModal(refreshed, { skipShippoAutoRefresh: true, fulfillmentTab: 2 });
+          }
+        } catch (err) {
+          alert(err.message || "Could not send email.");
+        }
+      })();
+      return;
+    }
+
     const shippoSyncBtn = e.target.closest("[data-shippo-sync]");
     if (shippoSyncBtn) {
       e.preventDefault();
@@ -1597,8 +1897,15 @@ function getFilteredOrders() {
       return ["ready_choose_rate", "ready_buy_label", "order_linked_shipment_pending"].includes(wf.key);
     }
     if (filter === "shipping_active") {
-      const wf = computeFulfillmentWorkflow(r);
-      return wf.key === "label_handoff";
+      const paid = String(r.status || "").toLowerCase() === "paid";
+      return (
+        paid &&
+        orderLabelPurchased(r) &&
+        !r.admin_handoff_at &&
+        String(r.order_status || "") !== "shipped" &&
+        !isTrackingDelivered(r) &&
+        !isTrackingInTransit(r)
+      );
     }
     if (filter === "in_transit") {
       return computeFulfillmentWorkflow(r).key === "in_transit";
@@ -1772,7 +2079,7 @@ function buildShipDateControlHtml(row) {
       <button type="button" class="admin-btn admin-btn--small" data-save-shippo-shipment-date="${id}">Save date</button>
       <button type="button" class="admin-btn admin-btn--small" data-clear-shippo-shipment-date="${id}">Clear</button>
     </div>
-    <p class="admin-muted" style="margin:0.35rem 0 0;font-size:11px;line-height:1.45">Stored on this order and sent to Shippo as <code>shipment_date</code> when the shipment is created. Leave empty for Shippo’s default (request time). After changing it, use <strong>Sync to Shippo</strong> again so the shipment is recreated with the new date.</p>
+    <p class="admin-muted" style="margin:0.35rem 0 0;font-size:11px;line-height:1.45">Stored on this order and sent to Shippo as <code>shipment_date</code> when the shipment is created. Leave empty for Shippo’s default (request time). After changing it, use <strong>Sync to Shippo</strong> on the Label step so the shipment is recreated with the new date.</p>
   </div>`;
 }
 
@@ -1792,7 +2099,7 @@ function buildModalShippingActionsHtml(row) {
   }
   if (labelPurchasedSuccessfully(row) && row.shippo_label_url) {
     parts.push(
-      `<a class="admin-btn admin-btn--small admin-btn--primary" href="${escapeHtml(String(row.shippo_label_url))}" target="_blank" rel="noopener">Print label</a>`,
+      `<a class="admin-btn admin-btn--small admin-btn--primary" href="${escapeHtml(String(row.shippo_label_url))}" target="_blank" rel="noopener">Open label PDF</a>`,
     );
     if (row.shippo_tracking_url_provider) {
       parts.push(
@@ -1800,19 +2107,58 @@ function buildModalShippingActionsHtml(row) {
       );
     }
   }
-  const rates = shippoRatesList(row);
-  if (!labelPurchasedSuccessfully(row) && rates.length > 0) {
-    parts.push(
-      `<button type="button" class="admin-btn admin-btn--small admin-btn--primary" data-shippo-buy-label="${id}">Buy label</button>`,
-    );
-  }
   if (!parts.length) {
     return `<p class="admin-muted" style="margin:0">No shipping actions for this step.</p>`;
   }
   return `<div class="admin-modal-actions-row" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">${parts.join("")}</div>${buildPickupScheduleLinks(row)}`;
 }
 
+function pickFulfillmentTab(row, options) {
+  if (options.fulfillmentTab != null) {
+    const t = Number(options.fulfillmentTab);
+    if (Number.isFinite(t) && t >= 0 && t <= 4 && canNavigateToFulfillmentTab(row, t)) {
+      return t;
+    }
+  }
+  const ai = deriveActiveFulfillmentStepIndex(row);
+  if (ai < 0) {
+    return 0;
+  }
+  if (ai >= 5) {
+    return 4;
+  }
+  return ai;
+}
+
+function formatAddressFromOverrideJson(row, colName) {
+  const raw = row?.[colName];
+  let o = raw;
+  if (typeof raw === "string") {
+    try {
+      o = JSON.parse(raw);
+    } catch {
+      o = null;
+    }
+  }
+  if (o && typeof o === "object" && String(o.line1 || "").trim()) {
+    const fake = {
+      shipping_address: o,
+      customer_name: o.name,
+      customer_email: o.email,
+      customer_phone: o.phone,
+    };
+    return escapeHtml(formatMergedShipToDisplay(fake));
+  }
+  return "";
+}
+
 function openModal(row, options = {}) {
+  const selectedTab = pickFulfillmentTab(row, options);
+  const modalEl = document.getElementById("order-modal");
+  if (modalEl) {
+    modalEl.dataset.fulfillmentOrderId = String(row.id);
+    modalEl.dataset.fulfillmentTab = String(selectedTab);
+  }
   const wf = computeFulfillmentWorkflow(row);
   let itemLines = [];
   try {
@@ -1845,7 +2191,7 @@ function openModal(row, options = {}) {
     const audit = safeShippoParcelAuditJson(row);
     const multiNote = audit?.multiPieceCarrierNote;
     if (String(row.shippo_shipment_object_id || "").trim()) {
-      ratesRefreshBtnHtml = `<button type="button" class="admin-btn admin-btn--small" data-shippo-modal-refresh-rates="${escapeHtml(String(row.id))}">Refresh rates</button>`;
+      ratesRefreshBtnHtml = `<button type="button" class="admin-icon-btn" title="Refresh rates from Shippo" data-shippo-modal-refresh-rates="${escapeHtml(String(row.id))}"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15A9 9 0 0 1 5.64 18.36L1 14"/></svg></button>`;
     }
     ratesRowsHtml =
       rates.length === 0
@@ -1897,12 +2243,69 @@ function openModal(row, options = {}) {
 
   const body = document.getElementById("order-modal-body");
   const ratesCountForHint = shippoRatesList(row).length;
+  const ovFrom = (() => {
+    const raw = row?.shippo_from_address_override_json;
+    if (raw && typeof raw === "object") {
+      return raw;
+    }
+    if (typeof raw === "string") {
+      try {
+        const p = JSON.parse(raw);
+        return p && typeof p === "object" ? p : {};
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  })();
+  const ovRet = (() => {
+    const raw = row?.shippo_return_address_override_json;
+    if (raw && typeof raw === "object") {
+      return raw;
+    }
+    if (typeof raw === "string") {
+      try {
+        const p = JSON.parse(raw);
+        return p && typeof p === "object" ? p : {};
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  })();
+  const shipFromBlock =
+    formatAddressFromOverrideJson(row, "shippo_from_address_override_json") ||
+    `<p class="admin-muted" style="margin:0">Default warehouse sender from server (SHIPPO_FROM_*). Save an override below to customize.</p>`;
+  const returnBlock =
+    formatAddressFromOverrideJson(row, "shippo_return_address_override_json") ||
+    `<p class="admin-muted" style="margin:0">Same as sender unless you save a return override.</p>`;
+  const e1 = canEditFulfillmentTab(row, 1);
+  const e2 = canEditFulfillmentTab(row, 2);
+  const e3 = canEditFulfillmentTab(row, 3);
+  const e4 = canEditFulfillmentTab(row, 4);
+  const tabVis = (n) => (selectedTab === n ? "block" : "none");
+  const selectedRateSummary = (() => {
+    const rates = shippoRatesList(row);
+    const pick = rates[firstPreferredRateIndex(rates)];
+    if (!pick) {
+      return `<p class="admin-muted" style="margin:0">Select a rate above.</p>`;
+    }
+    const transit =
+      pick.estimated_days != null ? `${pick.estimated_days} days` : String(pick.duration_terms || "—");
+    return `<ul style="margin:0;padding-left:1.1rem;font-size:13px;line-height:1.55">
+      <li><strong>Carrier</strong> ${escapeHtml(String(pick.provider || "—"))}</li>
+      <li><strong>Service</strong> ${escapeHtml(String(pick.servicelevel_name || pick.servicelevel_token || "—"))}</li>
+      <li><strong>Price</strong> ${escapeHtml(formatShippoMoney(pick.amount, pick.currency))}</li>
+      <li><strong>Transit</strong> ${escapeHtml(transit)}</li>
+    </ul>`;
+  })();
+
   try {
     body.innerHTML = `
     <h2>${escapeHtml(row.order_ref || "Order")}</h2>
-    <div class="admin-modal__section">${buildFulfillmentProgressHtml(row)}</div>
+    <div class="admin-modal__section">${buildFulfillmentProgressHtml(row, selectedTab)}</div>
     <div class="admin-modal__section admin-modal__section--fulfillment-summary">
-      <h3>Fulfillment status</h3>
+      <h3>Status</h3>
       <p style="margin:0;font-size:1.05rem;font-weight:600">${escapeHtml(wf.label)}</p>
       <p class="admin-muted" style="margin:0.4rem 0 0;font-size:14px"><strong>Next:</strong> ${escapeHtml(wf.nextAction)}</p>
       ${
@@ -1911,22 +2314,212 @@ function openModal(row, options = {}) {
           : ""
       }
     </div>
-    <div class="admin-modal__section">
-      <h3>Shipping actions</h3>
-      ${buildShipDateControlHtml(row)}
-      ${buildModalShippingActionsHtml(row)}
-      ${
-        ratesCountForHint > 0 && !labelPurchasedSuccessfully(row)
-          ? `<p class="admin-muted" style="margin:0.45rem 0 0;font-size:12px">Choose a <strong>carrier / service</strong> (radio), then <strong>Buy label</strong>.</p>`
-          : ""
-      }
-      <div class="admin-modal__rates-head" style="margin-top:0.75rem">
-        <h4 class="admin-muted" style="margin:0;font-size:13px">Available rates</h4>
-        ${ratesRefreshBtnHtml}
+
+    <div class="admin-fulfillment-panel" data-fulfillment-panel="0" style="display:${tabVis(0)}">
+      <div class="admin-modal__section">
+        <h3>Order created &amp; paid</h3>
+        <p class="admin-muted" style="margin:0 0 0.75rem;font-size:12px">Review the order. Shipping actions are on the <strong>Label purchased</strong> step.</p>
+        <h4 class="admin-muted" style="margin:0 0 0.35rem;font-size:12px;text-transform:uppercase">A. Customer</h4>
+        <pre style="margin:0 0 1rem">${escapeHtml(row.customer_name || "—")}\n${escapeHtml(row.customer_email || "—")}\n${escapeHtml(row.customer_phone || "—")}</pre>
+        <h4 class="admin-muted" style="margin:0 0 0.35rem;font-size:12px;text-transform:uppercase">B. Addresses</h4>
+        <p style="margin:0 0 0.25rem;font-weight:600">Ship from</p>
+        <div class="admin-address-card">${shipFromBlock}</div>
+        <p style="margin:0.75rem 0 0.25rem;font-weight:600">Ship to</p>
+        <pre class="admin-address-card" style="margin:0;padding:0.5rem;background:#fafafa;border-radius:6px">${shipToReadonlyEscaped}</pre>
+        <h4 class="admin-muted" style="margin:1rem 0 0.35rem;font-size:12px;text-transform:uppercase">C. Items</h4>
+        <div class="admin-modal__line-items">${
+          itemLines.length ? itemLines.map((l) => l.html).join("") : `<p class="admin-muted">—</p>`
+        }</div>
+        <h4 class="admin-muted" style="margin:1rem 0 0.35rem;font-size:12px;text-transform:uppercase">D. Package</h4>
+        ${parcelSummaryHtml}
+        <h4 class="admin-muted" style="margin:1rem 0 0.35rem;font-size:12px;text-transform:uppercase">E. Payment</h4>
+        <pre style="margin:0;font-size:13px">${escapeHtml(formatPaymentColumnLabel(row))} · ${escapeHtml(row.payment_id || "—")}
+Subtotal ${escapeHtml(fmt(row.subtotal_cents))} · Shipping ${escapeHtml(fmt(row.shipping_cents))} · Tax ${escapeHtml(fmt(row.tax_cents))} · Total ${escapeHtml(
+      fmt(row.total_cents),
+    )}</pre>
       </div>
-      ${ratesRowsHtml}
-      ${labelBlock}
     </div>
+
+    <div class="admin-fulfillment-panel" data-fulfillment-panel="1" style="display:${tabVis(1)}">
+      <div class="admin-modal__section">
+        <h3>Label purchased</h3>
+        <p class="admin-muted" style="margin:0 0 0.75rem;font-size:12px">Shippo sync runs in the background when you use the buttons below (not shown as a separate step).</p>
+        <h4 class="admin-muted" style="margin:0 0 0.5rem;font-size:12px;text-transform:uppercase">A. Addresses</h4>
+        <div class="admin-address-grid">
+          <div class="admin-address-card">
+            <div class="admin-address-card__head">
+              <strong>Sender</strong>
+              ${
+                e1
+                  ? `<button type="button" class="admin-icon-btn" data-toggle-from-override aria-label="Edit sender" title="Edit"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
+                  : `<span class="admin-muted" style="font-size:11px">Locked</span>`
+              }
+            </div>
+            <div class="admin-address-card__body">${shipFromBlock}</div>
+            <div id="admin-from-override-wrap" class="admin-shipping-edit-wrap" hidden>
+              <form id="admin-from-override-form" class="admin-shipping-edit-grid">
+                <label>Name<input name="name" value="${escapeHtml(ovFrom.name || "")}" required /></label>
+                <label>Street<input name="line1" value="${escapeHtml(ovFrom.line1 || "")}" required /></label>
+                <label>Line 2<input name="line2" value="${escapeHtml(ovFrom.line2 || "")}" /></label>
+                <label>City<input name="city" value="${escapeHtml(ovFrom.city || "")}" required /></label>
+                <label>State<input name="state" maxlength="2" value="${escapeHtml(ovFrom.state || "")}" required /></label>
+                <label>ZIP<input name="postalCode" value="${escapeHtml(ovFrom.postalCode || "")}" required /></label>
+                <label>Country<input name="country" maxlength="2" value="${escapeHtml(ovFrom.country || "US")}" required /></label>
+                <label>Email<input name="email" type="email" value="${escapeHtml(ovFrom.email || "")}" /></label>
+                <label>Phone<input name="phone" value="${escapeHtml(ovFrom.phone || "")}" /></label>
+              </form>
+              <button type="button" class="admin-btn admin-btn--small" data-save-from-override="${escapeHtml(String(row.id))}">Save sender</button>
+            </div>
+          </div>
+          <div class="admin-address-card">
+            <div class="admin-address-card__head">
+              <strong>Return</strong>
+              ${
+                e1
+                  ? `<button type="button" class="admin-icon-btn" data-toggle-return-override aria-label="Edit return" title="Edit"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
+                  : `<span class="admin-muted" style="font-size:11px">Locked</span>`
+              }
+            </div>
+            <div class="admin-address-card__body">${returnBlock}</div>
+            <div id="admin-return-override-wrap" class="admin-shipping-edit-wrap" hidden>
+              <form id="admin-return-override-form" class="admin-shipping-edit-grid">
+                <label>Name<input name="name" value="${escapeHtml(ovRet.name || "")}" required /></label>
+                <label>Street<input name="line1" value="${escapeHtml(ovRet.line1 || "")}" required /></label>
+                <label>Line 2<input name="line2" value="${escapeHtml(ovRet.line2 || "")}" /></label>
+                <label>City<input name="city" value="${escapeHtml(ovRet.city || "")}" required /></label>
+                <label>State<input name="state" maxlength="2" value="${escapeHtml(ovRet.state || "")}" required /></label>
+                <label>ZIP<input name="postalCode" value="${escapeHtml(ovRet.postalCode || "")}" required /></label>
+                <label>Country<input name="country" maxlength="2" value="${escapeHtml(ovRet.country || "US")}" required /></label>
+                <label>Email<input name="email" type="email" value="${escapeHtml(ovRet.email || "")}" /></label>
+                <label>Phone<input name="phone" value="${escapeHtml(ovRet.phone || "")}" /></label>
+              </form>
+              <button type="button" class="admin-btn admin-btn--small" data-save-return-override="${escapeHtml(String(row.id))}">Save return</button>
+            </div>
+          </div>
+          <div class="admin-address-card">
+            <div class="admin-address-card__head">
+              <strong>Recipient</strong>
+              ${
+                e1
+                  ? `<button type="button" class="admin-icon-btn" data-toggle-shipping-edit aria-expanded="false" aria-label="Edit recipient" title="Edit"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
+                  : `<span class="admin-muted" style="font-size:11px">Locked</span>`
+              }
+            </div>
+            <pre class="admin-address-card__body" style="margin:0;white-space:pre-wrap">${shipToReadonlyEscaped}</pre>
+            <div id="admin-shipping-edit-wrap" class="admin-shipping-edit-wrap" hidden>
+              <form id="admin-shipping-edit-form" class="admin-shipping-edit-grid">
+                <label>Full name<input name="name" value="${escapeHtml(addr.name || "")}" required /></label>
+                <label>Email<input name="email" type="email" value="${escapeHtml(addr.email || "")}" /></label>
+                <label>Phone<input name="phone" value="${escapeHtml(addr.phone || "")}" /></label>
+                <label>Street<input name="line1" value="${escapeHtml(addr.line1 || "")}" required /></label>
+                <label>Line 2<input name="line2" value="${escapeHtml(addr.line2 || "")}" /></label>
+                <label>City<input name="city" value="${escapeHtml(addr.city || "")}" required /></label>
+                <label>State<input name="state" value="${escapeHtml(addr.state || "")}" maxlength="2" required /></label>
+                <label>ZIP<input name="postalCode" value="${escapeHtml(addr.postalCode || "")}" required /></label>
+                <label>Country<input name="country" value="${escapeHtml(addr.country || "")}" maxlength="2" required /></label>
+              </form>
+              <div style="margin-top:0.55rem">
+                <button type="button" class="admin-btn admin-btn--small" data-save-shipping-address="${escapeHtml(String(row.id))}">Save recipient</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        ${
+          diag.missing.length
+            ? `<p class="admin-error" style="margin:0.5rem 0 0">Missing for Shippo: ${escapeHtml(diag.missing.join(", "))}</p>`
+            : ""
+        }
+        <p id="admin-shipping-save-toast" class="admin-inline-toast admin-inline-toast--success" role="status" hidden></p>
+
+        <h4 class="admin-muted" style="margin:1.25rem 0 0.5rem;font-size:12px;text-transform:uppercase">B. Items</h4>
+        <div class="admin-modal__line-items">${itemLines.length ? itemLines.map((l) => l.html).join("") : `<p class="admin-muted">—</p>`}</div>
+
+        <h4 class="admin-muted" style="margin:1.25rem 0 0.5rem;font-size:12px;text-transform:uppercase">C. Package</h4>
+        ${parcelSummaryHtml}
+        ${multiNoteHtml}
+
+        <h4 class="admin-muted" style="margin:1.25rem 0 0.5rem;font-size:12px;text-transform:uppercase">D. Shipment date</h4>
+        ${buildShipDateControlHtml(row)}
+
+        <h4 class="admin-muted" style="margin:1.25rem 0 0.5rem;font-size:12px;text-transform:uppercase">E. Rates</h4>
+        ${buildModalShippingActionsHtml(row)}
+        ${
+          ratesCountForHint > 0 && !labelPurchasedSuccessfully(row)
+            ? `<p class="admin-muted" style="margin:0.45rem 0 0;font-size:12px">Choose a <strong>rate</strong> (radio), then <strong>Buy label</strong>.</p>`
+            : ""
+        }
+        <div class="admin-modal__rates-head" style="margin-top:0.75rem">
+          <h4 class="admin-muted" style="margin:0;font-size:13px">Available rates</h4>
+          ${ratesRefreshBtnHtml}
+        </div>
+        ${ratesRowsHtml}
+        ${labelBlock}
+
+        <h4 class="admin-muted" style="margin:1.25rem 0 0.5rem;font-size:12px;text-transform:uppercase">F. Shipment summary</h4>
+        ${selectedRateSummary}
+
+        <div style="margin-top:1rem">
+          <button type="button" class="admin-btn admin-btn--primary" data-shippo-buy-label="${escapeHtml(String(row.id))}" ${e1 && !labelPurchasedSuccessfully(row) ? "" : "disabled"}>Buy label</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="admin-fulfillment-panel" data-fulfillment-panel="2" style="display:${tabVis(2)}">
+      <div class="admin-modal__section">
+        <h3>Print label</h3>
+        ${
+          !labelPurchasedSuccessfully(row)
+            ? `<p class="admin-muted">Complete the <strong>Label purchased</strong> step first.</p>`
+            : `<p class="admin-muted" style="margin:0 0 0.75rem">Download and print documents for packing.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
+          <a class="admin-btn admin-btn--primary" href="${escapeHtml(String(row.shippo_label_url))}" target="_blank" rel="noopener">Shipping label (PDF)</a>
+          <button type="button" class="admin-btn admin-btn--small" data-open-packing-slip="${escapeHtml(String(row.id))}">Packing slip</button>
+          <button type="button" class="admin-btn admin-btn--small" data-buyer-shipping-notify="${escapeHtml(String(row.id))}">Email buyer</button>
+        </div>
+        ${
+          row.admin_buyer_notify_sent_at
+            ? `<p class="admin-muted" style="margin:0.5rem 0 0;font-size:12px">Notification sent ${escapeHtml(formatDate(row.admin_buyer_notify_sent_at))}</p>`
+            : ""
+        }
+        <div style="margin-top:1rem">
+          <button type="button" class="admin-btn admin-btn--primary" data-fulfillment-checkpoint="print_done" data-order-id="${escapeHtml(String(row.id))}" ${
+            e2 && labelPurchasedSuccessfully(row) && !row.admin_fulfillment_print_done_at ? "" : "disabled"
+          }>Continue to summary</button>
+        </div>`
+        }
+      </div>
+    </div>
+
+    <div class="admin-fulfillment-panel" data-fulfillment-panel="3" style="display:${tabVis(3)}">
+      <div class="admin-modal__section">
+        <h3>Summary</h3>
+        <p class="admin-muted" style="margin:0 0 0.75rem">Read-only overview before you confirm handoff.</p>
+        <pre style="margin:0 0 0.75rem;font-size:13px;white-space:pre-wrap">${shipToReadonlyEscaped}</pre>
+        <p style="margin:0.35rem 0;font-size:13px"><strong>Ship date:</strong> ${escapeHtml(row.shippo_shipment_date || "—")}</p>
+        <p style="margin:0.35rem 0;font-size:13px"><strong>Carrier / service:</strong> ${escapeHtml(row.shippo_label_carrier || "—")} · ${escapeHtml(row.shippo_label_service || "—")}</p>
+        <p style="margin:0.35rem 0;font-size:13px"><strong>Tracking:</strong> ${escapeHtml(row.shippo_tracking_number || "—")}</p>
+        <div style="margin-top:1rem">
+          <button type="button" class="admin-btn admin-btn--primary" data-fulfillment-checkpoint="summary_done" data-order-id="${escapeHtml(String(row.id))}" ${
+            e3 && row.admin_fulfillment_print_done_at && !row.admin_fulfillment_summary_done_at ? "" : "disabled"
+          }>Continue to status update</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="admin-fulfillment-panel" data-fulfillment-panel="4" style="display:${tabVis(4)}">
+      <div class="admin-modal__section">
+        <h3>Status update</h3>
+        ${
+          row.admin_handoff_at
+            ? `<p style="margin:0">Marked <strong>dropped off / shipped</strong> on ${escapeHtml(formatDate(row.admin_handoff_at))}.</p>`
+            : `<p class="admin-muted" style="margin:0 0 0.75rem">Confirm the labeled package has left your location (does not purchase a label).</p>
+        <button type="button" class="admin-btn admin-btn--primary" data-fulfillment-handoff="${escapeHtml(String(row.id))}" ${
+            e4 && row.admin_fulfillment_summary_done_at ? "" : "disabled"
+          }>Shipment is drop off and shipped</button>`
+        }
+      </div>
+    </div>
+
     <div class="admin-modal__section">
       <h3>Tracking &amp; shipment</h3>
       <ul class="admin-tracking-list" style="margin:0;padding-left:1.1rem;font-size:13px;line-height:1.55">
@@ -1938,80 +2531,6 @@ function openModal(row, options = {}) {
         <li><strong>Shipment state</strong> ${escapeHtml(shippoShipmentLabel(row))}</li>
         <li><strong>Last Shippo event</strong> ${escapeHtml(formatDate(row.shippo_last_event_at))}</li>
       </ul>
-    </div>
-    <div class="admin-modal__section">
-      <h3>Customer &amp; ship to</h3>
-      <pre style="margin:0 0 0.5rem">${escapeHtml(row.customer_name || "—")}\n${escapeHtml(row.customer_email || "—")}\n${escapeHtml(row.customer_phone || "—")}</pre>
-      <div class="admin-modal__section-head">
-        <h4 class="admin-muted" style="margin:0;font-size:12px;text-transform:uppercase;letter-spacing:0.04em">Ship to</h4>
-        <button type="button" class="admin-icon-btn" data-toggle-shipping-edit aria-expanded="false" aria-label="Edit shipping address" title="Edit shipping address">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        </button>
-      </div>
-      ${
-        diag.missing.length
-          ? `<p class="admin-error" style="margin:0.35rem 0 0">Missing for Shippo: ${escapeHtml(diag.missing.join(", "))}</p>`
-          : ""
-      }
-      <pre class="admin-ship-to-readonly">${shipToReadonlyEscaped}</pre>
-      <div id="admin-shipping-edit-wrap" class="admin-shipping-edit-wrap" hidden>
-        <form id="admin-shipping-edit-form" class="admin-shipping-edit-grid">
-        <label>Full name
-          <input name="name" value="${escapeHtml(addr.name || "")}" required />
-        </label>
-        <label>Email
-          <input name="email" type="email" value="${escapeHtml(addr.email || "")}" />
-        </label>
-        <label>Phone
-          <input name="phone" value="${escapeHtml(addr.phone || "")}" />
-        </label>
-        <label>Street
-          <input name="line1" value="${escapeHtml(addr.line1 || "")}" required />
-        </label>
-        <label>Line 2
-          <input name="line2" value="${escapeHtml(addr.line2 || "")}" />
-        </label>
-        <label>City
-          <input name="city" value="${escapeHtml(addr.city || "")}" required />
-        </label>
-        <label>State
-          <input name="state" value="${escapeHtml(addr.state || "")}" maxlength="2" required />
-        </label>
-        <label>ZIP
-          <input name="postalCode" value="${escapeHtml(addr.postalCode || "")}" required />
-        </label>
-        <label>Country
-          <input name="country" value="${escapeHtml(addr.country || "")}" maxlength="2" required />
-        </label>
-      </form>
-        <div style="margin-top:0.55rem">
-          <button type="button" class="admin-btn admin-btn--small" data-save-shipping-address="${escapeHtml(String(row.id))}">
-            Save shipping address
-          </button>
-        </div>
-      </div>
-      <p id="admin-shipping-save-toast" class="admin-inline-toast admin-inline-toast--success" role="status" hidden></p>
-    </div>
-    <div class="admin-modal__section">
-      <h3>Line items (pack these)</h3>
-      <div class="admin-modal__line-items">${
-        itemLines.length ? itemLines.map((l) => l.html).join("") : `<p class="admin-muted">—</p>`
-      }</div>
-    </div>
-    <div class="admin-modal__section">
-      <h3>Payment &amp; totals</h3>
-      <p style="margin:0 0 0.5rem;font-size:13px">${escapeHtml(formatPaymentColumnLabel(row))} · Payment ID: ${escapeHtml(row.payment_id || "—")}${
-        row.paid_at ? ` · Paid at: ${escapeHtml(formatDate(row.paid_at))}` : ""
-      }</p>
-      ${
-        row.payment_link_url
-          ? `<p class="admin-muted" style="margin:0 0 0.5rem;word-break:break-all;font-size:12px">Payment link: ${escapeHtml(String(row.payment_link_url))}</p>`
-          : ""
-      }
-      <pre style="margin:0">Subtotal: ${escapeHtml(fmt(row.subtotal_cents))}
-Shipping: ${escapeHtml(fmt(row.shipping_cents))}
-Tax: ${escapeHtml(fmt(row.tax_cents))}
-Total: ${escapeHtml(fmt(row.total_cents))}</pre>
     </div>
     ${
       row.is_hardin_discount === true
@@ -2082,7 +2601,12 @@ Label purchase error: ${escapeHtml(row.shippo_label_sync_error || "—")}</pre>
 
 function closeModal() {
   modalOpenOrderId = null;
-  document.getElementById("order-modal").hidden = true;
+  const m = document.getElementById("order-modal");
+  if (m) {
+    m.hidden = true;
+    delete m.dataset.fulfillmentOrderId;
+    delete m.dataset.fulfillmentTab;
+  }
 }
 
 document.addEventListener("keydown", (e) => {

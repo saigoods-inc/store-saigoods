@@ -20,6 +20,11 @@ import adminOrderShippoPurchaseLabelHandler from "./api/admin-order-shippo-purch
 import adminOrderParcelOverrideHandler from "./api/admin-order-parcel-override.js";
 import adminOrderShippoShipmentDateHandler from "./api/admin-order-shippo-shipment-date.js";
 import adminOrderUpdateShippingAddressHandler from "./api/admin-order-update-shipping-address.js";
+import adminOrderFulfillmentCheckpointHandler from "./api/admin-order-fulfillment-checkpoint.js";
+import adminOrderFulfillmentHandoffHandler from "./api/admin-order-fulfillment-handoff.js";
+import adminOrderFulfillmentAddressesHandler from "./api/admin-order-fulfillment-addresses.js";
+import adminOrderPackingSlipHtmlHandler from "./api/admin-order-packing-slip-html.js";
+import adminOrderBuyerShippingNotifyHandler from "./api/admin-order-buyer-shipping-notify.js";
 import adminManualOrderSendLinkHandler from "./api/admin-manual-order-send-link.js";
 import adminManualOrderUpdateDraftHandler from "./api/admin-manual-order-update-draft.js";
 import adminWalkInOrderCreateHandler from "./api/admin-walk-in-order-create.js";
@@ -287,6 +292,51 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/admin-order-update-shipping-address" && req.method === "POST") {
       const body = await readJsonBody(req);
       await adminOrderUpdateShippingAddressHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-order-fulfillment-checkpoint" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminOrderFulfillmentCheckpointHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-order-fulfillment-handoff" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminOrderFulfillmentHandoffHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-order-fulfillment-addresses" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminOrderFulfillmentAddressesHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-order-packing-slip-html" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminOrderPackingSlipHtmlHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-order-buyer-shipping-notify" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminOrderBuyerShippingNotifyHandler(
         { method: "POST", body, headers: req.headers },
         adaptExpressStyleResponse(res),
       );

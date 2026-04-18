@@ -1316,3 +1316,79 @@ body.admin-page {
   background: #fff;
   color: var(--admin-text);
 }
+
+.admin-fulfillment-progress__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.admin-fulfillment-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid var(--admin-border);
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--admin-text);
+  text-align: left;
+  max-width: 11rem;
+}
+
+.admin-fulfillment-tab:disabled,
+.admin-fulfillment-tab--locked {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.admin-fulfillment-tab--active {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.admin-fulfillment-tab--done:not(.admin-fulfillment-tab--active) {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.admin-fulfillment-tab__dot {
+  font-weight: 700;
+  min-width: 1.1rem;
+  text-align: center;
+}
+
+.admin-address-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.65rem;
+}
+
+.admin-address-card {
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+  padding: 0.5rem 0.55rem;
+  background: #fafafa;
+}
+
+.admin-address-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+  font-size: 13px;
+}
+
+.admin-address-card__body {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+tr.admin-order-row--handoff td {
+  background: rgba(34, 197, 94, 0.06);
+}
