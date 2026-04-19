@@ -1769,6 +1769,18 @@ async function init() {
   document.querySelectorAll("[data-close-modal]").forEach((el) => {
     el.addEventListener("click", closeModal);
   });
+
+  /** Modal forms have no server action; Enter in inputs would otherwise submit and reload the page. */
+  document.addEventListener(
+    "submit",
+    (e) => {
+      const form = e.target;
+      if (form && form.tagName === "FORM" && document.getElementById("order-modal")?.contains(form)) {
+        e.preventDefault();
+      }
+    },
+    true,
+  );
 }
 
 async function loadOrders() {
