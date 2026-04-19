@@ -24,6 +24,8 @@ let supabase = null;
 let ordersCache = [];
 /** When set, background Shippo refresh may re-render the open modal for this order id. */
 let modalOpenOrderId = null;
+/** Incremented on each modal open so async hydration cannot overwrite a newer render. */
+let openModalGeneration = 0;
 
 /** slug:bundleId -> label (from /api/products). */
 const bundleLabelBySlugId = new Map();
@@ -2090,7 +2092,106 @@ function formatAddressFromOverrideJson(row, colName) {
   return "";
 }
 
-async function openModal(row, options = {}) {
+/**
+ * Ship-from + signed doc links (async). Must not replace the whole modal — only patch nodes by id.
+ */
+async function hydrateOrderModalAuxiliary(row, gen) {
+  const orderId = row.id;
+  if (gen !== openModalGeneration) {
+    return;
+  }
+  if (String(modalOpenOrderId) !== String(orderId)) {
+    return;
+  }
+
+  const paymentPaid = String(row?.status || "").toLowerCase() === "paid";
+  if (!paymentPaid || !supabase) {
+    return;
+  }
+
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (gen !== openModalGeneration || String(modalOpenOrderId) !== String(orderId)) {
+      return;
+    }
+    if (!session?.access_token) {
+      const shipEl = document.getElementById("admin-modal-ship-from-body");
+      if (shipEl && String(modalOpenOrderId) === String(orderId)) {
+        shipEl.innerHTML = `<p class="admin-muted">Sign in to load warehouse address.</p>`;
+      }
+      return;
+    }
+
+    const [sf, dl] = await Promise.all([
+      fetchReportPost("/api/admin-order-ship-from-display", session.access_token, { orderId }),
+      fetchReportPost("/api/admin-order-fulfillment-doc-links", session.access_token, { orderId }).catch(() => ({})),
+    ]);
+
+    if (gen !== openModalGeneration || String(modalOpenOrderId) !== String(orderId)) {
+      return;
+    }
+
+    const shipEl = document.getElementById("admin-modal-ship-from-body");
+    if (shipEl) {
+      shipEl.innerHTML = `<pre class="admin-address-card" style="margin:0;padding:0.5rem;background:#fafafa;border-radius:6px;white-space:pre-wrap;font-family:inherit">${escapeHtml(sf.formatted)}</pre>`;
+    }
+
+    const labelEl = document.getElementById("admin-ext-label-doc-status");
+    const slipEl = document.getElementById("admin-ext-slip-doc-status");
+    const labelUrl = String(dl?.labelUrl || "").trim();
+    const slipUrl = String(dl?.packingSlipUrl || "").trim();
+
+    if (labelEl) {
+      if (labelUrl) {
+        labelEl.innerHTML = `<a class="admin-btn admin-btn--small" href="${escapeHtml(labelUrl)}" target="_blank" rel="noopener">Download shipping label</a>`;
+        labelEl.removeAttribute("class");
+      } else {
+        labelEl.textContent = "No shipping label file on file yet.";
+        labelEl.className = "admin-muted";
+        labelEl.style.margin = "0.35rem 0 0";
+        labelEl.style.fontSize = "12px";
+      }
+    }
+    if (slipEl) {
+      if (slipUrl) {
+        slipEl.innerHTML = `<a class="admin-btn admin-btn--small" href="${escapeHtml(slipUrl)}" target="_blank" rel="noopener">Download packing slip</a>`;
+        slipEl.removeAttribute("class");
+      } else {
+        slipEl.textContent = "No packing slip file on file yet.";
+        slipEl.className = "admin-muted";
+        slipEl.style.margin = "0.35rem 0 0";
+        slipEl.style.fontSize = "12px";
+      }
+    }
+  } catch {
+    if (gen !== openModalGeneration || String(modalOpenOrderId) !== String(orderId)) {
+      return;
+    }
+    const shipEl = document.getElementById("admin-modal-ship-from-body");
+    if (shipEl) {
+      shipEl.innerHTML = `<p class="admin-error">Could not load warehouse ship-from address.</p>`;
+    }
+    const labelEl = document.getElementById("admin-ext-label-doc-status");
+    const slipEl = document.getElementById("admin-ext-slip-doc-status");
+    if (labelEl) {
+      labelEl.textContent = "Could not load document status.";
+      labelEl.className = "admin-muted";
+      labelEl.style.margin = "0.35rem 0 0";
+      labelEl.style.fontSize = "12px";
+    }
+    if (slipEl) {
+      slipEl.textContent = "Could not load document status.";
+      slipEl.className = "admin-muted";
+      slipEl.style.margin = "0.35rem 0 0";
+      slipEl.style.fontSize = "12px";
+    }
+  }
+}
+
+function openModal(row, options = {}) {
+  const gen = ++openModalGeneration;
   const selectedTab = pickFulfillmentTab(row, options);
   const modalEl = document.getElementById("order-modal");
   if (modalEl) {
@@ -2136,36 +2237,21 @@ async function openModal(row, options = {}) {
 
   const body = document.getElementById("order-modal-body");
 
-  let shipFromHtml = `<p class="admin-muted">—</p>`;
-  let docLinkLabel = "";
-  let docLinkPacking = "";
   const paymentPaid = String(row?.status || "").toLowerCase() === "paid";
-  if (paymentPaid && supabase) {
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session?.access_token) {
-        const sf = await fetchReportPost("/api/admin-order-ship-from-display", session.access_token, { orderId: row.id });
-        shipFromHtml = `<pre class="admin-address-card" style="margin:0;padding:0.5rem;background:#fafafa;border-radius:6px;white-space:pre-wrap;font-family:inherit">${escapeHtml(sf.formatted)}</pre>`;
-        try {
-          const dl = await fetchReportPost("/api/admin-order-fulfillment-doc-links", session.access_token, { orderId: row.id });
-          if (dl.labelUrl) {
-            docLinkLabel = dl.labelUrl;
-          }
-          if (dl.packingSlipUrl) {
-            docLinkPacking = dl.packingSlipUrl;
-          }
-        } catch {
-          /* no files yet */
-        }
-      }
-    } catch {
-      shipFromHtml = `<p class="admin-error">Could not load warehouse ship-from address.</p>`;
-    }
-  } else if (paymentPaid) {
+  let shipFromHtml = `<p class="admin-muted">—</p>`;
+  if (paymentPaid && !supabase) {
     shipFromHtml = `<p class="admin-muted">Sign in to load warehouse address.</p>`;
+  } else if (paymentPaid && supabase) {
+    shipFromHtml = `<p class="admin-muted">Loading warehouse address…</p>`;
   }
+
+  const needsAuxHydration = paymentPaid && Boolean(supabase);
+  const labelBelowFile = needsAuxHydration
+    ? `<p id="admin-ext-label-doc-status" class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">Loading…</p>`
+    : `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">No shipping label file on file yet.</p>`;
+  const slipBelowFile = needsAuxHydration
+    ? `<p id="admin-ext-slip-doc-status" class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">Loading…</p>`
+    : `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">No packing slip file on file yet.</p>`;
 
   const ovFrom = (() => {
     const raw = row?.shippo_from_address_override_json;
@@ -2194,15 +2280,9 @@ async function openModal(row, options = {}) {
       ? escapeHtml(String(Number(row.admin_external_label_cost_cents) / 100))
       : "";
 
-  const labelBelowFile = docLinkLabel
-    ? `<p style="margin:0.35rem 0 0"><a class="admin-btn admin-btn--small" href="${escapeHtml(docLinkLabel)}" target="_blank" rel="noopener">Download shipping label</a></p>`
-    : `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">No shipping label file on file yet.</p>`;
-  const slipBelowFile = docLinkPacking
-    ? `<p style="margin:0.35rem 0 0"><a class="admin-btn admin-btn--small" href="${escapeHtml(docLinkPacking)}" target="_blank" rel="noopener">Download packing slip</a></p>`
-    : `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">No packing slip file on file yet.</p>`;
-
   const canMarkShipped = paymentPaid && !isOrderShipped(row) && manualFulfillmentRecordComplete(row);
 
+  let modalMainRenderOk = false;
   try {
     body.innerHTML = `
     <h2>${escapeHtml(row.order_ref || "Order")}</h2>
@@ -2224,7 +2304,7 @@ async function openModal(row, options = {}) {
         <pre style="margin:0 0 1rem;font-family:inherit;font-size:13px">${escapeHtml(row.customer_name || "—")}\n${escapeHtml(row.customer_email || "—")}\n${escapeHtml(row.customer_phone || "—")}</pre>
         <h4 class="admin-muted" style="margin:0 0 0.35rem;font-size:12px;text-transform:uppercase">Ship from</h4>
         <div class="admin-address-row">
-          <div class="admin-address-row__body">${shipFromHtml}</div>
+          <div class="admin-address-row__body" id="admin-modal-ship-from-body">${shipFromHtml}</div>
           ${
             canEditAddresses
               ? `<button type="button" class="admin-icon-btn" data-toggle-from-override aria-label="Edit ship-from" title="Edit ship-from"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
@@ -2365,6 +2445,7 @@ Subtotal ${escapeHtml(fmt(row.subtotal_cents))} · Shipping ${escapeHtml(fmt(row
         : ""
     }
   `;
+    modalMainRenderOk = true;
   } catch (e) {
     console.error("[admin] openModal render", e);
     body.innerHTML = `
@@ -2373,6 +2454,7 @@ Subtotal ${escapeHtml(fmt(row.subtotal_cents))} · Shipping ${escapeHtml(fmt(row
         <p><strong>Could not render order details</strong></p>
         <p style="margin-top:0.35rem">${escapeHtml(String(e?.message || e || "Error"))}</p>
       </div>`;
+    modalMainRenderOk = false;
   }
   modalOpenOrderId = String(row.id);
   document.getElementById("order-modal").hidden = false;
@@ -2387,9 +2469,13 @@ Subtotal ${escapeHtml(fmt(row.subtotal_cents))} · Shipping ${escapeHtml(fmt(row
       }, 4500);
     }
   }
+  if (modalMainRenderOk) {
+    void hydrateOrderModalAuxiliary(row, gen);
+  }
 }
 
 function closeModal() {
+  openModalGeneration++;
   modalOpenOrderId = null;
   const m = document.getElementById("order-modal");
   if (m) {

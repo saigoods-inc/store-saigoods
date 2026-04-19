@@ -616,6 +616,8 @@ body.admin-page {
 .admin-modal__panel {
   position: relative;
   z-index: 2;
+  isolation: isolate;
+  pointer-events: auto;
   background: var(--admin-card);
   border-radius: 8px;
   max-width: 520px;
