@@ -941,7 +941,7 @@ function bindModalShippoActions() {
   document.body.dataset.shippoModalBound = "1";
 
   document.addEventListener("click", (e) => {
-    const fulfillTab = e.target.closest("[data-fulfillment-tab]");
+    const fulfillTab = e.target.closest(".admin-fulfillment-progress__tabs button[data-fulfillment-tab]");
     if (fulfillTab && !fulfillTab.disabled) {
       e.preventDefault();
       const modal = document.getElementById("order-modal");
@@ -2203,6 +2203,23 @@ async function hydrateOrderModalAuxiliary(row, gen) {
 }
 
 function openModal(row, options = {}) {
+  const opts = options && typeof options === "object" ? options : {};
+  const isBareOptions = Object.keys(opts).length === 0;
+  if (isBareOptions) {
+    const modalEl = document.getElementById("order-modal");
+    const bodyEl = document.getElementById("order-modal-body");
+    if (
+      modalEl &&
+      !modalEl.hidden &&
+      String(modalOpenOrderId) === String(row.id) &&
+      bodyEl &&
+      document.activeElement &&
+      bodyEl.contains(document.activeElement)
+    ) {
+      return;
+    }
+  }
+
   const gen = ++openModalGeneration;
   const selectedTab = pickFulfillmentTab(row, options);
   const modalEl = document.getElementById("order-modal");
@@ -2257,13 +2274,8 @@ function openModal(row, options = {}) {
     shipFromHtml = `<p class="admin-muted">Loading warehouse address…</p>`;
   }
 
-  const needsAuxHydration = paymentPaid && Boolean(supabase);
-  const labelBelowFile = needsAuxHydration
-    ? `<p id="admin-ext-label-doc-status" class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">Loading…</p>`
-    : `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">No shipping label file on file yet.</p>`;
-  const slipBelowFile = needsAuxHydration
-    ? `<p id="admin-ext-slip-doc-status" class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">Loading…</p>`
-    : `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">No packing slip file on file yet.</p>`;
+  const labelBelowFile = `<p id="admin-ext-label-doc-status" class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">No shipping label file on file yet.</p>`;
+  const slipBelowFile = `<p id="admin-ext-slip-doc-status" class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">No packing slip file on file yet.</p>`;
 
   const ovFrom = (() => {
     const raw = row?.shippo_from_address_override_json;
