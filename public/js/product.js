@@ -1,4 +1,4 @@
-import { bundleCardPriceRowHtml, formatCurrency, getProduct } from "./catalog.js";
+import { bundleCardPricePerHtml, formatCurrency, getProduct } from "./catalog.js";
 import { getCart, setProductQuantities } from "./cart-store.js";
 import { formatBundleCardSizeSummaryHtml, perBundleSummaryMap } from "./bundle-size-summary.js";
 import { responsiveRasterImg } from "./image-utils.js";
@@ -399,7 +399,8 @@ function renderBundleCard(b, err) {
       <div class="bundle-card__row">
         <button type="button" class="bundle-card__main" data-action="bundle-select" data-bundle-id="${id}" aria-label="Select ${escapeHtml(b.label)}, ${formatCurrency(b.priceCents)} total">
           <span class="bundle-card__title">${escapeHtml(b.label)}</span>
-          ${bundleCardPriceRowHtml(b.priceCents, b.units, kind)}
+          <span class="bundle-card__price-total">${formatCurrency(b.priceCents)}</span>
+          ${bundleCardPricePerHtml(b.priceCents, b.units, kind)}
         </button>
         <div class="bundle-card__stepper qty-control qty-control--round">
           <button type="button" data-action="bundle-decrease" data-bundle-id="${id}" aria-label="Decrease ${escapeHtml(b.label)} packs">−</button>

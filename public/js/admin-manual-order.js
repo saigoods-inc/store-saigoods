@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
-import { bundleCardPriceRowHtml, formatCurrency } from "./catalog.js";
+import { bundleCardPricePerHtml, formatCurrency } from "./catalog.js";
 import { formatBundleCardSizeSummaryHtml, perBundleSummaryMap } from "./bundle-size-summary.js";
 import { isBundleAllocationValid, requiredUnitsFromBundleLines } from "./bundle-validation.js";
 import {
@@ -516,7 +516,8 @@ function renderBundleCard(product, st, b, err) {
       <div class="bundle-card__row">
         <button type="button" class="bundle-card__main" data-action="bundle-select" data-slug="${escapeHtml(product.slug)}" data-bundle-id="${id}" aria-label="Select ${escapeHtml(b.label)}, ${formatCurrency(b.priceCents)} total">
           <span class="bundle-card__title">${escapeHtml(b.label)}</span>
-          ${bundleCardPriceRowHtml(b.priceCents, b.units, kind)}
+          <span class="bundle-card__price-total">${formatCurrency(b.priceCents)}</span>
+          ${bundleCardPricePerHtml(b.priceCents, b.units, kind)}
         </button>
         <div class="bundle-card__stepper qty-control qty-control--round">
           <button type="button" data-action="bundle-decrease" data-slug="${escapeHtml(product.slug)}" data-bundle-id="${id}" aria-label="Decrease ${escapeHtml(b.label)} packs">−</button>
