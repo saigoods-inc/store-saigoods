@@ -97,12 +97,12 @@
           "label": "30 cases",
           "kind": "case",
           "units": 30,
-          "priceCents": 193199,
-          "hardinPriceCents": 193199,
+          "priceCents": 191099,
+          "hardinPriceCents": 191099,
           "builtInShippingPerCaseCents": 1900,
           "builtInShippingTotalCents": 57000,
-          "expectedProfitCents": 26786,
-          "saveCents": 10771
+          "expectedProfitCents": 24753,
+          "saveCents": 12871
         }
       ],
       "cardImage": "/img/nitrile-sale-page.png",
@@ -234,12 +234,12 @@
           "label": "30 cases",
           "kind": "case",
           "units": 30,
-          "priceCents": 211399,
-          "hardinPriceCents": 211399,
+          "priceCents": 209199,
+          "hardinPriceCents": 209199,
           "builtInShippingPerCaseCents": 2200,
           "builtInShippingTotalCents": 66000,
-          "expectedProfitCents": 30305,
-          "saveCents": 10571
+          "expectedProfitCents": 28176,
+          "saveCents": 12771
         }
       ],
       "cardImage": "/img/nitrile-general-sale-page.png",
@@ -373,12 +373,12 @@
           "label": "30 cases",
           "kind": "case",
           "units": 30,
-          "priceCents": 417399,
-          "hardinPriceCents": 417399,
+          "priceCents": 414299,
+          "hardinPriceCents": 414299,
           "builtInShippingPerCaseCents": 3300,
           "builtInShippingTotalCents": 99000,
-          "expectedProfitCents": 158334,
-          "saveCents": 11571
+          "expectedProfitCents": 155333,
+          "saveCents": 14671
         }
       ],
       "cardImage": "/img/nitrile-heavy-duty-sale-page.png",

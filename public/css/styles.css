@@ -1269,6 +1269,15 @@ button {
   font: inherit;
 }
 
+.bundle-card__label {
+  display: block;
+  font-size: var(--fs-body-secondary);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--leading-snug);
+  color: var(--muted);
+  margin-bottom: 0.15rem;
+}
+
 .bundle-card__title {
   display: block;
   font-size: var(--fs-body);

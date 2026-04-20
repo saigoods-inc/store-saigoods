@@ -328,6 +328,23 @@ function focusBundleForAllocationError() {
 }
 
 /**
+ * Bundle name + total (title size) + optional per-case/per-box line (old price size).
+ * @param {{ id: string, label: string, kind?: string, units?: number, priceCents?: number }} b
+ */
+function bundlePriceBlockHtml(b) {
+  const units = Math.max(1, Math.floor(Number(b.units) || 1));
+  const kind = String(b.kind || "").toLowerCase();
+  const unitLabel = kind === "box" ? "box" : "case";
+  const label = escapeHtml(b.label);
+  const total = formatCurrency(b.priceCents);
+  if (units <= 1) {
+    return `<span class="bundle-card__label">${label}</span><span class="bundle-card__title">${total}</span>`;
+  }
+  const perCents = Math.round(Number(b.priceCents) / units);
+  return `<span class="bundle-card__label">${label}</span><span class="bundle-card__title">${total}</span><span class="bundle-card__price">${formatCurrency(perCents)}/${unitLabel}</span>`;
+}
+
+/**
  * @param {{ showBoxError: boolean, showCaseError: boolean, boxHint: string, caseHint: string }} err
  */
 function renderBundleCard(b, err) {
@@ -397,9 +414,8 @@ function renderBundleCard(b, err) {
     <div class="bundle-card${selected}" data-bundle-id="${id}">
       <div class="bundle-card__badges" aria-hidden="true">${badgePopular}${badgeSave}</div>
       <div class="bundle-card__row">
-        <button type="button" class="bundle-card__main" data-action="bundle-select" data-bundle-id="${id}" aria-label="Select ${escapeHtml(b.label)}">
-          <span class="bundle-card__title">${escapeHtml(b.label)}</span>
-          <span class="bundle-card__price">${formatCurrency(b.priceCents)}/bundle</span>
+        <button type="button" class="bundle-card__main" data-action="bundle-select" data-bundle-id="${id}" aria-label="Select ${escapeHtml(b.label)}, ${formatCurrency(b.priceCents)}">
+          ${bundlePriceBlockHtml(b)}
         </button>
         <div class="bundle-card__stepper qty-control qty-control--round">
           <button type="button" data-action="bundle-decrease" data-bundle-id="${id}" aria-label="Decrease ${escapeHtml(b.label)} packs">−</button>
