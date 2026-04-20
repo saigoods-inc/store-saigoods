@@ -107,6 +107,37 @@
         </article>
       </section>
 
+      <p class="admin-muted" style="margin: -0.5rem 0 0.75rem">
+        Merchandise economics use the snapshot saved on each order (expected profit and built-in shipping from catalog at
+        order time). Actual realized profit needs a recorded label/shipping cost; until then it stays pending per order.
+      </p>
+      <section class="summary-kpi-grid" id="summary-profit-kpi-grid" aria-label="Merchandise profit snapshot">
+        <article class="summary-kpi-card">
+          <p class="summary-kpi-card__label">Orders with profit snapshot</p>
+          <p id="kpi-profit-snapshot-orders" class="summary-kpi-card__value">—</p>
+        </article>
+        <article class="summary-kpi-card">
+          <p class="summary-kpi-card__label">Expected profit (snapshot)</p>
+          <p id="kpi-expected-profit" class="summary-kpi-card__value">—</p>
+        </article>
+        <article class="summary-kpi-card">
+          <p class="summary-kpi-card__label">Built-in shipping allowance</p>
+          <p id="kpi-built-in-shipping" class="summary-kpi-card__value">—</p>
+        </article>
+        <article class="summary-kpi-card">
+          <p class="summary-kpi-card__label">Shipping variance (known)</p>
+          <p id="kpi-shipping-variance" class="summary-kpi-card__value">—</p>
+        </article>
+        <article class="summary-kpi-card">
+          <p class="summary-kpi-card__label">Discount loss (merchandise)</p>
+          <p id="kpi-discount-loss" class="summary-kpi-card__value">—</p>
+        </article>
+        <article class="summary-kpi-card summary-kpi-card--net">
+          <p class="summary-kpi-card__label">Actual realized profit (complete)</p>
+          <p id="kpi-realized-profit" class="summary-kpi-card__value">—</p>
+        </article>
+      </section>
+
       <section class="summary-chart-grid">
         <article class="summary-card summary-chart-card">
           <header class="summary-card__header">
@@ -205,7 +236,13 @@
                   <th>Customer</th>
                   <th>Date</th>
                   <th>Revenue</th>
-                  <th>Shipping expense</th>
+                  <th>List merch.</th>
+                  <th>Expected profit</th>
+                  <th>Built-in ship</th>
+                  <th>Act. shipping</th>
+                  <th>Ship variance</th>
+                  <th>Discount loss</th>
+                  <th>Realized profit</th>
                   <th>Platform fee</th>
                   <th>Net</th>
                 </tr>

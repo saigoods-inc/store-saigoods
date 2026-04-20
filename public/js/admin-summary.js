@@ -82,6 +82,16 @@ function renderKpis(summary) {
   setKpiText("kpi-aov", fmtCents(k.averageOrderValueCents));
   setKpiText("kpi-avg-shipping", fmtCents(k.averageShippingPerOrderCents));
   setKpiText("kpi-avg-platform-fee", fmtCents(k.averagePlatformFeePerOrderCents));
+
+  const snapN = Number(k.profitSnapshotOrders) || 0;
+  setKpiText("kpi-profit-snapshot-orders", snapN ? String(snapN) : "—");
+  setKpiText("kpi-expected-profit", snapN ? fmtCents(k.totalExpectedProfitCents) : "—");
+  setKpiText("kpi-built-in-shipping", snapN ? fmtCents(k.totalBuiltInShippingAllowanceCents) : "—");
+  const varN = Number(k.shippingVarianceOrders) || 0;
+  setKpiText("kpi-shipping-variance", varN ? fmtCents(k.totalShippingVarianceCents) : "—");
+  setKpiText("kpi-discount-loss", snapN ? fmtCents(k.totalDiscountLossCents) : "—");
+  const rN = Number(k.realizedProfitOrders) || 0;
+  setKpiText("kpi-realized-profit", rN ? fmtCents(k.totalActualRealizedProfitCents) : "—");
 }
 
 function renderShippingTables(summary) {
@@ -140,21 +150,38 @@ function renderPlatformAndRecent(summary) {
     return;
   }
   if (!recent.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="summary-empty">No paid orders in this range.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="13" class="summary-empty">No paid orders in this range.</td></tr>`;
     return;
   }
   tbody.innerHTML = recent
-    .map(
-      (row) => `<tr>
+    .map((row) => {
+      const listM = row.listMerchandiseSubtotalCents;
+      const expP = row.expectedProfitCents;
+      const built = row.builtInShippingAllowanceCents;
+      const shipV = row.shippingVarianceCents;
+      const disc = row.discountLossCents;
+      let realizedCell = "—";
+      if (row.actualRealizedProfitPending && expP != null) {
+        realizedCell = escapeHtml(`Pending (${fmtCents(expP)} expected)`);
+      } else if (row.actualRealizedProfitCents != null) {
+        realizedCell = escapeHtml(fmtCents(row.actualRealizedProfitCents));
+      }
+      return `<tr>
         <td>${escapeHtml(row.orderRef || "—")}</td>
         <td>${escapeHtml(row.customer || "—")}</td>
         <td>${escapeHtml(fmtDateTime(row.paidAt))}</td>
         <td>${escapeHtml(fmtCents(row.revenueCents || 0))}</td>
-        <td>${escapeHtml(row.shippingExpenseCents == null ? "—" : fmtCents(row.shippingExpenseCents))}</td>
+        <td>${listM == null ? "—" : escapeHtml(fmtCents(listM))}</td>
+        <td>${expP == null ? "—" : escapeHtml(fmtCents(expP))}</td>
+        <td>${built == null ? "—" : escapeHtml(fmtCents(built))}</td>
+        <td>${row.shippingExpenseCents == null ? "—" : escapeHtml(fmtCents(row.shippingExpenseCents))}</td>
+        <td>${shipV == null ? "—" : escapeHtml(fmtCents(shipV))}</td>
+        <td>${escapeHtml(fmtCents(disc || 0))}</td>
+        <td>${realizedCell}</td>
         <td>${escapeHtml(fmtCents(row.platformFeeCents || 0))}</td>
         <td>${escapeHtml(fmtCents(row.netCents || 0))}</td>
-      </tr>`,
-    )
+      </tr>`;
+    })
     .join("");
 }
 

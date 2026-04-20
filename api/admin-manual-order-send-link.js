@@ -1,5 +1,6 @@
 import { claimDiscountCodeForOrder, normalizeDiscountCode, releaseDiscountCodeForOrder } from "../lib/discount-codes.js";
 import { computeCheckoutEstimate, checkoutFlowErrorJsonFields } from "../lib/checkout-estimate-logic.js";
+import { computeEconomicsSnapshotForOrder } from "../lib/order-economics.js";
 import { sendManualOrderPaymentLinkEmail } from "../lib/manual-order-payment-email.js";
 import {
   getOrderByIdForService,
@@ -37,6 +38,7 @@ async function syncOrderTotalsFromQuote(client, orderId, quote) {
       tax_collected: taxCollected,
       admin_local_discount_override: Boolean(quote.adminLocalDiscountForced),
       updated_at: new Date().toISOString(),
+      ...computeEconomicsSnapshotForOrder(quote.items, quote),
     })
     .eq("id", orderId);
 
