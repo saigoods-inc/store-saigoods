@@ -45,6 +45,22 @@ export function formatCurrency(cents) {
   return currencyFormatter.format(Number(cents || 0) / 100);
 }
 
+/**
+ * Bundle card second line: total price (large) + per-box or per-case (small), side by side.
+ * @param {number} priceCents
+ * @param {number} units
+ * @param {string} kind — "box" | "case"
+ */
+export function bundleCardPriceRowHtml(priceCents, units, kind) {
+  const u = Math.max(1, Math.floor(Number(units) || 0));
+  const perCents = Math.round(Number(priceCents) / u);
+  const k = String(kind || "").toLowerCase();
+  const suffix = k === "box" ? "/box" : "/case";
+  return `<div class="bundle-card__price-row"><span class="bundle-card__price-total">${formatCurrency(
+    priceCents,
+  )}</span><span class="bundle-card__price-per">${formatCurrency(perCents)}${suffix}</span></div>`;
+}
+
 export function formatCaseLabel(count) {
   return `${count} case${count === 1 ? "" : "s"}`;
 }

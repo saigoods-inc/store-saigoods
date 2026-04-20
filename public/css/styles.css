@@ -1269,15 +1269,6 @@ button {
   font: inherit;
 }
 
-.bundle-card__label {
-  display: block;
-  font-size: var(--fs-body-secondary);
-  font-weight: var(--font-weight-bold);
-  line-height: var(--leading-snug);
-  color: var(--muted);
-  margin-bottom: 0.15rem;
-}
-
 .bundle-card__title {
   display: block;
   font-size: var(--fs-body);
@@ -1285,11 +1276,26 @@ button {
   line-height: var(--leading-snug);
 }
 
-.bundle-card__price {
-  display: block;
+.bundle-card__price-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.75rem;
   margin-top: 0.2rem;
+}
+
+.bundle-card__price-total {
+  font-size: var(--fs-body);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--leading-snug);
+  color: inherit;
+}
+
+.bundle-card__price-per {
   font-size: var(--fs-body-secondary);
   color: var(--muted);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--leading-snug);
 }
 
 .bundle-card__stepper {
