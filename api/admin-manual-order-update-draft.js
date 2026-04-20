@@ -1,5 +1,5 @@
 import { formatShippingAddressForOrder } from "../lib/checkout-totals.js";
-import { computeCheckoutEstimate } from "../lib/checkout-estimate-logic.js";
+import { computeCheckoutEstimate, checkoutFlowErrorJsonFields } from "../lib/checkout-estimate-logic.js";
 import { isHardinCountyTnDelivery } from "../lib/hardin-county.js";
 import { updateManualOrderDraft } from "../lib/orders.js";
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
@@ -65,17 +65,20 @@ export default async function handler(req, res) {
       return;
     }
 
+    const rawBody = req.body || {};
     const estimateBody = {
       items: parsed.items,
       address: parsed.address,
       applyEligibleLocalDiscount: parsed.applyEligibleLocalDiscount,
       forceApplyEligibleLocalDiscount: parsed.adminLocalDiscountOverride,
+      ...(rawBody.forceStockOverride === true ? { forceStockOverride: true } : {}),
     };
 
     const quote = await computeCheckoutEstimate(estimateBody, {
       requireCompleteAddress: true,
       adminLocalDiscount: true,
       strictShippo: false,
+      allowForceStockOverride: true,
     });
 
     const zipOk = isHardinCountyTnDelivery(parsed.address);
@@ -112,6 +115,9 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error(error);
-    res.status(error.statusCode || 500).json({ error: error.message || "Could not update draft." });
+    res.status(error.statusCode || 500).json({
+      error: error.message || "Could not update draft.",
+      ...checkoutFlowErrorJsonFields(error),
+    });
   }
 }

@@ -1,4 +1,4 @@
-import { computeCheckoutEstimate } from "../lib/checkout-estimate-logic.js";
+import { computeCheckoutEstimate, checkoutFlowErrorJsonFields } from "../lib/checkout-estimate-logic.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -14,8 +14,7 @@ export default async function handler(req, res) {
     const status = error.statusCode || 500;
     res.status(status).json({
       error: error.message || "Estimate failed.",
-      ...(error.addressValidation ? { addressValidation: error.addressValidation } : {}),
-      ...(error.fieldErrors && Object.keys(error.fieldErrors).length ? { fieldErrors: error.fieldErrors } : {}),
+      ...checkoutFlowErrorJsonFields(error),
     });
   }
 }

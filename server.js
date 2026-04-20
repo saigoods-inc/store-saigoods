@@ -6,8 +6,10 @@ import { fileURLToPath } from "node:url";
 import { enrichCartQuoteApiResponse } from "./lib/cart-api-response.js";
 import { fetchNexusSummaryRows, fetchTaxSummaryTnRows } from "./lib/orders.js";
 import { buildQuote } from "./lib/quote.js";
+import { mergeInventoryIntoProduct, mergeInventoryIntoStore } from "./lib/stock.js";
 import { assertReportsAuthorized } from "./lib/reports-auth.js";
 import adminDiscountCodesHandler from "./api/admin-discount-codes.js";
+import adminStockHandler from "./api/admin-stock.js";
 import adminManualOrderCreateHandler from "./api/admin-manual-order-create.js";
 import adminManualOrderDeleteDraftHandler from "./api/admin-manual-order-delete-draft.js";
 import adminManualOrderDraftsHandler from "./api/admin-manual-order-drafts.js";
@@ -95,18 +97,19 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/api/products" && req.method === "GET") {
       // Always read from disk so site metadata (phone, address, etc.) updates without restarting Node.
-      return sendJson(res, 200, readStoreData());
+      return sendJson(res, 200, mergeInventoryIntoStore(readStoreData()));
     }
 
     if (pathname.startsWith("/api/products/") && req.method === "GET") {
       const slug = pathname.replace("/api/products/", "");
-      const product = productMap.get(slug);
+      const fresh = readStoreData();
+      const product = fresh.products.find((p) => p.slug === slug);
 
       if (!product) {
         return sendJson(res, 404, { error: "Product not found." });
       }
 
-      return sendJson(res, 200, product);
+      return sendJson(res, 200, mergeInventoryIntoProduct(product));
     }
 
     if (pathname === "/api/cart/quote" && req.method === "POST") {
@@ -198,6 +201,15 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/admin-discount-codes" && req.method === "GET") {
       await adminDiscountCodesHandler(
         { method: "GET", headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin/stock" && (req.method === "GET" || req.method === "POST")) {
+      const body = req.method === "POST" ? await readJsonBody(req) : undefined;
+      await adminStockHandler(
+        { method: req.method, headers: req.headers, body },
         adaptExpressStyleResponse(res),
       );
       return;
@@ -538,6 +550,14 @@ const server = createServer(async (req, res) => {
       pathname === "/admin/walk-in-order.html"
     ) {
       return serveFile(res, path.join(publicDir, "admin", "walk-in-order.html"), req.method);
+    }
+
+    if (
+      pathname === "/admin/inventory" ||
+      pathname === "/admin/inventory/" ||
+      pathname === "/admin/inventory.html"
+    ) {
+      return serveFile(res, path.join(publicDir, "admin", "inventory.html"), req.method);
     }
 
     if (pathname === "/" || pathname === "/index.html") {

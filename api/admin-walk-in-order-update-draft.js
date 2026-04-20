@@ -1,5 +1,5 @@
 import { formatShippingAddressForOrder } from "../lib/checkout-totals.js";
-import { computeCheckoutEstimate } from "../lib/checkout-estimate-logic.js";
+import { computeCheckoutEstimate, checkoutFlowErrorJsonFields } from "../lib/checkout-estimate-logic.js";
 import { updateWalkInOrderDraft } from "../lib/orders.js";
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
 import { WALK_IN_PICKUP_ADDRESS } from "../lib/walk-in-pickup.js";
@@ -53,10 +53,12 @@ export default async function handler(req, res) {
       return;
     }
 
+    const rawBody = req.body || {};
     const estimateBody = {
       items: parsed.items,
       address: WALK_IN_PICKUP_ADDRESS,
       applyEligibleLocalDiscount: parsed.applyEligibleLocalDiscount,
+      ...(rawBody.forceStockOverride === true ? { forceStockOverride: true } : {}),
     };
 
     const quote = await computeCheckoutEstimate(estimateBody, {
@@ -64,6 +66,7 @@ export default async function handler(req, res) {
       adminLocalDiscount: true,
       walkInPickup: true,
       strictShippo: false,
+      allowForceStockOverride: true,
     });
 
     const hardinDiscount =
@@ -99,6 +102,9 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error(error);
-    res.status(error.statusCode || 500).json({ error: error.message || "Could not update draft." });
+    res.status(error.statusCode || 500).json({
+      error: error.message || "Could not update draft.",
+      ...checkoutFlowErrorJsonFields(error),
+    });
   }
 }

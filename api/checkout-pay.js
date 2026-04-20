@@ -11,6 +11,8 @@ import { cancelPendingOrderAfterPaymentFailure, createPendingOrder, markOrderPai
 import { sendResendOrderConfirmation } from "../lib/resend-order-confirmation.js";
 import { syncWebsiteOrderToShippo } from "../lib/shippo-order-sync.js";
 import { createCardPayment } from "../lib/square.js";
+import { assertStockAvailableForItems } from "../lib/stock.js";
+import { checkoutFlowErrorJsonFields } from "../lib/checkout-estimate-logic.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -70,6 +72,7 @@ export default async function handler(req, res) {
       hardinDiscount = { code: normalizedCode, applied: true };
     }
 
+    assertStockAvailableForItems(parsed.items);
     const quote = await buildFullCheckoutQuote(parsed.items, mergedAddress, {
       pricingTier,
       shippingContext: addrCheck.shippingContext,
@@ -158,8 +161,7 @@ export default async function handler(req, res) {
     console.error(error);
     res.status(error.statusCode || 500).json({
       error: error.message || "Payment could not be completed.",
-      ...(error.addressValidation ? { addressValidation: error.addressValidation } : {}),
-      ...(error.fieldErrors && Object.keys(error.fieldErrors).length ? { fieldErrors: error.fieldErrors } : {}),
+      ...checkoutFlowErrorJsonFields(error),
     });
   }
 }

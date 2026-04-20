@@ -1,5 +1,5 @@
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
-import { computeCheckoutEstimate } from "../lib/checkout-estimate-logic.js";
+import { computeCheckoutEstimate, checkoutFlowErrorJsonFields } from "../lib/checkout-estimate-logic.js";
 import { WALK_IN_PICKUP_ADDRESS } from "../lib/walk-in-pickup.js";
 
 export default async function handler(req, res) {
@@ -21,11 +21,15 @@ export default async function handler(req, res) {
         adminLocalDiscount: true,
         walkInPickup: true,
         strictShippo: false,
+        allowForceStockOverride: true,
       },
     );
     res.status(200).json(json);
   } catch (error) {
     console.error(error);
-    res.status(error.statusCode || 500).json({ error: error.message || "Estimate failed." });
+    res.status(error.statusCode || 500).json({
+      error: error.message || "Estimate failed.",
+      ...checkoutFlowErrorJsonFields(error),
+    });
   }
 }

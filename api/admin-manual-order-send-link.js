@@ -1,5 +1,5 @@
 import { claimDiscountCodeForOrder, normalizeDiscountCode, releaseDiscountCodeForOrder } from "../lib/discount-codes.js";
-import { computeCheckoutEstimate } from "../lib/checkout-estimate-logic.js";
+import { computeCheckoutEstimate, checkoutFlowErrorJsonFields } from "../lib/checkout-estimate-logic.js";
 import { sendManualOrderPaymentLinkEmail } from "../lib/manual-order-payment-email.js";
 import {
   getOrderByIdForService,
@@ -101,12 +101,14 @@ export default async function handler(req, res) {
       applyEligibleLocalDiscount: adminAddressHardin,
       forceApplyEligibleLocalDiscount:
         adminAddressHardin && order.admin_local_discount_override === true,
+      ...(req.body?.forceStockOverride === true ? { forceStockOverride: true } : {}),
     };
 
     const quote = await computeCheckoutEstimate(estimateBody, {
       requireCompleteAddress: true,
       adminLocalDiscount: adminAddressHardin,
       strictShippo: false,
+      allowForceStockOverride: true,
     });
 
     const client = getServiceClient();
@@ -180,6 +182,9 @@ export default async function handler(req, res) {
     }
   } catch (error) {
     console.error(error);
-    res.status(error.statusCode || 500).json({ error: error.message || "Could not send payment link." });
+    res.status(error.statusCode || 500).json({
+      error: error.message || "Could not send payment link.",
+      ...checkoutFlowErrorJsonFields(error),
+    });
   }
 }

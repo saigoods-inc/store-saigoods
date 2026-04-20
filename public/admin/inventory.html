@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Inventory — SAI Goods (staff)</title>
+    <link rel="stylesheet" href="/css/admin-orders.css" />
+  </head>
+  <body class="admin-page">
+    <div id="admin-login" class="admin-login" hidden>
+      <div class="admin-login__box">
+        <h1>Staff login</h1>
+        <p class="admin-muted">Sign in with your Supabase account to view and edit stock.</p>
+        <form id="login-form">
+          <label>
+            Email
+            <input type="email" name="email" autocomplete="username" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" autocomplete="current-password" required />
+          </label>
+          <p id="login-error" class="admin-error" role="alert" hidden></p>
+          <button type="submit" class="admin-btn admin-btn--primary">Sign in</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="admin-app" class="admin-app" hidden>
+      <header class="admin-header">
+        <div>
+          <h1>Inventory</h1>
+          <p class="admin-muted">
+            Tracked lines block checkout when you are out of stock. Counts go down when you mark an order
+            <strong>shipped</strong> in Orders (after label details are saved). Walk-in register sales reduce stock when
+            marked paid. Use this page to set counts, turn tracking on/off, or correct mistakes.
+          </p>
+        </div>
+        <div class="admin-header__actions">
+          <span id="admin-user-email" class="admin-muted"></span>
+          <button type="button" id="admin-logout" class="admin-btn">Sign out</button>
+        </div>
+      </header>
+
+      <div id="admin-nav"></div>
+
+      <div class="admin-toolbar admin-toolbar--wrap">
+        <button type="button" id="admin-refresh" class="admin-btn">Refresh</button>
+      </div>
+
+      <p id="admin-load-error" class="admin-error" role="alert" hidden></p>
+      <p id="admin-save-toast" class="admin-inline-toast admin-inline-toast--success" role="status" hidden></p>
+      <div id="admin-loading" class="admin-loading" hidden>Loading…</div>
+
+      <div class="admin-table-wrap">
+        <table class="admin-table" id="stock-table">
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Size</th>
+              <th>Channel</th>
+              <th>On hand</th>
+              <th>Reserved</th>
+              <th>Track</th>
+              <th>SKU</th>
+            </tr>
+          </thead>
+          <tbody id="stock-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="admin-modal__section" style="margin-top: 2rem; max-width: 36rem">
+        <h2 class="admin-modal__section-title">Add or update a line</h2>
+        <p class="admin-muted" style="margin-top: 0">
+          Choose product, size, and case vs box. Set <strong>on hand</strong> to the total you have now. Check
+          <strong>track stock</strong> to enforce limits on the website checkout.
+        </p>
+        <form id="stock-edit-form" style="display: flex; flex-direction: column; gap: 0.75rem; max-width: 22rem">
+          <label>
+            Product
+            <select id="edit-slug" required></select>
+          </label>
+          <label>
+            Size
+            <select id="edit-size" required></select>
+          </label>
+          <label>
+            Channel
+            <select id="edit-channel" required>
+              <option value="case">Case</option>
+              <option value="box">Box</option>
+            </select>
+          </label>
+          <label>
+            On hand
+            <input id="edit-on-hand" type="number" min="0" step="1" value="0" required />
+          </label>
+          <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal">
+            <input id="edit-track" type="checkbox" />
+            Track stock (enforce on checkout)
+          </label>
+          <label>
+            SKU (optional)
+            <input id="edit-sku" type="text" autocomplete="off" />
+          </label>
+          <div>
+            <button type="submit" class="admin-btn admin-btn--primary" id="edit-save">Save line</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script type="module" src="/js/admin-inventory.js"></script>
+  </body>
+</html>
