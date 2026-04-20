@@ -1,5 +1,5 @@
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
-import { createSignedFulfillmentDocUrl } from "../lib/admin-external-fulfillment.js";
+import { createSignedFulfillmentDocUrls } from "../lib/admin-external-fulfillment.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -13,16 +13,24 @@ export default async function handler(req, res) {
       res.status(400).json({ error: "orderId is required." });
       return;
     }
-    const out = { ok: true, labelUrl: null, packingSlipUrl: null };
+    const out = {
+      ok: true,
+      labelUrls: [],
+      packingSlipUrls: [],
+      labelUrl: null,
+      packingSlipUrl: null,
+    };
     try {
-      const r = await createSignedFulfillmentDocUrl(orderId, "label");
-      out.labelUrl = r.url;
+      const r = await createSignedFulfillmentDocUrls(orderId, "label");
+      out.labelUrls = r.urls;
+      out.labelUrl = r.urls[0] || null;
     } catch {
       /* no label on file */
     }
     try {
-      const r = await createSignedFulfillmentDocUrl(orderId, "packing_slip");
-      out.packingSlipUrl = r.url;
+      const r = await createSignedFulfillmentDocUrls(orderId, "packing_slip");
+      out.packingSlipUrls = r.urls;
+      out.packingSlipUrl = r.urls[0] || null;
     } catch {
       /* no slip on file */
     }

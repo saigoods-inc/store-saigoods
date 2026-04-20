@@ -28,6 +28,7 @@ import adminOrderBuyerShippingNotifyHandler from "./api/admin-order-buyer-shippi
 import adminOrderShipFromDisplayHandler from "./api/admin-order-ship-from-display.js";
 import adminOrderExternalFulfillmentSaveHandler from "./api/admin-order-external-fulfillment-save.js";
 import adminOrderFulfillmentDocLinksHandler from "./api/admin-order-fulfillment-doc-links.js";
+import adminSummaryHandler from "./api/admin-summary.js";
 import adminManualOrderSendLinkHandler from "./api/admin-manual-order-send-link.js";
 import adminManualOrderUpdateDraftHandler from "./api/admin-manual-order-update-draft.js";
 import adminWalkInOrderCreateHandler from "./api/admin-walk-in-order-create.js";
@@ -478,6 +479,14 @@ const server = createServer(async (req, res) => {
       });
     }
 
+    if (pathname === "/api/admin-summary" && req.method === "GET") {
+      await adminSummaryHandler(
+        { method: "GET", headers: req.headers, url: req.url },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
     if (req.method !== "GET" && req.method !== "HEAD") {
       return sendJson(res, 405, { error: "Method not allowed." });
     }
@@ -493,6 +502,10 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/admin/orders" || pathname === "/admin/orders/" || pathname === "/admin/orders.html") {
       return serveFile(res, path.join(publicDir, "admin", "orders.html"), req.method);
+    }
+
+    if (pathname === "/admin/summary" || pathname === "/admin/summary/" || pathname === "/admin/summary.html") {
+      return serveFile(res, path.join(publicDir, "admin", "summary.html"), req.method);
     }
 
     if (pathname === "/admin/tax" || pathname === "/admin/tax/" || pathname === "/admin/tax.html") {

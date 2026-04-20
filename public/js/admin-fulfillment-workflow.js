@@ -23,11 +23,18 @@ function externalTrackingLinesFromRow(row) {
     .filter(Boolean);
 }
 
+function hasUploadedLabelFiles(row) {
+  return String(row?.admin_external_label_storage_path || "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean).length > 0;
+}
+
 export function manualFulfillmentRecordComplete(row) {
   return (
     Boolean(String(row?.admin_external_carrier || "").trim()) &&
     externalTrackingLinesFromRow(row).length > 0 &&
-    Boolean(String(row?.admin_external_label_storage_path || "").trim())
+    hasUploadedLabelFiles(row)
   );
 }
 

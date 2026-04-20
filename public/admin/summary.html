@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Summary — SAI Goods (staff)</title>
+    <link rel="stylesheet" href="/css/admin-orders.css" />
+    <link rel="stylesheet" href="/css/admin-summary.css" />
+  </head>
+  <body class="admin-page">
+    <div id="admin-login" class="admin-login" hidden>
+      <div class="admin-login__box">
+        <h1>Staff login</h1>
+        <p class="admin-muted">Sign in with your Supabase account to view operational summary metrics.</p>
+        <form id="login-form">
+          <label>
+            Email
+            <input type="email" name="email" autocomplete="username" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" autocomplete="current-password" required />
+          </label>
+          <p id="login-error" class="admin-error" role="alert" hidden></p>
+          <button type="submit" class="admin-btn admin-btn--primary">Sign in</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="admin-app" class="admin-app admin-summary-page" hidden>
+      <header class="admin-header">
+        <div>
+          <h1>Business summary</h1>
+          <p class="admin-muted">Real-time visibility into revenue, variable shipping costs, and net after fees.</p>
+        </div>
+        <div class="admin-header__actions">
+          <span id="admin-user-email" class="admin-muted"></span>
+          <button type="button" id="admin-logout" class="admin-btn">Sign out</button>
+        </div>
+      </header>
+
+      <div id="admin-nav"></div>
+
+      <section class="admin-summary-filter-bar">
+        <div class="admin-summary-filter-bar__left">
+          <p id="summary-meta" class="admin-muted">—</p>
+        </div>
+        <div class="admin-summary-filter-bar__right">
+          <label class="admin-filter">
+            <span>Date range</span>
+            <select id="summary-range-preset" aria-label="Summary date range">
+              <option value="today">Today</option>
+              <option value="last7">Last 7 days</option>
+              <option value="last30" selected>Last 30 days</option>
+              <option value="month">This month</option>
+              <option value="custom">Custom range</option>
+            </select>
+          </label>
+          <label class="admin-filter summary-custom-date" id="summary-custom-start-wrap" hidden>
+            <span>Start</span>
+            <input type="date" id="summary-custom-start" />
+          </label>
+          <label class="admin-filter summary-custom-date" id="summary-custom-end-wrap" hidden>
+            <span>End</span>
+            <input type="date" id="summary-custom-end" />
+          </label>
+          <button type="button" id="summary-apply-range" class="admin-btn">Apply</button>
+          <button type="button" id="admin-refresh" class="admin-btn">Refresh</button>
+        </div>
+      </section>
+
+      <p id="admin-load-error" class="admin-error" role="alert" hidden></p>
+      <div id="admin-loading" class="admin-loading" hidden>Loading summary…</div>
+
+      <section class="summary-kpi-grid" id="summary-kpi-grid">
+        <article class="summary-kpi-card">
+          <p class="summary-kpi-card__label">Total revenue</p>
+          <p id="kpi-total-revenue" class="summary-kpi-card__value">—</p>
+        </article>
+        <article class="summary-kpi-card">
+          <p class="summary-kpi-card__label">Total orders</p>
+          <p id="kpi-total-orders" class="summary-kpi-card__value">—</p>
+        </article>
+        <article class="summary-kpi-card">
+          <p class="summary-kpi-card__label">Shipping expense</p>
+          <p id="kpi-shipping-expense" class="summary-kpi-card__value">—</p>
+        </article>
+        <article class="summary-kpi-card">
+          <p class="summary-kpi-card__label">Platform fees</p>
+          <p id="kpi-platform-fees" class="summary-kpi-card__value">—</p>
+        </article>
+        <article class="summary-kpi-card summary-kpi-card--net">
+          <p class="summary-kpi-card__label">Net after variable costs</p>
+          <p id="kpi-net-after-variable" class="summary-kpi-card__value">—</p>
+        </article>
+        <article class="summary-kpi-card summary-kpi-card--secondary">
+          <p class="summary-kpi-card__label">Average order value</p>
+          <p id="kpi-aov" class="summary-kpi-card__value">—</p>
+        </article>
+        <article class="summary-kpi-card summary-kpi-card--secondary">
+          <p class="summary-kpi-card__label">Avg shipping per order</p>
+          <p id="kpi-avg-shipping" class="summary-kpi-card__value">—</p>
+        </article>
+        <article class="summary-kpi-card summary-kpi-card--secondary">
+          <p class="summary-kpi-card__label">Avg platform fee per order</p>
+          <p id="kpi-avg-platform-fee" class="summary-kpi-card__value">—</p>
+        </article>
+      </section>
+
+      <section class="summary-chart-grid">
+        <article class="summary-card summary-chart-card">
+          <header class="summary-card__header">
+            <h2>Revenue trend</h2>
+          </header>
+          <canvas id="chart-revenue" class="summary-chart-canvas" aria-label="Revenue trend chart" role="img"></canvas>
+        </article>
+        <article class="summary-card summary-chart-card">
+          <header class="summary-card__header">
+            <h2>Variable cost breakdown</h2>
+          </header>
+          <canvas id="chart-variable-costs" class="summary-chart-canvas" aria-label="Variable cost trend chart" role="img"></canvas>
+        </article>
+        <article class="summary-card summary-chart-card">
+          <header class="summary-card__header">
+            <h2>Net after variable costs trend</h2>
+          </header>
+          <canvas id="chart-net" class="summary-chart-canvas" aria-label="Net trend chart" role="img"></canvas>
+        </article>
+        <article class="summary-card summary-chart-card">
+          <header class="summary-card__header">
+            <h2>Paid orders trend</h2>
+          </header>
+          <canvas id="chart-orders" class="summary-chart-canvas" aria-label="Orders trend chart" role="img"></canvas>
+        </article>
+      </section>
+
+      <section class="summary-lower-grid">
+        <article class="summary-card">
+          <header class="summary-card__header">
+            <h2>Shipping summary</h2>
+          </header>
+          <div class="summary-inline-metrics">
+            <div>
+              <p class="summary-inline-metrics__label">Total shipping expense</p>
+              <p id="shipping-total" class="summary-inline-metrics__value">—</p>
+            </div>
+            <div>
+              <p class="summary-inline-metrics__label">Avg shipping per order</p>
+              <p id="shipping-avg" class="summary-inline-metrics__value">—</p>
+            </div>
+          </div>
+          <h3 class="summary-subhead">By carrier</h3>
+          <div class="admin-table-wrap">
+            <table class="admin-table summary-compact-table">
+              <thead>
+                <tr>
+                  <th>Carrier</th>
+                  <th>Orders</th>
+                  <th>Known shipping orders</th>
+                  <th>Shipping expense</th>
+                </tr>
+              </thead>
+              <tbody id="shipping-carrier-tbody"></tbody>
+            </table>
+          </div>
+          <h3 class="summary-subhead">Latest shipping entries</h3>
+          <div class="admin-table-wrap">
+            <table class="admin-table summary-compact-table">
+              <thead>
+                <tr>
+                  <th>Order</th>
+                  <th>Date</th>
+                  <th>Carrier</th>
+                  <th>Expense</th>
+                </tr>
+              </thead>
+              <tbody id="shipping-latest-tbody"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="summary-card">
+          <header class="summary-card__header">
+            <h2>Platform fee summary</h2>
+          </header>
+          <div class="summary-inline-metrics">
+            <div>
+              <p class="summary-inline-metrics__label">Total platform fees</p>
+              <p id="fees-total" class="summary-inline-metrics__value">—</p>
+            </div>
+            <div>
+              <p class="summary-inline-metrics__label">Avg fee per order</p>
+              <p id="fees-avg" class="summary-inline-metrics__value">—</p>
+            </div>
+          </div>
+          <p class="admin-muted summary-formula-note">
+            Fee formula: <code>round(order_total_cents * 0.029 + 30)</code> per paid order.
+          </p>
+          <h3 class="summary-subhead">Recent financial activity</h3>
+          <div class="admin-table-wrap">
+            <table class="admin-table summary-compact-table">
+              <thead>
+                <tr>
+                  <th>Order</th>
+                  <th>Customer</th>
+                  <th>Date</th>
+                  <th>Revenue</th>
+                  <th>Shipping expense</th>
+                  <th>Platform fee</th>
+                  <th>Net</th>
+                </tr>
+              </thead>
+              <tbody id="recent-financial-tbody"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="summary-card">
+          <header class="summary-card__header">
+            <h2>Alerts &amp; watchouts</h2>
+          </header>
+          <div class="summary-alerts-list" id="alerts-list"></div>
+        </article>
+      </section>
+    </div>
+
+    <script type="module" src="/js/admin-summary.js"></script>
+  </body>
+</html>

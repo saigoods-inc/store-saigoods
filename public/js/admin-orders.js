@@ -51,6 +51,18 @@ function formatExternalTrackingDisplay(row) {
   return lines.length ? lines.join(", ") : "—";
 }
 
+function externalLabelSourceSummary(row) {
+  const raw = String(row?.admin_external_label_storage_path || "").trim();
+  if (!raw) {
+    return row?.shippo_label_url ? "Shippo" : "—";
+  }
+  const n = raw
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean).length;
+  return n > 1 ? `Uploaded (${n} files)` : "Uploaded";
+}
+
 function formatTrackingListHtml(row) {
   const ext = String(row?.admin_external_tracking_number || "").trim();
   if (ext) {
@@ -1047,13 +1059,8 @@ function bindModalShippoActions() {
         }
         const labelInput = document.getElementById("admin-ext-label-file");
         const slipInput = document.getElementById("admin-ext-slip-file");
-        const readB64 = (input) =>
+        const readOneFileB64 = (file) =>
           new Promise((resolve, reject) => {
-            const file = input?.files?.[0];
-            if (!file) {
-              resolve({ base64: "", name: "" });
-              return;
-            }
             const r = new FileReader();
             r.onload = () => {
               const s = String(r.result || "");
@@ -1063,9 +1070,20 @@ function bindModalShippoActions() {
             r.onerror = () => reject(new Error("Could not read file."));
             r.readAsDataURL(file);
           });
+        const readAllFilesFromInput = async (input) => {
+          const files = input?.files?.length ? Array.from(input.files) : [];
+          const out = [];
+          for (const file of files) {
+            const part = await readOneFileB64(file);
+            if (part.base64) {
+              out.push({ base64: part.base64, name: part.name });
+            }
+          }
+          return out;
+        };
         try {
-          const labelPart = await readB64(labelInput);
-          const slipPart = await readB64(slipInput);
+          const labelFiles = await readAllFilesFromInput(labelInput);
+          const packingSlipFiles = await readAllFilesFromInput(slipInput);
           const payload = {
             orderId,
             carrier,
@@ -1074,13 +1092,11 @@ function bindModalShippoActions() {
             shippedDate,
             labelCostCents,
           };
-          if (labelPart.base64) {
-            payload.labelFileBase64 = labelPart.base64;
-            payload.labelFileName = labelPart.name;
+          if (labelFiles.length) {
+            payload.labelFiles = labelFiles;
           }
-          if (slipPart.base64) {
-            payload.packingSlipFileBase64 = slipPart.base64;
-            payload.packingSlipFileName = slipPart.name;
+          if (packingSlipFiles.length) {
+            payload.packingSlipFiles = packingSlipFiles;
           }
           const data = await fetchReportPost("/api/admin-order-external-fulfillment-save", session.access_token, payload);
           await loadOrders();
@@ -2152,12 +2168,25 @@ async function hydrateOrderModalAuxiliary(row, gen) {
 
     const labelEl = document.getElementById("admin-ext-label-doc-status");
     const slipEl = document.getElementById("admin-ext-slip-doc-status");
-    const labelUrl = String(dl?.labelUrl || "").trim();
-    const slipUrl = String(dl?.packingSlipUrl || "").trim();
+    const labelUrls = Array.isArray(dl?.labelUrls)
+      ? dl.labelUrls.filter(Boolean)
+      : dl?.labelUrl
+        ? [String(dl.labelUrl)]
+        : [];
+    const slipUrls = Array.isArray(dl?.packingSlipUrls)
+      ? dl.packingSlipUrls.filter(Boolean)
+      : dl?.packingSlipUrl
+        ? [String(dl.packingSlipUrl)]
+        : [];
 
     if (labelEl) {
-      if (labelUrl) {
-        labelEl.innerHTML = `<a class="admin-btn admin-btn--small" href="${escapeHtml(labelUrl)}" target="_blank" rel="noopener">Download shipping label</a>`;
+      if (labelUrls.length) {
+        labelEl.innerHTML = `<div class="admin-doc-download-row" style="display:flex;flex-wrap:wrap;gap:0.4rem;margin:0.35rem 0 0">${labelUrls
+          .map((url, i) => {
+            const t = labelUrls.length > 1 ? `Shipping label ${i + 1}` : "Download shipping label";
+            return `<a class="admin-btn admin-btn--small" href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(t)}</a>`;
+          })
+          .join("")}</div>`;
         labelEl.removeAttribute("class");
       } else {
         labelEl.textContent = "No shipping label file on file yet.";
@@ -2167,8 +2196,13 @@ async function hydrateOrderModalAuxiliary(row, gen) {
       }
     }
     if (slipEl) {
-      if (slipUrl) {
-        slipEl.innerHTML = `<a class="admin-btn admin-btn--small" href="${escapeHtml(slipUrl)}" target="_blank" rel="noopener">Download packing slip</a>`;
+      if (slipUrls.length) {
+        slipEl.innerHTML = `<div class="admin-doc-download-row" style="display:flex;flex-wrap:wrap;gap:0.4rem;margin:0.35rem 0 0">${slipUrls
+          .map((url, i) => {
+            const t = slipUrls.length > 1 ? `Packing slip ${i + 1}` : "Download packing slip";
+            return `<a class="admin-btn admin-btn--small" href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(t)}</a>`;
+          })
+          .join("")}</div>`;
         slipEl.removeAttribute("class");
       } else {
         slipEl.textContent = "No packing slip file on file yet.";
@@ -2407,13 +2441,15 @@ Subtotal ${escapeHtml(fmt(row.subtotal_cents))} · Shipping ${escapeHtml(fmt(row
           <label>Shipment date<input name="shippedDate" type="date" value="${extDate}" /></label>
           </div>
         <div class="admin-file-field">
-          <label for="admin-ext-label-file">Shipping label file (PDF or image)</label>
-          <input id="admin-ext-label-file" name="labelFile" type="file" accept="application/pdf,image/*" />
+          <label for="admin-ext-label-file">Shipping label files (PDF or image)</label>
+          <input id="admin-ext-label-file" name="labelFile" type="file" multiple accept="application/pdf,image/*" />
+          <p class="admin-muted" style="margin:0.3rem 0 0;font-size:11px;line-height:1.4">You can select multiple files. Each save uploads new files and keeps previous uploads on record.</p>
         </div>
         ${labelBelowFile}
         <div class="admin-file-field">
-          <label for="admin-ext-slip-file">Packing slip file (optional)</label>
-          <input id="admin-ext-slip-file" name="packingSlipFile" type="file" accept="application/pdf,image/*" />
+          <label for="admin-ext-slip-file">Packing slip files (optional)</label>
+          <input id="admin-ext-slip-file" name="packingSlipFile" type="file" multiple accept="application/pdf,image/*" />
+          <p class="admin-muted" style="margin:0.3rem 0 0;font-size:11px;line-height:1.4">Multiple packing slips supported — same as labels.</p>
         </div>
         ${slipBelowFile}
         </form>
@@ -2457,7 +2493,7 @@ Subtotal ${escapeHtml(fmt(row.subtotal_cents))} · Shipping ${escapeHtml(fmt(row
       <p style="margin:0.35rem 0 0;font-size:13px;line-height:1.55"><strong>Service</strong> ${escapeHtml(row.admin_external_service || row.shippo_label_service || "—")}</p>
       <p style="margin:0.5rem 0 0;font-size:13px;font-weight:600">Tracking #</p>
       <div style="margin:0.25rem 0 0;font-size:13px;line-height:1.55">${formatTrackingListHtml(row)}</div>
-      <p style="margin:0.5rem 0 0;font-size:13px"><strong>Label source</strong> ${escapeHtml(row.admin_external_label_storage_path ? "Uploaded" : row.shippo_label_url ? "Shippo" : "—")}</p>
+      <p style="margin:0.5rem 0 0;font-size:13px"><strong>Label source</strong> ${escapeHtml(externalLabelSourceSummary(row))}</p>
     </div>
     ${
       row.is_hardin_discount === true
