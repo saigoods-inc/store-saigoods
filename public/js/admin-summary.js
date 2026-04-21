@@ -77,11 +77,11 @@ function renderKpis(summary) {
   setKpiText("kpi-total-revenue", fmtCents(k.totalRevenueCents));
   setKpiText("kpi-total-orders", String(k.totalOrders || 0));
   setKpiText("kpi-shipping-expense", fmtCents(k.totalShippingExpenseCents));
-  setKpiText("kpi-platform-fees", fmtCents(k.totalPlatformFeesCents));
   setKpiText("kpi-net-after-variable", fmtCents(k.netAfterVariableCostsCents));
   setKpiText("kpi-aov", fmtCents(k.averageOrderValueCents));
   setKpiText("kpi-avg-shipping", fmtCents(k.averageShippingPerOrderCents));
-  setKpiText("kpi-avg-platform-fee", fmtCents(k.averagePlatformFeePerOrderCents));
+  setKpiText("kpi-tertiary-platform-fees", fmtCents(k.totalPlatformFeesCents));
+  setKpiText("kpi-tertiary-avg-fee", fmtCents(k.averagePlatformFeePerOrderCents));
 
   const snapN = Number(k.profitSnapshotOrders) || 0;
   setKpiText("kpi-profit-snapshot-orders", snapN ? String(snapN) : "—");
@@ -183,6 +183,143 @@ function renderPlatformAndRecent(summary) {
       </tr>`;
     })
     .join("");
+}
+
+function renderShippingZoneRanking(summary) {
+  const tbody = document.getElementById("summary-zone-ranking-tbody");
+  if (!tbody) return;
+  const shipping = summary?.breakdown?.shipping || {};
+  const carriers = Array.isArray(shipping.carriers) ? [...shipping.carriers] : [];
+  if (!carriers.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="summary-empty">No carrier shipping records in this range.</td></tr>`;
+    return;
+  }
+  carriers.sort((a, b) => (Number(b.orders) || 0) - (Number(a.orders) || 0));
+  tbody.innerHTML = carriers
+    .slice(0, 12)
+    .map((row, i) => {
+      const zone = String(row.carrier || "Unknown").trim() || "Unknown";
+      return `<tr>
+        <td>${escapeHtml(String(i + 1))}</td>
+        <td>${escapeHtml(zone)}</td>
+        <td>${escapeHtml(String(row.orders || 0))}</td>
+        <td class="summary-na">—</td>
+      </tr>`;
+    })
+    .join("");
+}
+
+function renderRecentPurchasesTable(summary) {
+  const tbody = document.getElementById("summary-recent-purchases-tbody");
+  if (!tbody) return;
+  const recent = Array.isArray(summary?.breakdown?.recentFinancialActivity)
+    ? summary.breakdown.recentFinancialActivity
+    : [];
+  if (!recent.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="summary-empty">No paid orders in this range.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = recent
+    .slice(0, 20)
+    .map(
+      (row) => `<tr>
+        <td>${escapeHtml(fmtDateTime(row.paidAt))}</td>
+        <td>${escapeHtml(row.orderRef || "—")}</td>
+        <td class="summary-na">—</td>
+        <td class="summary-na">—</td>
+        <td>${escapeHtml(row.customer || "—")}</td>
+        <td>${escapeHtml(fmtCents(row.revenueCents || 0))}</td>
+      </tr>`,
+    )
+    .join("");
+}
+
+function renderProductRankingTable(summary) {
+  const tbody = document.getElementById("summary-product-ranking-tbody");
+  if (!tbody) return;
+  const recent = Array.isArray(summary?.breakdown?.recentFinancialActivity)
+    ? [...summary.breakdown.recentFinancialActivity]
+    : [];
+  if (!recent.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="summary-empty">No paid orders in this range.</td></tr>`;
+    return;
+  }
+  recent.sort((a, b) => (Number(b.revenueCents) || 0) - (Number(a.revenueCents) || 0));
+  tbody.innerHTML = recent
+    .slice(0, 12)
+    .map(
+      (row) => `<tr>
+        <td>${escapeHtml(row.customer || row.orderRef || "—")}</td>
+        <td>${escapeHtml(row.orderRef || "—")}</td>
+        <td>1</td>
+        <td>${escapeHtml(fmtCents(row.revenueCents || 0))}</td>
+      </tr>`,
+    )
+    .join("");
+}
+
+function drawDonutChart(canvas, segments) {
+  if (!canvas) return;
+  const { ctx, width, height } = setupCanvasForContainer(canvas);
+  ctx.clearRect(0, 0, width, height);
+
+  const cx = width * 0.36;
+  const cy = height / 2;
+  const rOuter = Math.min(width, height) * 0.34;
+  const rInner = rOuter * 0.58;
+  const total = segments.reduce((s, x) => s + Math.max(0, Number(x.value) || 0), 0);
+
+  if (total <= 0) {
+    ctx.fillStyle = "#9ca3af";
+    ctx.font = "13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("No revenue in this range", cx, cy);
+    return;
+  }
+
+  let angle = -Math.PI / 2;
+  segments.forEach((seg) => {
+    const v = Math.max(0, Number(seg.value) || 0);
+    const slice = (v / total) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.fillStyle = seg.color;
+    ctx.arc(cx, cy, rOuter, angle, angle + slice, false);
+    ctx.arc(cx, cy, rInner, angle + slice, angle, true);
+    ctx.closePath();
+    ctx.fill();
+    angle += slice;
+  });
+
+  ctx.fillStyle = "#111827";
+  ctx.font = "600 11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
+  ctx.textAlign = "left";
+  let ly = Math.max(24, cy - rOuter * 0.55);
+  segments.forEach((seg) => {
+    const pct = Math.round(((Number(seg.value) || 0) / total) * 1000) / 10;
+    ctx.fillStyle = seg.color;
+    ctx.fillRect(width * 0.58, ly, 10, 10);
+    ctx.fillStyle = "#374151";
+    ctx.fillText(`${seg.label} (${pct}%)`, width * 0.58 + 16, ly + 9);
+    ly += 20;
+  });
+}
+
+function renderProductDonut(summary) {
+  const k = summary?.kpis || {};
+  const net = Math.max(0, Number(k.netAfterVariableCostsCents) || 0);
+  const ship = Math.max(0, Number(k.totalShippingExpenseCents) || 0);
+  const fee = Math.max(0, Number(k.totalPlatformFeesCents) || 0);
+  const rev = Math.max(0, Number(k.totalRevenueCents) || 0);
+  const remainder = Math.max(0, rev - net - ship - fee);
+  const segs = [
+    { label: "Net (current profit)", value: net, color: "#059669" },
+    { label: "Shipping", value: ship, color: "#d97706" },
+    { label: "Platform fees", value: fee, color: "#7c3aed" },
+  ];
+  if (remainder > 0) {
+    segs.push({ label: "Other / rounding", value: remainder, color: "#94a3b8" });
+  }
+  drawDonutChart(document.getElementById("chart-product-donut"), segs);
 }
 
 function renderAlerts(summary) {
@@ -397,6 +534,10 @@ function renderSummary(summary) {
   renderShippingTables(summary);
   renderPlatformAndRecent(summary);
   renderAlerts(summary);
+  renderShippingZoneRanking(summary);
+  renderRecentPurchasesTable(summary);
+  renderProductRankingTable(summary);
+  renderProductDonut(summary);
   renderCharts(summary);
 }
 
@@ -547,6 +688,7 @@ async function init() {
     resizeTimer = window.setTimeout(() => {
       if (lastSummary) {
         renderCharts(lastSummary);
+        renderProductDonut(lastSummary);
       }
     }, 120);
   });

@@ -72,193 +72,284 @@
       <p id="admin-load-error" class="admin-error" role="alert" hidden></p>
       <div id="admin-loading" class="admin-loading" hidden>Loading summary…</div>
 
-      <section class="summary-kpi-grid" id="summary-kpi-grid">
-        <article class="summary-kpi-card">
-          <p class="summary-kpi-card__label">Total revenue</p>
-          <p id="kpi-total-revenue" class="summary-kpi-card__value">—</p>
-        </article>
-        <article class="summary-kpi-card">
-          <p class="summary-kpi-card__label">Total orders</p>
-          <p id="kpi-total-orders" class="summary-kpi-card__value">—</p>
-        </article>
-        <article class="summary-kpi-card">
-          <p class="summary-kpi-card__label">Shipping expense</p>
-          <p id="kpi-shipping-expense" class="summary-kpi-card__value">—</p>
-        </article>
-        <article class="summary-kpi-card">
-          <p class="summary-kpi-card__label">Platform fees</p>
-          <p id="kpi-platform-fees" class="summary-kpi-card__value">—</p>
-        </article>
-        <article class="summary-kpi-card summary-kpi-card--net">
-          <p class="summary-kpi-card__label">Net after variable costs</p>
-          <p id="kpi-net-after-variable" class="summary-kpi-card__value">—</p>
-        </article>
-        <article class="summary-kpi-card summary-kpi-card--secondary">
-          <p class="summary-kpi-card__label">Average order value</p>
-          <p id="kpi-aov" class="summary-kpi-card__value">—</p>
-        </article>
-        <article class="summary-kpi-card summary-kpi-card--secondary">
-          <p class="summary-kpi-card__label">Avg shipping per order</p>
-          <p id="kpi-avg-shipping" class="summary-kpi-card__value">—</p>
-        </article>
-        <article class="summary-kpi-card summary-kpi-card--secondary">
-          <p class="summary-kpi-card__label">Avg platform fee per order</p>
-          <p id="kpi-avg-platform-fee" class="summary-kpi-card__value">—</p>
-        </article>
-      </section>
-
-      <p class="admin-muted" style="margin: -0.5rem 0 0.75rem">
-        Merchandise economics use the snapshot saved on each order (expected profit and built-in shipping from catalog at
-        order time). Actual realized profit needs a recorded label/shipping cost; until then it stays pending per order.
-      </p>
-      <section class="summary-kpi-grid" id="summary-profit-kpi-grid" aria-label="Merchandise profit snapshot">
-        <article class="summary-kpi-card">
-          <p class="summary-kpi-card__label">Orders with profit snapshot</p>
-          <p id="kpi-profit-snapshot-orders" class="summary-kpi-card__value">—</p>
-        </article>
-        <article class="summary-kpi-card">
-          <p class="summary-kpi-card__label">Expected profit (snapshot)</p>
-          <p id="kpi-expected-profit" class="summary-kpi-card__value">—</p>
-        </article>
-        <article class="summary-kpi-card">
-          <p class="summary-kpi-card__label">Built-in shipping allowance</p>
-          <p id="kpi-built-in-shipping" class="summary-kpi-card__value">—</p>
-        </article>
-        <article class="summary-kpi-card">
-          <p class="summary-kpi-card__label">Shipping variance (known)</p>
-          <p id="kpi-shipping-variance" class="summary-kpi-card__value">—</p>
-        </article>
-        <article class="summary-kpi-card">
-          <p class="summary-kpi-card__label">Discount loss (merchandise)</p>
-          <p id="kpi-discount-loss" class="summary-kpi-card__value">—</p>
-        </article>
-        <article class="summary-kpi-card summary-kpi-card--net">
-          <p class="summary-kpi-card__label">Actual realized profit (complete)</p>
-          <p id="kpi-realized-profit" class="summary-kpi-card__value">—</p>
-        </article>
-      </section>
-
-      <section class="summary-chart-grid">
-        <article class="summary-card summary-chart-card">
-          <header class="summary-card__header">
-            <h2>Revenue trend</h2>
-          </header>
-          <canvas id="chart-revenue" class="summary-chart-canvas" aria-label="Revenue trend chart" role="img"></canvas>
-        </article>
-        <article class="summary-card summary-chart-card">
-          <header class="summary-card__header">
-            <h2>Variable cost breakdown</h2>
-          </header>
-          <canvas id="chart-variable-costs" class="summary-chart-canvas" aria-label="Variable cost trend chart" role="img"></canvas>
-        </article>
-        <article class="summary-card summary-chart-card">
-          <header class="summary-card__header">
-            <h2>Net after variable costs trend</h2>
-          </header>
-          <canvas id="chart-net" class="summary-chart-canvas" aria-label="Net trend chart" role="img"></canvas>
-        </article>
-        <article class="summary-card summary-chart-card">
-          <header class="summary-card__header">
-            <h2>Paid orders trend</h2>
-          </header>
-          <canvas id="chart-orders" class="summary-chart-canvas" aria-label="Orders trend chart" role="img"></canvas>
-        </article>
-      </section>
-
-      <section class="summary-lower-grid">
-        <article class="summary-card">
-          <header class="summary-card__header">
-            <h2>Shipping summary</h2>
-          </header>
-          <div class="summary-inline-metrics">
-            <div>
-              <p class="summary-inline-metrics__label">Total shipping expense</p>
-              <p id="shipping-total" class="summary-inline-metrics__value">—</p>
-            </div>
-            <div>
-              <p class="summary-inline-metrics__label">Avg shipping per order</p>
-              <p id="shipping-avg" class="summary-inline-metrics__value">—</p>
-            </div>
+      <div class="summary-dashboard-layout">
+        <aside class="summary-alerts-panel" aria-label="Alerts and watchouts">
+          <h2 class="summary-alerts-panel__title">Alerts &amp; watchouts</h2>
+          <div class="summary-alerts-panel__scroll">
+            <div class="summary-alerts-list" id="alerts-list"></div>
           </div>
-          <h3 class="summary-subhead">By carrier</h3>
-          <div class="admin-table-wrap">
-            <table class="admin-table summary-compact-table">
-              <thead>
-                <tr>
-                  <th>Carrier</th>
-                  <th>Orders</th>
-                  <th>Known shipping orders</th>
-                  <th>Shipping expense</th>
-                </tr>
-              </thead>
-              <tbody id="shipping-carrier-tbody"></tbody>
-            </table>
-          </div>
-          <h3 class="summary-subhead">Latest shipping entries</h3>
-          <div class="admin-table-wrap">
-            <table class="admin-table summary-compact-table">
-              <thead>
-                <tr>
-                  <th>Order</th>
-                  <th>Date</th>
-                  <th>Carrier</th>
-                  <th>Expense</th>
-                </tr>
-              </thead>
-              <tbody id="shipping-latest-tbody"></tbody>
-            </table>
-          </div>
-        </article>
+        </aside>
 
-        <article class="summary-card">
-          <header class="summary-card__header">
-            <h2>Platform fee summary</h2>
-          </header>
-          <div class="summary-inline-metrics">
-            <div>
-              <p class="summary-inline-metrics__label">Total platform fees</p>
-              <p id="fees-total" class="summary-inline-metrics__value">—</p>
-            </div>
-            <div>
-              <p class="summary-inline-metrics__label">Avg fee per order</p>
-              <p id="fees-avg" class="summary-inline-metrics__value">—</p>
-            </div>
-          </div>
-          <p class="admin-muted summary-formula-note">
-            Fee formula: <code>round(order_total_cents * 0.029 + 30)</code> per paid order.
+        <div class="summary-main">
+          <p class="admin-muted summary-profit-intro">
+            Merchandise economics use the snapshot saved on each order (expected profit and built-in shipping from catalog at
+            order time). Actual realized profit needs a recorded label/shipping cost; until then it stays pending per order.
           </p>
-          <h3 class="summary-subhead">Recent financial activity</h3>
-          <div class="admin-table-wrap">
-            <table class="admin-table summary-compact-table">
-              <thead>
-                <tr>
-                  <th>Order</th>
-                  <th>Customer</th>
-                  <th>Date</th>
-                  <th>Revenue</th>
-                  <th>List merch.</th>
-                  <th>Expected profit</th>
-                  <th>Built-in ship</th>
-                  <th>Act. shipping</th>
-                  <th>Ship variance</th>
-                  <th>Discount loss</th>
-                  <th>Realized profit</th>
-                  <th>Platform fee</th>
-                  <th>Net</th>
-                </tr>
-              </thead>
-              <tbody id="recent-financial-tbody"></tbody>
-            </table>
-          </div>
-        </article>
 
-        <article class="summary-card">
-          <header class="summary-card__header">
-            <h2>Alerts &amp; watchouts</h2>
-          </header>
-          <div class="summary-alerts-list" id="alerts-list"></div>
-        </article>
-      </section>
+          <section class="summary-section summary-section--profit" aria-label="Merchandise profit snapshot">
+            <div class="summary-kpi-grid summary-kpi-grid--profit" id="summary-profit-kpi-grid">
+              <article class="summary-kpi-card">
+                <p class="summary-kpi-card__label">Orders with profit snapshot</p>
+                <p id="kpi-profit-snapshot-orders" class="summary-kpi-card__value">—</p>
+              </article>
+              <article class="summary-kpi-card">
+                <p class="summary-kpi-card__label">Expected profit (snapshot)</p>
+                <p id="kpi-expected-profit" class="summary-kpi-card__value">—</p>
+              </article>
+              <article class="summary-kpi-card">
+                <p class="summary-kpi-card__label">Built-in shipping allowance</p>
+                <p id="kpi-built-in-shipping" class="summary-kpi-card__value">—</p>
+              </article>
+              <article class="summary-kpi-card">
+                <p class="summary-kpi-card__label">Shipping variance (known)</p>
+                <p id="kpi-shipping-variance" class="summary-kpi-card__value">—</p>
+              </article>
+              <article class="summary-kpi-card">
+                <p class="summary-kpi-card__label">Discount loss (merchandise)</p>
+                <p id="kpi-discount-loss" class="summary-kpi-card__value">—</p>
+              </article>
+              <article class="summary-kpi-card summary-kpi-card--net">
+                <p class="summary-kpi-card__label">Actual realized profit (complete)</p>
+                <p id="kpi-realized-profit" class="summary-kpi-card__value">—</p>
+              </article>
+            </div>
+          </section>
+
+          <section class="summary-section summary-section--hero" aria-label="Key performance indicators">
+            <div class="summary-hero-split">
+              <div class="summary-hero-split__left">
+                <div class="summary-kpi-row summary-kpi-row--primary">
+                  <article class="summary-kpi-card summary-kpi-card--current-profit">
+                    <p class="summary-kpi-card__label">Current profit</p>
+                    <p id="kpi-net-after-variable" class="summary-kpi-card__value summary-kpi-card__value--hero">—</p>
+                    <p class="summary-kpi-card__hint admin-muted">Net after variable costs (revenue − shipping − platform fees)</p>
+                  </article>
+                  <article class="summary-kpi-card summary-kpi-card--compact">
+                    <p class="summary-kpi-card__label">Shipping expense</p>
+                    <p id="kpi-shipping-expense" class="summary-kpi-card__value">—</p>
+                  </article>
+                  <article class="summary-kpi-card summary-kpi-card--compact">
+                    <p class="summary-kpi-card__label">Total orders</p>
+                    <p id="kpi-total-orders" class="summary-kpi-card__value">—</p>
+                  </article>
+                </div>
+                <div class="summary-kpi-row summary-kpi-row--secondary">
+                  <article class="summary-kpi-card summary-kpi-card--small">
+                    <p class="summary-kpi-card__label">Total revenue</p>
+                    <p id="kpi-total-revenue" class="summary-kpi-card__value">—</p>
+                  </article>
+                  <article class="summary-kpi-card summary-kpi-card--small">
+                    <p class="summary-kpi-card__label">Avg shipping cost</p>
+                    <p id="kpi-avg-shipping" class="summary-kpi-card__value">—</p>
+                  </article>
+                  <article class="summary-kpi-card summary-kpi-card--small">
+                    <p class="summary-kpi-card__label">Average order value</p>
+                    <p id="kpi-aov" class="summary-kpi-card__value">—</p>
+                  </article>
+                </div>
+                <p class="summary-tertiary-strip admin-muted">
+                  Platform fees (range): <span id="kpi-tertiary-platform-fees">—</span>
+                  · Avg fee / order: <span id="kpi-tertiary-avg-fee">—</span>
+                </p>
+              </div>
+              <div class="summary-hero-split__right">
+                <article class="summary-card summary-card--donut">
+                  <header class="summary-card__header">
+                    <h2>Product ranking</h2>
+                    <p class="summary-card__sub admin-muted">Revenue vs variable costs (range totals)</p>
+                  </header>
+                  <canvas
+                    id="chart-product-donut"
+                    class="summary-donut-canvas"
+                    aria-label="Donut chart of net profit, shipping, and platform fees as shares of revenue"
+                    role="img"
+                  ></canvas>
+                </article>
+              </div>
+            </div>
+          </section>
+
+          <section class="summary-section" aria-labelledby="heading-zone-ranking">
+            <header class="summary-section__head">
+              <h2 id="heading-zone-ranking" class="summary-section__title">Shipping zone ranking</h2>
+              <p class="summary-section__sub admin-muted">By carrier (order count). Weight not tracked in this summary.</p>
+            </header>
+            <div class="admin-table-wrap summary-table-wide">
+              <table class="admin-table summary-compact-table">
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Zone</th>
+                    <th>Orders</th>
+                    <th>Weight</th>
+                  </tr>
+                </thead>
+                <tbody id="summary-zone-ranking-tbody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="summary-section" aria-labelledby="heading-recent-purchases">
+            <header class="summary-section__head">
+              <h2 id="heading-recent-purchases" class="summary-section__title">Recent purchases</h2>
+            </header>
+            <div class="admin-table-wrap summary-table-wide">
+              <table class="admin-table summary-compact-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>ID</th>
+                    <th>Product</th>
+                    <th>Quantity</th>
+                    <th>Ship to</th>
+                    <th>Total cost</th>
+                  </tr>
+                </thead>
+                <tbody id="summary-recent-purchases-tbody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="summary-section" aria-labelledby="heading-product-ranking">
+            <header class="summary-section__head">
+              <h2 id="heading-product-ranking" class="summary-section__title">Product ranking</h2>
+              <p class="summary-section__sub admin-muted">Top paid orders by revenue (line items not in summary payload).</p>
+            </header>
+            <div class="admin-table-wrap summary-table-wide">
+              <table class="admin-table summary-compact-table">
+                <thead>
+                  <tr>
+                    <th>Product name</th>
+                    <th>SKU</th>
+                    <th>Quantity</th>
+                    <th>Total $ collected</th>
+                  </tr>
+                </thead>
+                <tbody id="summary-product-ranking-tbody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="summary-section summary-section--charts" aria-label="Trend charts">
+            <div class="summary-chart-grid">
+              <article class="summary-card summary-chart-card">
+                <header class="summary-card__header">
+                  <h2>Revenue trend</h2>
+                </header>
+                <canvas id="chart-revenue" class="summary-chart-canvas" aria-label="Revenue trend chart" role="img"></canvas>
+              </article>
+              <article class="summary-card summary-chart-card">
+                <header class="summary-card__header">
+                  <h2>Variable cost breakdown</h2>
+                </header>
+                <canvas id="chart-variable-costs" class="summary-chart-canvas" aria-label="Variable cost trend chart" role="img"></canvas>
+              </article>
+              <article class="summary-card summary-chart-card">
+                <header class="summary-card__header">
+                  <h2>Net after variable costs trend</h2>
+                </header>
+                <canvas id="chart-net" class="summary-chart-canvas" aria-label="Net trend chart" role="img"></canvas>
+              </article>
+              <article class="summary-card summary-chart-card">
+                <header class="summary-card__header">
+                  <h2>Paid orders trend</h2>
+                </header>
+                <canvas id="chart-orders" class="summary-chart-canvas" aria-label="Orders trend chart" role="img"></canvas>
+              </article>
+            </div>
+          </section>
+
+          <section class="summary-section summary-section--detail" aria-label="Shipping and platform detail">
+            <div class="summary-detail-grid">
+              <article class="summary-card">
+                <header class="summary-card__header">
+                  <h2>Shipping summary</h2>
+                </header>
+                <div class="summary-inline-metrics">
+                  <div>
+                    <p class="summary-inline-metrics__label">Total shipping expense</p>
+                    <p id="shipping-total" class="summary-inline-metrics__value">—</p>
+                  </div>
+                  <div>
+                    <p class="summary-inline-metrics__label">Avg shipping per order</p>
+                    <p id="shipping-avg" class="summary-inline-metrics__value">—</p>
+                  </div>
+                </div>
+                <h3 class="summary-subhead">By carrier</h3>
+                <div class="admin-table-wrap">
+                  <table class="admin-table summary-compact-table">
+                    <thead>
+                      <tr>
+                        <th>Carrier</th>
+                        <th>Orders</th>
+                        <th>Known shipping orders</th>
+                        <th>Shipping expense</th>
+                      </tr>
+                    </thead>
+                    <tbody id="shipping-carrier-tbody"></tbody>
+                  </table>
+                </div>
+                <h3 class="summary-subhead">Latest shipping entries</h3>
+                <div class="admin-table-wrap">
+                  <table class="admin-table summary-compact-table">
+                    <thead>
+                      <tr>
+                        <th>Order</th>
+                        <th>Date</th>
+                        <th>Carrier</th>
+                        <th>Expense</th>
+                      </tr>
+                    </thead>
+                    <tbody id="shipping-latest-tbody"></tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article class="summary-card">
+                <header class="summary-card__header">
+                  <h2>Platform fee summary</h2>
+                </header>
+                <div class="summary-inline-metrics">
+                  <div>
+                    <p class="summary-inline-metrics__label">Total platform fees</p>
+                    <p id="fees-total" class="summary-inline-metrics__value">—</p>
+                  </div>
+                  <div>
+                    <p class="summary-inline-metrics__label">Avg fee per order</p>
+                    <p id="fees-avg" class="summary-inline-metrics__value">—</p>
+                  </div>
+                </div>
+                <p class="admin-muted summary-formula-note">
+                  Fee formula: <code>round(order_total_cents * 0.029 + 30)</code> per paid order.
+                </p>
+                <h3 class="summary-subhead">Recent financial activity</h3>
+                <div class="admin-table-wrap">
+                  <table class="admin-table summary-compact-table">
+                    <thead>
+                      <tr>
+                        <th>Order</th>
+                        <th>Customer</th>
+                        <th>Date</th>
+                        <th>Revenue</th>
+                        <th>List merch.</th>
+                        <th>Expected profit</th>
+                        <th>Built-in ship</th>
+                        <th>Act. shipping</th>
+                        <th>Ship variance</th>
+                        <th>Discount loss</th>
+                        <th>Realized profit</th>
+                        <th>Platform fee</th>
+                        <th>Net</th>
+                      </tr>
+                    </thead>
+                    <tbody id="recent-financial-tbody"></tbody>
+                  </table>
+                </div>
+              </article>
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
 
     <script type="module" src="/js/admin-summary.js"></script>
