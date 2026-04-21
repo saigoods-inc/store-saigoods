@@ -87,9 +87,27 @@ export async function fetchReportJson(path, accessToken) {
     headers.Authorization = `Bearer ${accessToken}`;
   }
   const res = await fetch(path, { headers });
-  const data = await res.json().catch(() => ({}));
+  const raw = await res.text();
+  let data = {};
+  try {
+    data = raw.trim() ? JSON.parse(raw) : {};
+  } catch {
+    data = {};
+  }
   if (!res.ok) {
-    throw new Error(data.error || res.statusText || "Request failed.");
+    const fromBody =
+      (typeof data.error === "string" && data.error.trim()) ||
+      (typeof data.message === "string" && data.message.trim()) ||
+      null;
+    const statusText = typeof res.statusText === "string" ? res.statusText.trim() : "";
+    const statusPart = res.status ? `HTTP ${res.status}` : "";
+    const msg =
+      fromBody ||
+      (statusText ? `${statusText}${statusPart ? ` (${statusPart})` : ""}` : null) ||
+      statusPart ||
+      (raw.trim().slice(0, 120) || null) ||
+      "Request failed.";
+    throw new Error(msg);
   }
   return data;
 }
@@ -126,9 +144,27 @@ export async function fetchReportPost(path, accessToken, body) {
     headers,
     body: JSON.stringify(body ?? {}),
   });
-  const data = await res.json().catch(() => ({}));
+  const raw = await res.text();
+  let data = {};
+  try {
+    data = raw.trim() ? JSON.parse(raw) : {};
+  } catch {
+    data = {};
+  }
   if (!res.ok) {
-    throw new ReportPostError(data.error || res.statusText || "Request failed.", {
+    const fromBody =
+      (typeof data.error === "string" && data.error.trim()) ||
+      (typeof data.message === "string" && data.message.trim()) ||
+      null;
+    const statusText = typeof res.statusText === "string" ? res.statusText.trim() : "";
+    const statusPart = res.status ? `HTTP ${res.status}` : "";
+    const msg =
+      fromBody ||
+      (statusText ? `${statusText}${statusPart ? ` (${statusPart})` : ""}` : null) ||
+      statusPart ||
+      (raw.trim().slice(0, 120) || null) ||
+      "Request failed.";
+    throw new ReportPostError(msg, {
       status: res.status,
       body: data,
     });
