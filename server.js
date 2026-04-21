@@ -10,6 +10,7 @@ import { mergeInventoryIntoProduct, mergeInventoryIntoStore } from "./lib/stock.
 import { assertReportsAuthorized } from "./lib/reports-auth.js";
 import adminDiscountCodesHandler from "./api/admin-discount-codes.js";
 import adminStockHandler from "./api/admin-stock.js";
+import adminInventoryHandler from "./api/admin-inventory.js";
 import adminManualOrderCreateHandler from "./api/admin-manual-order-create.js";
 import adminManualOrderDeleteDraftHandler from "./api/admin-manual-order-delete-draft.js";
 import adminManualOrderDraftsHandler from "./api/admin-manual-order-drafts.js";
@@ -209,6 +210,15 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/admin/stock" && (req.method === "GET" || req.method === "POST")) {
       const body = req.method === "POST" ? await readJsonBody(req) : undefined;
       await adminStockHandler(
+        { method: req.method, headers: req.headers, body },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin/inventory" && (req.method === "GET" || req.method === "POST")) {
+      const body = req.method === "POST" ? await readJsonBody(req) : undefined;
+      await adminInventoryHandler(
         { method: req.method, headers: req.headers, body },
         adaptExpressStyleResponse(res),
       );

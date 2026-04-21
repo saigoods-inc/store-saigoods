@@ -10,7 +10,7 @@
     <div id="admin-login" class="admin-login" hidden>
       <div class="admin-login__box">
         <h1>Staff login</h1>
-        <p class="admin-muted">Sign in with your Supabase account to view and edit stock.</p>
+        <p class="admin-muted">Sign in with your Supabase account to view and edit inventory.</p>
         <form id="login-form">
           <label>
             Email
@@ -31,9 +31,9 @@
         <div>
           <h1>Inventory</h1>
           <p class="admin-muted">
-            Tracked lines block checkout when you are out of stock. Counts go down when you mark an order
-            <strong>shipped</strong> in Orders (after label details are saved). Walk-in register sales reduce stock when
-            marked paid. Use this page to set counts, turn tracking on/off, or correct mistakes.
+            Variant-level stock (case/box per size). Website orders reserve on payment and deduct when marked
+            <strong>shipped</strong>. Walk-in sales reduce on hand when marked paid. Use actions below for receipts,
+            adjustments, and damage.
           </p>
         </div>
         <div class="admin-header__actions">
@@ -52,29 +52,197 @@
       <p id="admin-save-toast" class="admin-inline-toast admin-inline-toast--success" role="status" hidden></p>
       <div id="admin-loading" class="admin-loading" hidden>Loading…</div>
 
-      <div class="admin-table-wrap">
-        <table class="admin-table" id="stock-table">
+      <section id="inv-summary" class="inv-summary" aria-label="Inventory summary"></section>
+
+      <div class="admin-table-wrap" style="margin-top: 1.25rem">
+        <h2 class="admin-modal__section-title" style="margin: 0 0 0.5rem">Variants</h2>
+        <table class="admin-table" id="inv-variant-table">
           <thead>
             <tr>
               <th>Product</th>
               <th>Size</th>
-              <th>Channel</th>
+              <th>Unit</th>
+              <th>SKU</th>
               <th>On hand</th>
               <th>Reserved</th>
+              <th>Available</th>
+              <th>Incoming</th>
               <th>Track</th>
-              <th>SKU</th>
+              <th>Status</th>
+              <th>Updated</th>
+              <th>Actions</th>
             </tr>
           </thead>
-          <tbody id="stock-tbody"></tbody>
+          <tbody id="inv-variant-tbody"></tbody>
         </table>
       </div>
 
+      <div class="inv-tools-grid" style="margin-top: 2rem">
+        <div class="admin-modal__section">
+          <h2 class="admin-modal__section-title">Receive shipment</h2>
+          <p class="admin-muted" style="margin-top: 0">Post received units against an open shipment line.</p>
+          <form id="form-receive" class="inv-tool-form">
+            <label>
+              Shipment ID
+              <input type="text" name="shipmentId" autocomplete="off" required />
+            </label>
+            <label>
+              Line ID
+              <input type="text" name="lineId" autocomplete="off" required />
+            </label>
+            <label>
+              Quantity
+              <input type="number" name="qty" min="1" step="1" value="1" required />
+            </label>
+            <label>
+              Note (optional)
+              <input type="text" name="reason" autocomplete="off" />
+            </label>
+            <button type="submit" class="admin-btn admin-btn--primary">Receive into stock</button>
+          </form>
+        </div>
+
+        <div class="admin-modal__section">
+          <h2 class="admin-modal__section-title">New incoming shipment</h2>
+          <p class="admin-muted" style="margin-top: 0">Adds expected units to variant <strong>incoming</strong> counts.</p>
+          <form id="form-create-shipment" class="inv-tool-form">
+            <label>
+              ETA (optional)
+              <input type="date" name="eta" />
+            </label>
+            <label>
+              Notes (optional)
+              <input type="text" name="notes" autocomplete="off" />
+            </label>
+            <label>
+              Lines JSON
+              <textarea name="linesJson" rows="5" required placeholder='[{"productSlug":"nitrile-standard","size":"Small","unit":"case","expectedQty":10}]'></textarea>
+            </label>
+            <button type="submit" class="admin-btn admin-btn--primary">Create shipment</button>
+          </form>
+        </div>
+
+        <div class="admin-modal__section">
+          <h2 class="admin-modal__section-title">Manual adjustment</h2>
+          <form id="form-manual" class="inv-tool-form">
+            <label>
+              Product
+              <select id="manual-slug" name="productSlug" required></select>
+            </label>
+            <label>
+              Size
+              <select id="manual-size" name="size" required></select>
+            </label>
+            <label>
+              Unit
+              <select name="channel" required>
+                <option value="case">Case</option>
+                <option value="box">Box</option>
+              </select>
+            </label>
+            <label>
+              Delta on hand (+ / −)
+              <input type="number" name="deltaOnHand" step="1" required />
+            </label>
+            <label>
+              Reason
+              <input type="text" name="reason" autocomplete="off" required />
+            </label>
+            <button type="submit" class="admin-btn admin-btn--primary">Apply adjustment</button>
+          </form>
+        </div>
+
+        <div class="admin-modal__section">
+          <h2 class="admin-modal__section-title">Mark damaged</h2>
+          <form id="form-damaged" class="inv-tool-form">
+            <label>
+              Product
+              <select id="dmg-slug" name="productSlug" required></select>
+            </label>
+            <label>
+              Size
+              <select id="dmg-size" name="size" required></select>
+            </label>
+            <label>
+              Unit
+              <select name="channel" required>
+                <option value="case">Case</option>
+                <option value="box">Box</option>
+              </select>
+            </label>
+            <label>
+              Quantity (moves from on hand to damaged)
+              <input type="number" name="quantity" min="1" step="1" value="1" required />
+            </label>
+            <label>
+              Reason
+              <input type="text" name="reason" autocomplete="off" required />
+            </label>
+            <button type="submit" class="admin-btn admin-btn--primary">Record damage</button>
+          </form>
+        </div>
+
+        <div class="admin-modal__section">
+          <h2 class="admin-modal__section-title">Tracking &amp; threshold</h2>
+          <form id="form-track" class="inv-tool-form">
+            <label>
+              Product
+              <select id="track-slug" name="productSlug" required></select>
+            </label>
+            <label>
+              Size
+              <select id="track-size" name="size" required></select>
+            </label>
+            <label>
+              Unit
+              <select name="channel" required>
+                <option value="case">Case</option>
+                <option value="box">Box</option>
+              </select>
+            </label>
+            <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal">
+              <input name="track" type="checkbox" value="1" checked />
+              Track stock
+            </label>
+            <label>
+              Reorder / low-stock threshold (blank = none)
+              <input type="number" name="reorderThreshold" min="0" step="1" placeholder="e.g. 5" />
+            </label>
+            <button type="submit" class="admin-btn admin-btn--primary">Save tracking &amp; threshold</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="admin-modal__section" style="margin-top: 2rem">
+        <h2 class="admin-modal__section-title">Recent movement log</h2>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="inv-movement-table">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Action</th>
+                <th>Variant</th>
+                <th>Δ</th>
+                <th>On hand</th>
+                <th>Reserved</th>
+                <th>Incoming</th>
+                <th>Ref</th>
+                <th>User</th>
+              </tr>
+            </thead>
+            <tbody id="inv-movement-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="admin-modal__section" style="margin-top: 2rem; max-width: 40rem">
+        <h2 class="admin-modal__section-title">Open shipments</h2>
+        <div id="inv-shipments" class="admin-muted">None</div>
+      </div>
+
       <div class="admin-modal__section" style="margin-top: 2rem; max-width: 36rem">
-        <h2 class="admin-modal__section-title">Add or update a line</h2>
-        <p class="admin-muted" style="margin-top: 0">
-          Choose product, size, and case vs box. Set <strong>on hand</strong> to the total you have now. Check
-          <strong>track stock</strong> to enforce limits on the website checkout.
-        </p>
+        <h2 class="admin-modal__section-title">Add or update a line (advanced)</h2>
+        <p class="admin-muted" style="margin-top: 0">Absolute set via legacy patch API. Prefer manual adjustment above for count changes.</p>
         <form id="stock-edit-form" style="display: flex; flex-direction: column; gap: 0.75rem; max-width: 22rem">
           <label>
             Product
@@ -97,7 +265,7 @@
           </label>
           <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal">
             <input id="edit-track" type="checkbox" />
-            Track stock (enforce on checkout)
+            Track stock
           </label>
           <label>
             SKU (optional)

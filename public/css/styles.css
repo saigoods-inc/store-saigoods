@@ -1222,7 +1222,7 @@ button {
   right: 0.35rem;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem;
+  gap: 0.3rem;
   justify-content: flex-end;
   max-width: 70%;
   transform: translateY(-50%);
@@ -1231,11 +1231,11 @@ button {
 
 .bundle-card__badge {
   display: inline-block;
-  padding: 0.3rem 0.65rem;
-  font-size: 0.65rem;
+  padding: 0.38rem 0.78rem;
+  font-size: 0.75rem;
   font-weight: var(--font-weight-bold);
   line-height: 1.2;
-  border-radius: 0.2rem;
+  border-radius: 0.25rem;
   white-space: nowrap;
 }
 

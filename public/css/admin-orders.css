@@ -827,7 +827,7 @@ body.admin-page {
   right: 0.35rem;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem;
+  gap: 0.3rem;
   justify-content: flex-end;
   max-width: 70%;
   transform: translateY(-50%);
@@ -836,11 +836,11 @@ body.admin-page {
 
 .manual-order-form .bundle-card__badge {
   display: inline-block;
-  padding: 0.3rem 0.65rem;
-  font-size: 0.65rem;
+  padding: 0.38rem 0.78rem;
+  font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.2;
-  border-radius: 0.2rem;
+  border-radius: 0.25rem;
   white-space: nowrap;
 }
 
@@ -1469,4 +1469,65 @@ body.admin-page {
 
 tr.admin-order-row--handoff td {
   background: rgba(34, 197, 94, 0.06);
+}
+
+/* —— Inventory dashboard —— */
+.inv-summary__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 0.65rem;
+}
+
+.inv-summary__card {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+  background: var(--admin-card);
+}
+
+.inv-summary__label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--admin-muted);
+}
+
+.inv-summary__value {
+  margin-top: 0.2rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--admin-text);
+}
+
+.inv-tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.inv-tool-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.inv-tool-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.inv-tool-form input,
+.inv-tool-form select,
+.inv-tool-form textarea {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--admin-border);
+  border-radius: 6px;
 }

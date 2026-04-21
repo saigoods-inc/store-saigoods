@@ -2,7 +2,11 @@ import { bundleCardPricePerHtml, formatCurrency, getProduct } from "./catalog.js
 import { getCart, setProductQuantities } from "./cart-store.js";
 import { formatBundleCardSizeSummaryHtml, perBundleSummaryMap } from "./bundle-size-summary.js";
 import { responsiveRasterImg } from "./image-utils.js";
-import { isSizeInStock, sizesOrderedForAllocation } from "./size-availability.js";
+import {
+  inventoryAllowsAllocations,
+  isSizeChannelPurchasable,
+  sizesOrderedForAllocation,
+} from "./size-availability.js";
 import { escapeHtml, initSite, showToast } from "./site.js";
 
 const productRoot = document.querySelector("[data-product-detail]");
@@ -152,7 +156,7 @@ function defaultSpread(total, sizesOrder, allSizes) {
  * the new requirement. Size steppers never auto-adjust each other.
  */
 function applyBundleRequirementDeltas(prevReq, nextReq, allSizes) {
-  const order = sizesOrderedForAllocation(product.slug, allSizes);
+  const order = sizesOrderedForAllocation(product, allSizes);
   if (nextReq.reqBox !== prevReq.reqBox) {
     boxBySize = defaultSpread(nextReq.reqBox, order, allSizes);
   }
@@ -222,12 +226,11 @@ function unavailableSizesWithQuantity() {
   const sizes = store.site.sizes;
   const names = [];
   for (const s of sizes) {
-    if (isSizeInStock(product.slug, s)) {
-      continue;
-    }
     const c = Math.floor(caseBySize[s] || 0);
     const b = Math.floor(boxBySize[s] || 0);
-    if (c + b > 0) {
+    if (c > 0 && !isSizeChannelPurchasable(product, s, "case")) {
+      names.push(s);
+    } else if (b > 0 && !isSizeChannelPurchasable(product, s, "box") && !names.includes(s)) {
       names.push(s);
     }
   }
@@ -438,14 +441,14 @@ function renderSizeColumn(title, channel, map, { invalid = false, hint = "", hid
       <div class="size-bundle-column__rows">
         ${sizes
           .map((size) => {
-            const inStock = isSizeInStock(product.slug, size);
+            const purchasable = isSizeChannelPurchasable(product, size, channel);
             const cur = Math.floor(map[size] || 0);
             const minusDisabled = cur < 1;
-            const plusDisabledForRow = !inStock || plusDisabled;
-            const rowClass = inStock ? "size-row" : "size-row size-row--unavailable";
-            const stockNote = inStock
+            const plusDisabledForRow = !purchasable || plusDisabled;
+            const rowClass = purchasable ? "size-row" : "size-row size-row--unavailable";
+            const stockNote = purchasable
               ? ""
-              : `<span class="size-row__stock-note">Out of stock</span>`;
+              : `<span class="size-row__stock-note">Currently unavailable</span>`;
             return `
           <div class="${rowClass}">
             <span class="size-row__label-wrap">
@@ -498,8 +501,11 @@ function renderProduct() {
     ? `Total cases must equal ${reqUnits.reqCase} to match your bundle packs. Current: ${sumCases}.`
     : "";
   const hasSizeSelection = sumCases + sumBoxes > 0;
-  const canClickActions =
-    hasAnyBundleSelection() && subtotal > 0 && hasSizeSelection;
+  const layoutOk =
+    hasAnyBundleSelection() && subtotal > 0 && hasSizeSelection && !showBoxError && !showCaseError;
+  const inventoryOk = inventoryAllowsAllocations(product, caseBySize, boxBySize, store.site.sizes);
+  const canPurchase = layoutOk && inventoryOk;
+  const stockOutOnly = layoutOk && !inventoryOk;
 
   const err = { showBoxError, showCaseError, boxHint, caseHint };
   const bundleSection =
@@ -588,18 +594,13 @@ function renderProduct() {
 
         <div class="product-actions">
           <button class="button button--primary button--with-icon" type="button" data-action="add-to-cart" ${
-            !canClickActions ? "disabled" : ""
+            !canPurchase ? "disabled" : ""
           }>
             <img src="/img/cart-icon.svg" alt="" aria-hidden="true" class="button__icon" width="22" height="22" decoding="async" />
-            <span>Add to cart</span>
+            <span>${stockOutOnly ? "Currently Out of Stock" : "Add to cart"}</span>
           </button>
-          <button
-            class="button button--secondary"
-            type="button"
-            data-action="checkout"
-            ${!canClickActions ? "disabled" : ""}
-          >
-            Go to checkout
+          <button class="button button--secondary" type="button" data-action="checkout" ${!canPurchase ? "disabled" : ""}>
+            ${stockOutOnly ? "Currently Out of Stock" : "Go to checkout"}
           </button>
         </div>
       </div>
@@ -619,7 +620,7 @@ function renderMissingProduct() {
 
 function handleSizeStep(channel, size, delta) {
   bundleSubmitAttempted = false;
-  if (delta > 0 && !isSizeInStock(product.slug, size)) {
+  if (delta > 0 && !isSizeChannelPurchasable(product, size, channel)) {
     return;
   }
   const map = channel === "box" ? { ...boxBySize } : { ...caseBySize };
