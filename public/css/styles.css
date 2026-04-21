@@ -1272,7 +1272,7 @@ button {
 .bundle-card__title {
   display: block;
   font-size: var(--fs-body);
-  font-weight: var(--font-weight-bold);
+  font-weight: var(--font-weight-medium);
   line-height: var(--leading-snug);
   color: #008bff;
 }
@@ -1282,7 +1282,7 @@ button {
   flex-direction: column;
   align-items: flex-start;
   gap: 0.12rem;
-  margin-top: 0.2rem;
+  margin-top: 0.4rem;
 }
 
 .bundle-card__price-total {
@@ -1299,10 +1299,9 @@ button {
   color: var(--muted);
   font-weight: var(--font-weight-normal);
   line-height: var(--leading-snug);
-  background-color: #ffffff80;
-  padding: 0.15rem 0.45rem;
-  border-radius: 5px;
+  padding: 0.35rem 0 0 0;
   margin-top: 0.25rem;
+  border-top: 1px solid #dbdbdb;
 }
 
 .bundle-card__stepper {
