@@ -30,7 +30,10 @@
       <header class="admin-header">
         <div>
           <h1>Inventory</h1>
-          <p class="admin-muted">On-hand counts by product, size, and unit (case or box).</p>
+          <p class="admin-muted">
+            Overview of cartons and boxes on hand (tracked lines only). Cartons sold uses an optional
+            original cartons baseline on each case line when set.
+          </p>
         </div>
         <div class="admin-header__actions">
           <span id="admin-user-email" class="admin-muted"></span>
@@ -47,16 +50,41 @@
       <p id="admin-load-error" class="admin-error" role="alert" hidden></p>
       <div id="admin-loading" class="admin-loading" hidden>Loading…</div>
 
-      <div class="admin-table-wrap" style="margin-top: 1rem">
-        <table class="admin-table" id="inv-stock-table">
+      <section class="inv-summary" style="margin-top: 1rem" aria-label="Inventory summary">
+        <div class="inv-summary__grid">
+          <div class="inv-summary__card">
+            <div class="inv-summary__label">Total cartons sold</div>
+            <div class="inv-summary__value" id="inv-sum-sold">—</div>
+          </div>
+          <div class="inv-summary__card">
+            <div class="inv-summary__label">Total cartons left</div>
+            <div class="inv-summary__value" id="inv-sum-cartons-left">0</div>
+          </div>
+          <div class="inv-summary__card">
+            <div class="inv-summary__label">Total boxes left</div>
+            <div class="inv-summary__value" id="inv-sum-boxes-left">0</div>
+          </div>
+          <div class="inv-summary__card">
+            <div class="inv-summary__label">Active variants / stock lines</div>
+            <div class="inv-summary__value" id="inv-sum-variants">0 / 0</div>
+          </div>
+        </div>
+        <p id="inv-baseline-note" class="admin-muted inv-overview-note" hidden></p>
+      </section>
+
+      <div class="admin-table-wrap" style="margin-top: 1.25rem">
+        <table class="admin-table inv-overview-table" id="inv-overview-table">
           <thead>
             <tr>
-              <th>Product</th>
-              <th>SIZE</th>
-              <th>Quantity</th>
+              <th scope="col">Product</th>
+              <th scope="col">Size</th>
+              <th scope="col" class="inv-num">Cartons left</th>
+              <th scope="col" class="inv-num">Boxes left</th>
+              <th scope="col" class="inv-num">Total remaining (carton eq.)</th>
+              <th scope="col" class="inv-num">Cartons sold</th>
             </tr>
           </thead>
-          <tbody id="inv-stock-tbody"></tbody>
+          <tbody id="inv-overview-tbody"></tbody>
         </table>
       </div>
     </div>

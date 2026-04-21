@@ -10,8 +10,6 @@ import {
 
 /** @type {import("@supabase/supabase-js").SupabaseClient | null} */
 let supabase = null;
-/** @type {{ products?: { slug: string, name?: string }[] }} */
-let storeCache = null;
 
 function showLogin() {
   document.getElementById("admin-login").hidden = false;
@@ -31,52 +29,94 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-function productLabel(slug) {
-  const p = storeCache?.products?.find((x) => x.slug === slug);
-  return p?.name ? `${p.name} (${slug})` : slug;
+/** @param {number | null | undefined} n */
+function fmtIntTracked(n) {
+  if (n == null) return "—";
+  return String(Math.max(0, Math.floor(Number(n))));
 }
 
-function channelLabel(ch) {
-  const c = String(ch || "").toLowerCase();
-  if (c === "case") return "case";
-  if (c === "box") return "box";
-  return c || "—";
+/** @param {number | null | undefined} n */
+function fmtEquiv(n) {
+  if (n == null) return "—";
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "—";
+  const rounded = Math.round(v * 1000) / 1000;
+  return String(rounded);
 }
 
-function sortLines(lines) {
-  return [...lines].sort((a, b) => {
-    const ka = `${a.productSlug}\t${a.size}\t${a.channel}`;
-    const kb = `${b.productSlug}\t${b.size}\t${b.channel}`;
-    return ka.localeCompare(kb);
-  });
+/**
+ * @param {object | null | undefined} overview
+ * @param {number} [lineFallback]
+ */
+function renderSummary(overview, lineFallback = 0) {
+  const s = overview?.summary || {};
+  const soldEl = document.getElementById("inv-sum-sold");
+  const note = document.getElementById("inv-baseline-note");
+
+  if (s.totalCartonsSold != null) {
+    soldEl.textContent = fmtIntTracked(s.totalCartonsSold);
+    note.hidden = true;
+    note.textContent = "";
+  } else {
+    soldEl.textContent = "—";
+    note.hidden = false;
+    note.textContent =
+      "Cartons sold will appear after original cartons is set on case lines (baseline). " +
+      "Until then, sold totals cannot be derived from inventory alone.";
+  }
+
+  document.getElementById("inv-sum-cartons-left").textContent = fmtIntTracked(s.totalCartonsLeft ?? 0);
+  document.getElementById("inv-sum-boxes-left").textContent = fmtIntTracked(s.totalBoxesLeft ?? 0);
+
+  const variants = s.activeVariantRows ?? 0;
+  const lines = s.stockLineCount ?? lineFallback;
+  document.getElementById("inv-sum-variants").textContent = `${variants} / ${lines}`;
 }
 
-function renderStockTable(lines) {
-  const tbody = document.getElementById("inv-stock-tbody");
-  const list = sortLines(Array.isArray(lines) ? lines : []);
-  if (!list.length) {
-    tbody.innerHTML = `<tr><td colspan="3" class="admin-muted">No inventory rows yet.</td></tr>`;
+/**
+ * @param {object | null | undefined} overview
+ */
+function renderOverviewTable(overview) {
+  const tbody = document.getElementById("inv-overview-tbody");
+  const products = Array.isArray(overview?.products) ? overview.products : [];
+
+  if (!products.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="admin-muted">
+      No inventory rows match the catalog yet. Add case and/or box lines per product and size (tracked counts roll into the totals above).
+    </td></tr>`;
     return;
   }
-  tbody.innerHTML = list
-    .map((row) => {
-      const slug = String(row.productSlug || "").trim();
-      const size = String(row.size || "").trim();
-      const unit = channelLabel(row.channel);
-      const sizeCell = `${size} (${unit})`;
-      const qty = Math.max(0, Math.floor(Number(row.onHand) || 0));
-      return `<tr>
-        <td>${escapeHtml(productLabel(slug))}</td>
-        <td>${escapeHtml(sizeCell)}</td>
-        <td>${escapeHtml(String(qty))}</td>
-      </tr>`;
-    })
-    .join("");
-}
 
-async function loadStore() {
-  const data = await fetch("/api/products").then((r) => r.json());
-  storeCache = data;
+  const rows = [];
+  for (const p of products) {
+    const slugPart = `<span class="admin-muted">(${escapeHtml(p.productSlug)})</span>`;
+    rows.push(
+      `<tr class="inv-section"><td colspan="6">${escapeHtml(p.productName)} ${slugPart}</td></tr>`,
+    );
+
+    for (const z of p.sizes) {
+      rows.push(`<tr>
+        <td></td>
+        <td>${escapeHtml(z.size)}</td>
+        <td class="inv-num">${fmtIntTracked(z.cartonsLeft)}</td>
+        <td class="inv-num">${fmtIntTracked(z.boxesLeft)}</td>
+        <td class="inv-num">${fmtEquiv(z.cartonEquivalent)}</td>
+        <td class="inv-num">${z.cartonsSold != null ? fmtIntTracked(z.cartonsSold) : "—"}</td>
+      </tr>`);
+    }
+
+    const st = p.subtotal || {};
+    rows.push(`<tr class="inv-subtotal">
+      <td></td>
+      <td>Subtotal</td>
+      <td class="inv-num">${fmtIntTracked(st.cartonsLeft)}</td>
+      <td class="inv-num">${fmtIntTracked(st.boxesLeft)}</td>
+      <td class="inv-num">${fmtEquiv(st.cartonEquivalent)}</td>
+      <td class="inv-num">${st.cartonsSold != null ? fmtIntTracked(st.cartonsSold) : "—"}</td>
+    </tr>`);
+  }
+
+  tbody.innerHTML = rows.join("");
 }
 
 async function loadStock(session) {
@@ -86,7 +126,10 @@ async function loadStock(session) {
   loading.hidden = false;
   try {
     const stock = await fetchReportJson("/api/admin-stock", session.access_token);
-    renderStockTable(stock?.lines);
+    const overview = stock?.overview || null;
+    const lineCount = Array.isArray(stock?.lines) ? stock.lines.length : 0;
+    renderSummary(overview, lineCount);
+    renderOverviewTable(overview);
   } catch (e) {
     errEl.textContent = e.message || "Could not load stock.";
     errEl.hidden = false;
@@ -97,7 +140,6 @@ async function loadStock(session) {
 async function bootstrap(session) {
   document.getElementById("admin-user-email").textContent = session.user.email || "";
   renderAdminNav("inventory");
-  await loadStore();
   await loadStock(session);
 }
 

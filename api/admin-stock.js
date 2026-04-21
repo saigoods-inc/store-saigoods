@@ -1,5 +1,9 @@
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
-import { applyAdminStockPatches, readStockData } from "../lib/stock.js";
+import {
+  applyAdminStockPatches,
+  buildInventoryDashboardOverview,
+  readStockData,
+} from "../lib/stock.js";
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
@@ -11,7 +15,11 @@ export default async function handler(req, res) {
     await assertReportsAuthorized(req);
 
     if (req.method === "GET") {
-      res.status(200).json(readStockData());
+      const stock = readStockData();
+      res.status(200).json({
+        ...stock,
+        overview: buildInventoryDashboardOverview(),
+      });
       return;
     }
 
