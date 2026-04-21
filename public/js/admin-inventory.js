@@ -51,18 +51,32 @@ function fmtEquiv(n) {
 function renderSummary(overview, lineFallback = 0) {
   const s = overview?.summary || {};
   const soldEl = document.getElementById("inv-sum-sold");
+  const boxesSoldEl = document.getElementById("inv-sum-boxes-sold");
   const note = document.getElementById("inv-baseline-note");
 
-  if (s.totalCartonsSold != null) {
-    soldEl.textContent = fmtIntTracked(s.totalCartonsSold);
+  soldEl.textContent =
+    s.totalCartonsSold != null ? fmtIntTracked(s.totalCartonsSold) : "—";
+  boxesSoldEl.textContent =
+    s.totalBoxesSold != null ? fmtIntTracked(s.totalBoxesSold) : "—";
+
+  if (s.totalCartonsSold != null && s.totalBoxesSold != null) {
     note.hidden = true;
     note.textContent = "";
-  } else {
-    soldEl.textContent = "—";
+  } else if (s.totalCartonsSold == null && s.totalBoxesSold == null) {
     note.hidden = false;
     note.textContent =
-      "Cartons sold will appear after original cartons is set on case lines (baseline). " +
-      "Until then, sold totals cannot be derived from inventory alone.";
+      "Cartons sold and boxes sold appear after baselines are set: original cartons on case lines " +
+      "and/or original boxes on box lines. Until then, those totals cannot be derived from inventory alone.";
+  } else {
+    note.hidden = false;
+    const parts = [];
+    if (s.totalCartonsSold == null) {
+      parts.push("cartons sold needs original cartons on case lines");
+    }
+    if (s.totalBoxesSold == null) {
+      parts.push("boxes sold needs original boxes on box lines");
+    }
+    note.textContent = `${parts.join("; ")}.`;
   }
 
   document.getElementById("inv-sum-cartons-left").textContent = fmtIntTracked(s.totalCartonsLeft ?? 0);
@@ -81,7 +95,7 @@ function renderOverviewTable(overview) {
   const products = Array.isArray(overview?.products) ? overview.products : [];
 
   if (!products.length) {
-    tbody.innerHTML = `<tr><td colspan="6" class="admin-muted">
+    tbody.innerHTML = `<tr><td colspan="7" class="admin-muted">
       No inventory rows match the catalog yet. Add case and/or box lines per product and size (tracked counts roll into the totals above).
     </td></tr>`;
     return;
@@ -91,7 +105,7 @@ function renderOverviewTable(overview) {
   for (const p of products) {
     const slugPart = `<span class="admin-muted">(${escapeHtml(p.productSlug)})</span>`;
     rows.push(
-      `<tr class="inv-section"><td colspan="6">${escapeHtml(p.productName)} ${slugPart}</td></tr>`,
+      `<tr class="inv-section"><td colspan="7">${escapeHtml(p.productName)} ${slugPart}</td></tr>`,
     );
 
     for (const z of p.sizes) {
@@ -102,6 +116,7 @@ function renderOverviewTable(overview) {
         <td class="inv-num">${fmtIntTracked(z.boxesLeft)}</td>
         <td class="inv-num">${fmtEquiv(z.cartonEquivalent)}</td>
         <td class="inv-num">${z.cartonsSold != null ? fmtIntTracked(z.cartonsSold) : "—"}</td>
+        <td class="inv-num">${z.boxesSold != null ? fmtIntTracked(z.boxesSold) : "—"}</td>
       </tr>`);
     }
 
@@ -113,6 +128,7 @@ function renderOverviewTable(overview) {
       <td class="inv-num">${fmtIntTracked(st.boxesLeft)}</td>
       <td class="inv-num">${fmtEquiv(st.cartonEquivalent)}</td>
       <td class="inv-num">${st.cartonsSold != null ? fmtIntTracked(st.cartonsSold) : "—"}</td>
+      <td class="inv-num">${st.boxesSold != null ? fmtIntTracked(st.boxesSold) : "—"}</td>
     </tr>`);
   }
 
