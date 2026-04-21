@@ -85,7 +85,7 @@ async function loadStock(session) {
   errEl.hidden = true;
   loading.hidden = false;
   try {
-    const stock = await fetchReportJson("/api/admin/stock", session.access_token);
+    const stock = await fetchReportJson("/api/admin-stock", session.access_token);
     renderStockTable(stock?.lines);
   } catch (e) {
     errEl.textContent = e.message || "Could not load stock.";
