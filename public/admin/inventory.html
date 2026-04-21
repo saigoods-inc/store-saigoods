@@ -31,8 +31,8 @@
         <div>
           <h1>Inventory</h1>
           <p class="admin-muted">
-            Overview of cartons and boxes on hand (tracked lines only). Sold totals use optional baselines:
-            original cartons on case lines, original boxes on box lines.
+            Overview of cases and boxes on hand (tracked lines only). Sold totals use optional baselines:
+            original cases on case lines, original boxes on box lines.
           </p>
         </div>
         <div class="admin-header__actions">
@@ -53,7 +53,7 @@
       <section class="inv-summary" style="margin-top: 1rem" aria-label="Inventory summary">
         <div class="inv-summary__grid">
           <div class="inv-summary__card">
-            <div class="inv-summary__label">Total cartons sold</div>
+            <div class="inv-summary__label">Total cases sold</div>
             <div class="inv-summary__value" id="inv-sum-sold">—</div>
           </div>
           <div class="inv-summary__card">
@@ -61,8 +61,8 @@
             <div class="inv-summary__value" id="inv-sum-boxes-sold">—</div>
           </div>
           <div class="inv-summary__card">
-            <div class="inv-summary__label">Total cartons left</div>
-            <div class="inv-summary__value" id="inv-sum-cartons-left">0</div>
+            <div class="inv-summary__label">Total cases left</div>
+            <div class="inv-summary__value" id="inv-sum-cases-left">0</div>
           </div>
           <div class="inv-summary__card">
             <div class="inv-summary__label">Total boxes left</div>
@@ -82,10 +82,10 @@
             <tr>
               <th scope="col">Product</th>
               <th scope="col">Size</th>
-              <th scope="col" class="inv-num">Cartons left</th>
+              <th scope="col" class="inv-num">Cases left</th>
               <th scope="col" class="inv-num">Boxes left</th>
-              <th scope="col" class="inv-num">Total remaining (carton eq.)</th>
-              <th scope="col" class="inv-num">Cartons sold</th>
+              <th scope="col" class="inv-num">Total remaining (case eq.)</th>
+              <th scope="col" class="inv-num">Cases sold</th>
               <th scope="col" class="inv-num">Boxes sold</th>
             </tr>
           </thead>

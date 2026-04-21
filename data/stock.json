@@ -1,4 +1,173 @@
 {
   "schemaVersion": 2,
-  "lines": []
+  "lines": [
+    {
+      "productSlug": "nitrile-standard",
+      "size": "Small",
+      "channel": "case",
+      "productName": "Nitrile Examination \u2013 Standard",
+      "track": true,
+      "onHand": 182,
+      "reserved": 2,
+      "incoming": 0,
+      "damaged": 0,
+      "originalCartons": 182
+    },
+    {
+      "productSlug": "nitrile-standard",
+      "size": "Small",
+      "channel": "box",
+      "productName": "Nitrile Examination \u2013 Standard",
+      "track": true,
+      "onHand": 1820,
+      "reserved": 20,
+      "incoming": 0,
+      "damaged": 0,
+      "originalBoxes": 1820
+    },
+    {
+      "productSlug": "nitrile-standard",
+      "size": "Medium",
+      "channel": "case",
+      "productName": "Nitrile Examination \u2013 Standard",
+      "track": true,
+      "onHand": 782,
+      "reserved": 0,
+      "incoming": 0,
+      "damaged": 0,
+      "originalCartons": 792
+    },
+    {
+      "productSlug": "nitrile-standard",
+      "size": "Medium",
+      "channel": "box",
+      "productName": "Nitrile Examination \u2013 Standard",
+      "track": true,
+      "onHand": 7820,
+      "reserved": 0,
+      "incoming": 0,
+      "damaged": 0,
+      "originalBoxes": 7920
+    },
+    {
+      "productSlug": "nitrile-standard",
+      "size": "Large",
+      "channel": "case",
+      "productName": "Nitrile Examination \u2013 Standard",
+      "track": true,
+      "onHand": 240,
+      "reserved": 0,
+      "incoming": 0,
+      "damaged": 0,
+      "originalCartons": 240
+    },
+    {
+      "productSlug": "nitrile-standard",
+      "size": "Large",
+      "channel": "box",
+      "productName": "Nitrile Examination \u2013 Standard",
+      "track": true,
+      "onHand": 2396,
+      "reserved": 0,
+      "incoming": 0,
+      "damaged": 0,
+      "originalBoxes": 2396
+    },
+    {
+      "productSlug": "black-nitrile-general",
+      "size": "Medium",
+      "channel": "case",
+      "productName": "Black Nitrile \u2013 General",
+      "track": true,
+      "onHand": 201,
+      "reserved": 1,
+      "incoming": 0,
+      "damaged": 0,
+      "originalCartons": 201
+    },
+    {
+      "productSlug": "black-nitrile-general",
+      "size": "Medium",
+      "channel": "box",
+      "productName": "Black Nitrile \u2013 General",
+      "track": true,
+      "onHand": 2015,
+      "reserved": 15,
+      "incoming": 0,
+      "damaged": 0,
+      "originalBoxes": 2015
+    },
+    {
+      "productSlug": "black-nitrile-general",
+      "size": "Large",
+      "channel": "case",
+      "productName": "Black Nitrile \u2013 General",
+      "track": true,
+      "onHand": 200,
+      "reserved": 0,
+      "incoming": 0,
+      "damaged": 0,
+      "originalCartons": 200
+    },
+    {
+      "productSlug": "black-nitrile-general",
+      "size": "Large",
+      "channel": "box",
+      "productName": "Black Nitrile \u2013 General",
+      "track": true,
+      "onHand": 2000,
+      "reserved": 0,
+      "incoming": 0,
+      "damaged": 0,
+      "originalBoxes": 2000
+    },
+    {
+      "productSlug": "black-nitrile-heavy-duty",
+      "size": "Large",
+      "channel": "case",
+      "productName": "Black Nitrile \u2013 Heavy Duty",
+      "track": true,
+      "onHand": 200,
+      "reserved": 0,
+      "incoming": 0,
+      "damaged": 0,
+      "originalCartons": 200
+    },
+    {
+      "productSlug": "black-nitrile-heavy-duty",
+      "size": "Large",
+      "channel": "box",
+      "productName": "Black Nitrile \u2013 Heavy Duty",
+      "track": true,
+      "onHand": 2000,
+      "reserved": 0,
+      "incoming": 0,
+      "damaged": 0,
+      "originalBoxes": 2000
+    },
+    {
+      "productSlug": "black-nitrile-heavy-duty",
+      "size": "X Large",
+      "channel": "case",
+      "productName": "Black Nitrile \u2013 Heavy Duty",
+      "track": true,
+      "onHand": 200,
+      "reserved": 0,
+      "incoming": 0,
+      "damaged": 0,
+      "originalCartons": 200
+    },
+    {
+      "productSlug": "black-nitrile-heavy-duty",
+      "size": "X Large",
+      "channel": "box",
+      "productName": "Black Nitrile \u2013 Heavy Duty",
+      "track": true,
+      "onHand": 1995,
+      "reserved": 0,
+      "incoming": 0,
+      "damaged": 0,
+      "originalBoxes": 1995
+    }
+  ]
 }

@@ -357,7 +357,7 @@ function renderBundleCard(b, err) {
         hideHeader: true,
       });
     } else if (kind === "case" && showCaseColumn()) {
-      panelInner = renderSizeColumn("Carton Bundle", "case", caseBySize, {
+      panelInner = renderSizeColumn("Case bundle", "case", caseBySize, {
         invalid: err.showCaseError,
         hint: err.caseHint,
         hideHeader: true,

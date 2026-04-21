@@ -65,13 +65,13 @@ function renderSummary(overview, lineFallback = 0) {
   } else if (s.totalCartonsSold == null && s.totalBoxesSold == null) {
     note.hidden = false;
     note.textContent =
-      "Cartons sold and boxes sold appear after baselines are set: original cartons on case lines " +
+      "Cases sold and boxes sold appear after baselines are set: original cases on case lines " +
       "and/or original boxes on box lines. Until then, those totals cannot be derived from inventory alone.";
   } else {
     note.hidden = false;
     const parts = [];
     if (s.totalCartonsSold == null) {
-      parts.push("cartons sold needs original cartons on case lines");
+      parts.push("cases sold needs original cases on case lines");
     }
     if (s.totalBoxesSold == null) {
       parts.push("boxes sold needs original boxes on box lines");
@@ -79,7 +79,7 @@ function renderSummary(overview, lineFallback = 0) {
     note.textContent = `${parts.join("; ")}.`;
   }
 
-  document.getElementById("inv-sum-cartons-left").textContent = fmtIntTracked(s.totalCartonsLeft ?? 0);
+  document.getElementById("inv-sum-cases-left").textContent = fmtIntTracked(s.totalCartonsLeft ?? 0);
   document.getElementById("inv-sum-boxes-left").textContent = fmtIntTracked(s.totalBoxesLeft ?? 0);
 
   const variants = s.activeVariantRows ?? 0;
