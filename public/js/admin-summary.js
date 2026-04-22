@@ -46,6 +46,24 @@ function fmtDateTime(iso) {
   return d.toLocaleString();
 }
 
+/** Recent purchases: Apr 21 26, 1:43 PM (local, 12h, no seconds). */
+function fmtPaidAtSummary(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const mo = months[d.getMonth()];
+  const day = d.getDate();
+  const yr = String(d.getFullYear()).slice(-2);
+  let h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  const mm = String(m).padStart(2, "0");
+  return `${mo} ${day} ${yr}, ${h}:${mm} ${ampm}`;
+}
+
 function updateRangeControlsVisibility() {
   const isCustom = rangeState.preset === "custom";
   const a = document.getElementById("summary-custom-start-wrap");
@@ -73,7 +91,8 @@ function setKpiText(id, text) {
 
 function renderKpis(summary) {
   const k = summary?.kpis || {};
-  setKpiText("kpi-net-after-variable", fmtCents(k.netAfterVariableCostsCents));
+  const profitRows = Number(k.currentProfitSnapshotOrders) || 0;
+  setKpiText("kpi-net-after-variable", profitRows > 0 ? fmtCents(k.currentProfitCents) : "—");
   setKpiText("kpi-shipping-expense", fmtCents(k.totalShippingExpenseCents));
   const shipVarOrders = Number(k.shippingVarianceOrders) || 0;
   setKpiText(
@@ -90,21 +109,25 @@ function renderShippingZoneRanking(summary) {
   const tbody = document.getElementById("summary-zone-ranking-tbody");
   if (!tbody) return;
   const shipping = summary?.breakdown?.shipping || {};
-  const carriers = Array.isArray(shipping.carriers) ? [...shipping.carriers] : [];
-  if (!carriers.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="summary-empty">No shipping records in this range.</td></tr>`;
+  const zones = Array.isArray(shipping.zones) ? [...shipping.zones] : [];
+  if (!zones.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="summary-empty">No US ZIP on file for orders in this range.</td></tr>`;
     return;
   }
-  carriers.sort((a, b) => (Number(b.orders) || 0) - (Number(a.orders) || 0));
-  tbody.innerHTML = carriers
+  zones.sort((a, b) => (Number(b.orders) || 0) - (Number(a.orders) || 0));
+  tbody.innerHTML = zones
     .slice(0, 12)
     .map((row, i) => {
-      const zone = String(row.carrier || "Unknown").trim() || "Unknown";
+      const z = Number(row.zone);
+      const zoneLabel = Number.isFinite(z) ? String(z) : "—";
+      const w = row.totalWeightLb;
+      const weightCell =
+        w != null && Number.isFinite(Number(w)) ? `${escapeHtml(String(row.totalWeightLb))} lb` : "—";
       return `<tr>
         <td class="summary-td-rank">${escapeHtml(String(i + 1))}</td>
-        <td>${escapeHtml(zone)}</td>
+        <td>${escapeHtml(zoneLabel)}</td>
         <td class="summary-td-num">${escapeHtml(String(row.orders || 0))}</td>
-        <td class="summary-na summary-td-muted">—</td>
+        <td class="summary-td-num">${weightCell}</td>
       </tr>`;
     })
     .join("");
@@ -117,17 +140,18 @@ function renderRecentPurchasesTable(summary) {
     ? summary.breakdown.recentFinancialActivity
     : [];
   if (!recent.length) {
-    tbody.innerHTML = `<tr><td colspan="6" class="summary-empty">No paid orders in this range.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="summary-empty">No paid orders in this range.</td></tr>`;
     return;
   }
   tbody.innerHTML = recent
     .slice(0, 20)
     .map(
       (row) => `<tr>
-        <td>${escapeHtml(fmtDateTime(row.paidAt))}</td>
+        <td>${escapeHtml(fmtPaidAtSummary(row.paidAt))}</td>
         <td>${escapeHtml(row.orderRef || "—")}</td>
         <td>${escapeHtml(row.productPreview || "—")}</td>
         <td>${escapeHtml(row.quantityPreview || "—")}</td>
+        <td class="summary-td-num">${escapeHtml(row.shippingCostCents != null ? fmtCents(row.shippingCostCents) : "—")}</td>
         <td>${escapeHtml(row.customer || "—")}</td>
         <td class="summary-td-num">${escapeHtml(fmtCents(row.revenueCents || 0))}</td>
       </tr>`,

@@ -322,7 +322,6 @@ body.admin-page {
 
 .admin-table-wrap {
   overflow-x: auto;
-  border: 1px solid var(--admin-border);
   border-radius: 8px;
   background: var(--admin-card);
 }
