@@ -83,17 +83,8 @@
           Products are grouped by catalog name; each size row is physical on-hand (reservations still
           apply at checkout). Only case and box counts are editable here.
         </p>
-        <div class="admin-table-wrap">
-          <table class="admin-table inv-editor-table" id="inv-editor-table">
-            <thead>
-              <tr>
-                <th scope="col">Size</th>
-                <th scope="col" class="inv-editor-num">Cases in stock</th>
-                <th scope="col" class="inv-editor-num">Boxes in stock</th>
-              </tr>
-            </thead>
-            <tbody id="inv-editor-tbody"></tbody>
-          </table>
+        <div class="admin-table-wrap inv-editor-wrap" id="inv-editor-wrap">
+          <div id="inv-editor-groups" class="inv-editor-groups" role="region" aria-label="Stock by product"></div>
         </div>
       </section>
     </div>

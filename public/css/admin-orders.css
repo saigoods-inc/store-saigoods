@@ -341,7 +341,6 @@ body.admin-page {
 
 .admin-table th {
   font-size: 12px;
-  text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--admin-muted);
   font-weight: 600;
@@ -1579,6 +1578,90 @@ tr.admin-order-row--handoff td {
   border-radius: 6px;
 }
 
+.inv-editor-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.inv-editor-groups-empty {
+  margin: 0;
+  padding: 0.5rem 0;
+}
+
+.inv-editor-accordion {
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+  background: var(--admin-card);
+  overflow: hidden;
+}
+
+.inv-editor-accordion > summary.inv-editor-product-title {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.65rem 0.85rem;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--admin-text);
+  letter-spacing: 0.01em;
+  user-select: none;
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.inv-editor-accordion > summary.inv-editor-product-title::-webkit-details-marker {
+  display: none;
+}
+
+.inv-editor-product-title__text {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.inv-editor-accordion > summary.inv-editor-product-title::after {
+  content: "";
+  width: 0.45rem;
+  height: 0.45rem;
+  flex-shrink: 0;
+  border-right: 2px solid var(--admin-muted);
+  border-bottom: 2px solid var(--admin-muted);
+  transform: rotate(45deg);
+  transition: transform 0.15s ease;
+  margin-top: -0.15rem;
+}
+
+.inv-editor-accordion[open] > summary.inv-editor-product-title::after {
+  transform: rotate(-135deg);
+  margin-top: 0.2rem;
+}
+
+.inv-editor-accordion__panel {
+  padding: 0 0 0.5rem;
+  border-top: 1px solid var(--admin-border);
+}
+
+.inv-editor-subtable {
+  width: 100%;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.inv-editor-subtable thead th {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--admin-muted);
+  padding-top: 0.55rem;
+  padding-bottom: 0.35rem;
+}
+
 .inv-editor-table .inv-editor-num {
   text-align: right;
   width: 7.5rem;
@@ -1586,24 +1669,6 @@ tr.admin-order-row--handoff td {
 
 .inv-editor-table thead .inv-editor-num {
   text-align: right;
-}
-
-.inv-editor-group-header td {
-  padding-top: 1.1rem;
-  padding-bottom: 0.4rem;
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--admin-text);
-  border-bottom: 1px solid var(--admin-border);
-  background: rgba(15, 23, 42, 0.03);
-}
-
-.inv-editor-table tbody tr.inv-editor-group-header:first-child td {
-  padding-top: 0.35rem;
-}
-
-.inv-editor-product-title {
-  letter-spacing: 0.01em;
 }
 
 .inv-editor-size-cell {

@@ -99,30 +99,37 @@ function renderSummary(overview, lineFallback = 0) {
  * @param {object | null | undefined} editor
  */
 function renderEditorTable(editor) {
-  const tbody = document.getElementById("inv-editor-tbody");
-  if (!tbody) {
+  const root = document.getElementById("inv-editor-groups");
+  if (!root) {
     return;
   }
   const groups = Array.isArray(editor?.groups) ? editor.groups : [];
 
   if (!groups.length) {
-    tbody.innerHTML = `<tr><td colspan="3" class="admin-muted">No catalog products.</td></tr>`;
+    root.innerHTML = `<p class="admin-muted inv-editor-groups-empty">No catalog products.</p>`;
     return;
   }
+
+  const thead = `<thead>
+    <tr>
+      <th scope="col">Size</th>
+      <th scope="col" class="inv-editor-num">Cases in stock</th>
+      <th scope="col" class="inv-editor-num">Boxes in stock</th>
+    </tr>
+  </thead>`;
 
   const html = [];
   for (const g of groups) {
     const title = escapeHtml(g.catalogProductName ?? g.productSlug ?? "");
-    html.push(
-      `<tr class="inv-editor-group-header"><td colspan="3" class="inv-editor-product-title">${title}</td></tr>`,
-    );
+    const slugSafe = escapeHtml(g.productSlug ?? "");
+    const rows = [];
     for (const r of g.rows || []) {
       const slug = escapeHtml(r.productSlug);
       const size = escapeHtml(r.size);
       const cat = escapeHtml(r.catalogProductName ?? "");
       const c = Math.max(0, Math.floor(Number(r.casesOnHand) || 0));
       const b = Math.max(0, Math.floor(Number(r.boxesOnHand) || 0));
-      html.push(`<tr
+      rows.push(`<tr
         class="inv-editor-size-row"
         data-slug="${slug}"
         data-size="${size}"
@@ -155,8 +162,20 @@ function renderEditorTable(editor) {
         </td>
       </tr>`);
     }
+
+    html.push(`<details class="inv-editor-accordion" data-product-slug="${slugSafe}" open>
+      <summary class="inv-editor-product-title">
+        <span class="inv-editor-product-title__text">${title}</span>
+      </summary>
+      <div class="inv-editor-accordion__panel">
+        <table class="admin-table inv-editor-table inv-editor-subtable">
+          ${thead}
+          <tbody>${rows.join("")}</tbody>
+        </table>
+      </div>
+    </details>`);
   }
-  tbody.innerHTML = html.join("");
+  root.innerHTML = html.join("");
 }
 
 async function loadStock(session) {
@@ -200,8 +219,8 @@ async function loadStock(session) {
 async function saveAllInventoryEdits(session) {
   const status = document.getElementById("inv-save-status");
   const btn = document.getElementById("inv-save-all");
-  const tbody = document.getElementById("inv-editor-tbody");
-  if (!tbody) {
+  const root = document.getElementById("inv-editor-groups");
+  if (!root) {
     return;
   }
   if (status) {
@@ -212,7 +231,7 @@ async function saveAllInventoryEdits(session) {
   }
   const patches = [];
   try {
-    for (const tr of tbody.querySelectorAll("tr.inv-editor-size-row[data-slug][data-size]")) {
+    for (const tr of root.querySelectorAll("tr.inv-editor-size-row[data-slug][data-size]")) {
       const slug = String(tr.dataset.slug || "").trim();
       const size = String(tr.dataset.size || "").trim();
       if (!slug || !size) {
