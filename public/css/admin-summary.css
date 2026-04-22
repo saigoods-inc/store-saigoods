@@ -75,16 +75,12 @@
   gap: 1rem;
 }
 
-/* KPI stack + donut — give chart column breathing room */
-.summary-kpi-donut-block {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(232px, 30%);
-  gap: 0.85rem;
-  align-items: stretch;
-  min-height: 228px;
+/* KPI rows only (no side chart) */
+.summary-kpi-block {
+  min-width: 0;
 }
 
-.summary-kpi-donut-block__kpis {
+.summary-kpi-block__rows {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
@@ -97,7 +93,7 @@
 }
 
 .summary-kpi-row--primary {
-  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.35fr) repeat(3, minmax(0, 1fr));
 }
 
 .summary-kpi-row--secondary {
@@ -192,23 +188,6 @@
   font-size: 11px;
   font-weight: 500;
   line-height: 1.35;
-}
-
-.summary-card--donut {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  padding-bottom: 0.5rem;
-}
-
-.summary-donut-canvas {
-  flex: 1;
-  width: 100%;
-  min-height: 200px;
-  margin: 0.35rem 0.65rem 0.5rem;
-  border-radius: 8px;
-  border: 1px solid #eef0f3;
-  background: #fafbfc;
 }
 
 .summary-card--zone {
@@ -401,11 +380,6 @@
     order: 2;
     position: static;
     max-height: 260px;
-  }
-
-  .summary-kpi-donut-block {
-    grid-template-columns: 1fr;
-    min-height: 0;
   }
 
   .summary-kpi-row--primary {

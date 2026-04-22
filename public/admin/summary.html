@@ -81,8 +81,8 @@
         </aside>
 
         <div class="summary-dashboard-right">
-          <div class="summary-kpi-donut-block">
-            <div class="summary-kpi-donut-block__kpis">
+          <div class="summary-kpi-block">
+            <div class="summary-kpi-block__rows">
               <div class="summary-kpi-row summary-kpi-row--primary">
                 <article class="summary-kpi-card summary-kpi-card--profit">
                   <p class="summary-kpi-card__label">Current Profit</p>
@@ -91,6 +91,10 @@
                 <article class="summary-kpi-card summary-kpi-card--medium">
                   <p class="summary-kpi-card__label">Shipping Expense</p>
                   <p id="kpi-shipping-expense" class="summary-kpi-card__value">—</p>
+                </article>
+                <article class="summary-kpi-card summary-kpi-card--medium">
+                  <p class="summary-kpi-card__label">Profit from Shipping</p>
+                  <p id="kpi-profit-from-shipping" class="summary-kpi-card__value">—</p>
                 </article>
                 <article class="summary-kpi-card summary-kpi-card--medium">
                   <p class="summary-kpi-card__label">Total Orders</p>
@@ -112,18 +116,6 @@
                 </article>
               </div>
             </div>
-            <article class="summary-card summary-card--donut" aria-label="Product ranking chart">
-              <header class="summary-card__header">
-                <h2 class="summary-card__title">Product Ranking</h2>
-                <p class="summary-card__sub admin-muted">Share of line-item revenue (top products)</p>
-              </header>
-              <canvas
-                id="chart-product-donut"
-                class="summary-donut-canvas"
-                aria-label="Share of line-item revenue by top products"
-                role="img"
-              ></canvas>
-            </article>
           </div>
 
           <article class="summary-card summary-card--zone">

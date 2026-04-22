@@ -10,7 +10,6 @@ import {
 } from "./admin-shared.js";
 
 let supabase = null;
-let lastSummary = null;
 
 const rangeState = {
   preset: "last30",
@@ -76,6 +75,11 @@ function renderKpis(summary) {
   const k = summary?.kpis || {};
   setKpiText("kpi-net-after-variable", fmtCents(k.netAfterVariableCostsCents));
   setKpiText("kpi-shipping-expense", fmtCents(k.totalShippingExpenseCents));
+  const shipVarOrders = Number(k.shippingVarianceOrders) || 0;
+  setKpiText(
+    "kpi-profit-from-shipping",
+    shipVarOrders > 0 ? fmtCents(k.totalShippingVarianceCents) : "—",
+  );
   setKpiText("kpi-total-orders", String(k.totalOrders || 0));
   setKpiText("kpi-total-revenue", fmtCents(k.totalRevenueCents));
   setKpiText("kpi-avg-shipping", fmtCents(k.averageShippingPerOrderCents));
@@ -152,94 +156,6 @@ function renderProductRankingTable(summary) {
     .join("");
 }
 
-function truncateDonutLegendLabel(s, maxLen) {
-  const t = String(s || "").trim();
-  if (t.length <= maxLen) return t;
-  return `${t.slice(0, Math.max(1, maxLen - 1))}…`;
-}
-
-function setupCanvasForContainer(canvas) {
-  const dpr = Math.max(1, window.devicePixelRatio || 1);
-  const width = Math.max(200, Math.floor(canvas.clientWidth || 220));
-  const height = Math.max(200, Math.floor(canvas.clientHeight || 240));
-  canvas.width = Math.floor(width * dpr);
-  canvas.height = Math.floor(height * dpr);
-  const ctx = canvas.getContext("2d");
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return { ctx, width, height };
-}
-
-function drawDonutChart(canvas, segments) {
-  if (!canvas) return;
-  const { ctx, width, height } = setupCanvasForContainer(canvas);
-  ctx.clearRect(0, 0, width, height);
-
-  const cx = width * 0.36;
-  const cy = height / 2;
-  const rOuter = Math.min(width, height) * 0.34;
-  const rInner = rOuter * 0.58;
-  const total = segments.reduce((s, x) => s + Math.max(0, Number(x.value) || 0), 0);
-
-  if (total <= 0) {
-    ctx.fillStyle = "#9ca3af";
-    ctx.font = "13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("No product line revenue in this range", cx, cy);
-    return;
-  }
-
-  let angle = -Math.PI / 2;
-  segments.forEach((seg) => {
-    const v = Math.max(0, Number(seg.value) || 0);
-    const slice = (v / total) * Math.PI * 2;
-    ctx.beginPath();
-    ctx.fillStyle = seg.color;
-    ctx.arc(cx, cy, rOuter, angle, angle + slice, false);
-    ctx.arc(cx, cy, rInner, angle + slice, angle, true);
-    ctx.closePath();
-    ctx.fill();
-    angle += slice;
-  });
-
-  ctx.font = "600 11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
-  ctx.textAlign = "left";
-  const legendX = width * 0.56;
-  let ly = Math.max(16, cy - rOuter * 0.52);
-  const maxLabelChars = Math.max(18, Math.floor((width - legendX - 12) / 6.2));
-  segments.forEach((seg) => {
-    const pct = Math.round(((Number(seg.value) || 0) / total) * 1000) / 10;
-    const label = truncateDonutLegendLabel(seg.label, maxLabelChars);
-    ctx.fillStyle = seg.color;
-    ctx.fillRect(legendX, ly, 9, 9);
-    ctx.fillStyle = "#4b5563";
-    ctx.fillText(`${label} (${pct}%)`, legendX + 14, ly + 8);
-    ly += 17;
-  });
-}
-
-function renderProductDonut(summary) {
-  const canvas = document.getElementById("chart-product-donut");
-  const rows = Array.isArray(summary?.breakdown?.productRanking) ? summary.breakdown.productRanking : [];
-  const total = rows.reduce((s, r) => s + Math.max(0, Number(r.revenueCents) || 0), 0);
-  const palette = ["#2563eb", "#0d9488", "#6366f1", "#d97706", "#db2777", "#94a3b8"];
-  if (!rows.length || total <= 0) {
-    drawDonutChart(canvas, []);
-    return;
-  }
-  const top = rows.slice(0, 5);
-  const topSum = top.reduce((s, r) => s + Math.max(0, Number(r.revenueCents) || 0), 0);
-  const other = Math.max(0, total - topSum);
-  const segs = top.map((r, i) => ({
-    label: String(r.name || r.slug || "Product").trim() || "Product",
-    value: Math.max(0, Number(r.revenueCents) || 0),
-    color: palette[i % 5],
-  }));
-  if (other > 0) {
-    segs.push({ label: "Other products", value: other, color: palette[5] });
-  }
-  drawDonutChart(canvas, segs);
-}
-
 function renderAlerts(summary) {
   const alerts = summary?.alerts || {};
   const listEl = document.getElementById("alerts-list");
@@ -305,11 +221,9 @@ function renderMeta(summary) {
 }
 
 function renderSummary(summary) {
-  lastSummary = summary;
   renderMeta(summary);
   renderKpis(summary);
   renderAlerts(summary);
-  renderProductDonut(summary);
   renderShippingZoneRanking(summary);
   renderRecentPurchasesTable(summary);
   renderProductRankingTable(summary);
@@ -426,7 +340,6 @@ async function init() {
     }
     if (event === "SIGNED_OUT") {
       clearAdminSessionUser();
-      lastSummary = null;
       showLogin();
     }
   });
@@ -456,15 +369,6 @@ async function init() {
     await supabase.auth.signOut();
   });
 
-  let resizeTimer = null;
-  window.addEventListener("resize", () => {
-    window.clearTimeout(resizeTimer);
-    resizeTimer = window.setTimeout(() => {
-      if (lastSummary) {
-        renderProductDonut(lastSummary);
-      }
-    }, 120);
-  });
 }
 
 init();
