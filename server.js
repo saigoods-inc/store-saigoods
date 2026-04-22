@@ -98,7 +98,7 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/api/products" && req.method === "GET") {
       // Always read from disk so site metadata (phone, address, etc.) updates without restarting Node.
-      return sendJson(res, 200, mergeInventoryIntoStore(readStoreData()));
+      return sendJson(res, 200, await mergeInventoryIntoStore(readStoreData()));
     }
 
     if (pathname.startsWith("/api/products/") && req.method === "GET") {
@@ -110,7 +110,7 @@ const server = createServer(async (req, res) => {
         return sendJson(res, 404, { error: "Product not found." });
       }
 
-      return sendJson(res, 200, mergeInventoryIntoProduct(product));
+      return sendJson(res, 200, await mergeInventoryIntoProduct(product));
     }
 
     if (pathname === "/api/cart/quote" && req.method === "POST") {

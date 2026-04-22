@@ -8,7 +8,8 @@
     "start": "node server.js",
     "api:dev": "vercel dev",
     "test:resend": "node scripts/test-resend-email.mjs",
-    "optimize:images": "node scripts/optimize-images.mjs"
+    "optimize:images": "node scripts/optimize-images.mjs",
+    "bootstrap:inventory": "node scripts/bootstrap-inventory-from-json.mjs"
   },
   "devDependencies": {
     "sharp": "^0.33.5"

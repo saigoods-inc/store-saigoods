@@ -25,7 +25,7 @@ export default async function handler(req, res) {
     const adminUser = actor?.email || (actor?.kind === "service" ? "internal" : null);
 
     if (req.method === "GET") {
-      res.status(200).json(readInventoryDashboardPayload());
+      res.status(200).json(await readInventoryDashboardPayload());
       return;
     }
 
@@ -42,7 +42,7 @@ export default async function handler(req, res) {
         adminUser,
         reason: body.reason || "Admin inventory form",
       });
-      res.status(200).json({ ok: true, stock: next, dashboard: readInventoryDashboardPayload() });
+      res.status(200).json({ ok: true, stock: next, dashboard: await readInventoryDashboardPayload() });
       return;
     }
 
@@ -59,7 +59,7 @@ export default async function handler(req, res) {
         [{ productSlug: slug, size, channel, addOnHand: delta, reason: body.reason }],
         { adminUser, reason: body.reason || "Manual adjustment" },
       );
-      res.status(200).json({ ok: true, stock: next, dashboard: readInventoryDashboardPayload() });
+      res.status(200).json({ ok: true, stock: next, dashboard: await readInventoryDashboardPayload() });
       return;
     }
 
@@ -76,7 +76,7 @@ export default async function handler(req, res) {
         [{ productSlug: slug, size, channel, addDamaged: d, addOnHand: -d }],
         { adminUser, reason: body.reason || "Mark damaged" },
       );
-      res.status(200).json({ ok: true, stock: next, dashboard: readInventoryDashboardPayload() });
+      res.status(200).json({ ok: true, stock: next, dashboard: await readInventoryDashboardPayload() });
       return;
     }
 
@@ -93,7 +93,7 @@ export default async function handler(req, res) {
         adminUser,
         reason: body.reason || (track ? "Enable tracking" : "Disable tracking"),
       });
-      res.status(200).json({ ok: true, stock: next, dashboard: readInventoryDashboardPayload() });
+      res.status(200).json({ ok: true, stock: next, dashboard: await readInventoryDashboardPayload() });
       return;
     }
 
@@ -113,7 +113,7 @@ export default async function handler(req, res) {
         [{ productSlug: slug, size, channel, reorderThreshold: th }],
         { adminUser, reason: body.reason || "Reorder threshold" },
       );
-      res.status(200).json({ ok: true, stock: next, dashboard: readInventoryDashboardPayload() });
+      res.status(200).json({ ok: true, stock: next, dashboard: await readInventoryDashboardPayload() });
       return;
     }
 
@@ -122,7 +122,7 @@ export default async function handler(req, res) {
         { eta: body.eta, notes: body.notes, lines: body.lines },
         { adminUser, reason: body.reason },
       );
-      res.status(200).json({ ok: true, ...result, dashboard: readInventoryDashboardPayload() });
+      res.status(200).json({ ok: true, ...result, dashboard: await readInventoryDashboardPayload() });
       return;
     }
 
@@ -134,7 +134,7 @@ export default async function handler(req, res) {
         adminUser,
         reason: body.reason,
       });
-      res.status(200).json({ ok: true, ...result, dashboard: readInventoryDashboardPayload() });
+      res.status(200).json({ ok: true, ...result, dashboard: await readInventoryDashboardPayload() });
       return;
     }
 

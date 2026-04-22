@@ -72,7 +72,7 @@ export default async function handler(req, res) {
       hardinDiscount = { code: normalizedCode, applied: true };
     }
 
-    assertStockAvailableForItems(parsed.items);
+    await assertStockAvailableForItems(parsed.items);
     const quote = await buildFullCheckoutQuote(parsed.items, mergedAddress, {
       pricingTier,
       shippingContext: addrCheck.shippingContext,

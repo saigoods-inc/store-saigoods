@@ -3,7 +3,7 @@ import {
   applyAdminStockPatches,
   buildInventoryDashboardOverview,
   buildInventoryEditorGrid,
-  readStockData,
+  readInventorySnapshot,
 } from "../lib/stock.js";
 import { loadStore } from "../lib/store.js";
 
@@ -17,13 +17,13 @@ export default async function handler(req, res) {
     await assertReportsAuthorized(req);
 
     if (req.method === "GET") {
-      const stock = readStockData();
+      const stock = await readInventorySnapshot();
       const site = loadStore()?.site;
       res.status(200).json({
         ...stock,
         storefrontGlobalOutOfStock: Boolean(site?.storefrontGlobalOutOfStock),
-        overview: buildInventoryDashboardOverview(),
-        editor: buildInventoryEditorGrid(),
+        overview: await buildInventoryDashboardOverview(),
+        editor: await buildInventoryEditorGrid(),
       });
       return;
     }
@@ -39,8 +39,8 @@ export default async function handler(req, res) {
     res.status(200).json({
       ok: true,
       stock: next,
-      overview: buildInventoryDashboardOverview(),
-      editor: buildInventoryEditorGrid(),
+      overview: await buildInventoryDashboardOverview(),
+      editor: await buildInventoryEditorGrid(),
     });
   } catch (error) {
     console.error(error);

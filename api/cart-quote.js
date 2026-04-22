@@ -10,7 +10,7 @@ export default async function handler(req, res) {
 
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
-    assertStockAvailableForItems(items);
+    await assertStockAvailableForItems(items);
     const quote = buildQuote(items, { omitShippingEstimate: true });
 
     res.status(200).json(enrichCartQuoteApiResponse(quote));
