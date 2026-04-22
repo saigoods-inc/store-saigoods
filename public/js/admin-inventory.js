@@ -30,19 +30,18 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-/** @param {number | null | undefined} n */
-function fmtIntTracked(n) {
-  if (n == null) return "—";
-  return String(Math.max(0, Math.floor(Number(n))));
-}
-
-/** @param {number | null | undefined} n */
-function fmtEquiv(n) {
-  if (n == null) return "—";
-  const v = Number(n);
-  if (!Number.isFinite(v)) return "—";
-  const rounded = Math.round(v * 1000) / 1000;
-  return String(rounded);
+/**
+ * @param {number} cases
+ * @param {number} boxes
+ * @param {string} [suffix] e.g. "sold" or "left"
+ */
+function formatCasesBoxesLine(cases, boxes, suffix) {
+  const c = Math.max(0, Math.floor(Number(cases) || 0));
+  const b = Math.max(0, Math.floor(Number(boxes) || 0));
+  const cLabel = c === 1 ? "Case" : "Cases";
+  const bLabel = b === 1 ? "Box" : "Boxes";
+  const tail = suffix ? ` ${suffix}` : "";
+  return `${c} ${cLabel} ${b} ${bLabel}${tail}`;
 }
 
 /**
@@ -52,88 +51,48 @@ function fmtEquiv(n) {
 function renderSummary(overview, lineFallback = 0) {
   const s = overview?.summary || {};
   const soldEl = document.getElementById("inv-sum-sold");
-  const boxesSoldEl = document.getElementById("inv-sum-boxes-sold");
-  const note = document.getElementById("inv-baseline-note");
+  const remainingEl = document.getElementById("inv-sum-remaining");
+  const toShipEl = document.getElementById("inv-sum-to-ship");
+  const orderNote = document.getElementById("inv-order-metrics-note");
 
-  soldEl.textContent =
-    s.totalCartonsSold != null ? fmtIntTracked(s.totalCartonsSold) : "—";
-  boxesSoldEl.textContent =
-    s.totalBoxesSold != null ? fmtIntTracked(s.totalBoxesSold) : "—";
-
-  if (s.totalCartonsSold != null && s.totalBoxesSold != null) {
-    note.hidden = true;
-    note.textContent = "";
-  } else if (s.totalCartonsSold == null && s.totalBoxesSold == null) {
-    note.hidden = false;
-    note.textContent =
-      "Cases sold and boxes sold appear after baselines are set: original cases on case lines " +
-      "and/or original boxes on box lines. Until then, those totals cannot be derived from inventory alone.";
-  } else {
-    note.hidden = false;
-    const parts = [];
-    if (s.totalCartonsSold == null) {
-      parts.push("cases sold needs original cases on case lines");
+  if (soldEl) {
+    soldEl.textContent = formatCasesBoxesLine(s.soldCases ?? 0, s.soldBoxes ?? 0, "sold");
+    if (s.soldMixedPackSizes) {
+      soldEl.title = "Products use different boxes-per-case; totals sum per product before display.";
+    } else {
+      soldEl.title = "";
     }
-    if (s.totalBoxesSold == null) {
-      parts.push("boxes sold needs original boxes on box lines");
+  }
+  if (remainingEl) {
+    remainingEl.textContent = formatCasesBoxesLine(s.remainingCases ?? 0, s.remainingBoxes ?? 0, "left");
+    remainingEl.title = "";
+  }
+  if (toShipEl) {
+    toShipEl.textContent = formatCasesBoxesLine(s.toShipCases ?? 0, s.toShipBoxes ?? 0, "");
+    if (s.toShipMixedPackSizes) {
+      toShipEl.title = "Products use different boxes-per-case; totals sum per product before display.";
+    } else {
+      toShipEl.title = "";
     }
-    note.textContent = `${parts.join("; ")}.`;
   }
 
-  document.getElementById("inv-sum-cases-left").textContent = fmtIntTracked(s.totalCartonsLeft ?? 0);
-  document.getElementById("inv-sum-boxes-left").textContent = fmtIntTracked(s.totalBoxesLeft ?? 0);
+  if (orderNote) {
+    if (s.orderMetricsAvailable === false) {
+      orderNote.hidden = false;
+      orderNote.textContent =
+        "Sold and to-be-shipped totals need Supabase server credentials (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY).";
+    } else {
+      orderNote.hidden = true;
+      orderNote.textContent = "";
+    }
+  }
 
   const variants = s.activeVariantRows ?? 0;
   const lines = s.stockLineCount ?? lineFallback;
-  document.getElementById("inv-sum-variants").textContent = `${variants} / ${lines}`;
-}
-
-/**
- * @param {object | null | undefined} overview
- */
-function renderOverviewTable(overview) {
-  const tbody = document.getElementById("inv-overview-tbody");
-  const products = Array.isArray(overview?.products) ? overview.products : [];
-
-  if (!products.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="admin-muted">
-      No inventory rows match the catalog yet. Add case and/or box lines per product and size (tracked counts roll into the totals above).
-    </td></tr>`;
-    return;
+  const variantsEl = document.getElementById("inv-sum-variants");
+  if (variantsEl) {
+    variantsEl.textContent = `${variants} / ${lines}`;
   }
-
-  const rows = [];
-  for (const p of products) {
-    const slugPart = `<span class="admin-muted">(${escapeHtml(p.productSlug)})</span>`;
-    rows.push(
-      `<tr class="inv-section"><td colspan="7">${escapeHtml(p.productName)} ${slugPart}</td></tr>`,
-    );
-
-    for (const z of p.sizes) {
-      rows.push(`<tr>
-        <td></td>
-        <td>${escapeHtml(z.size)}</td>
-        <td class="inv-num">${fmtIntTracked(z.cartonsLeft)}</td>
-        <td class="inv-num">${fmtIntTracked(z.boxesLeft)}</td>
-        <td class="inv-num">${fmtEquiv(z.cartonEquivalent)}</td>
-        <td class="inv-num">${z.cartonsSold != null ? fmtIntTracked(z.cartonsSold) : "—"}</td>
-        <td class="inv-num">${z.boxesSold != null ? fmtIntTracked(z.boxesSold) : "—"}</td>
-      </tr>`);
-    }
-
-    const st = p.subtotal || {};
-    rows.push(`<tr class="inv-subtotal">
-      <td></td>
-      <td>Subtotal</td>
-      <td class="inv-num">${fmtIntTracked(st.cartonsLeft)}</td>
-      <td class="inv-num">${fmtIntTracked(st.boxesLeft)}</td>
-      <td class="inv-num">${fmtEquiv(st.cartonEquivalent)}</td>
-      <td class="inv-num">${st.cartonsSold != null ? fmtIntTracked(st.cartonsSold) : "—"}</td>
-      <td class="inv-num">${st.boxesSold != null ? fmtIntTracked(st.boxesSold) : "—"}</td>
-    </tr>`);
-  }
-
-  tbody.innerHTML = rows.join("");
 }
 
 /**
@@ -144,37 +103,33 @@ function renderEditorTable(editor) {
   if (!tbody) {
     return;
   }
-  const rows = Array.isArray(editor?.rows) ? editor.rows : [];
+  const groups = Array.isArray(editor?.groups) ? editor.groups : [];
 
-  if (!rows.length) {
+  if (!groups.length) {
     tbody.innerHTML = `<tr><td colspan="4" class="admin-muted">No catalog products.</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = rows
-    .map((r) => {
+  const html = [];
+  for (const g of groups) {
+    const title = escapeHtml(g.catalogProductName ?? g.productSlug ?? "");
+    html.push(
+      `<tr class="inv-editor-group-header"><td colspan="4" class="inv-editor-product-title">${title}</td></tr>`,
+    );
+    for (const r of g.rows || []) {
       const slug = escapeHtml(r.productSlug);
       const size = escapeHtml(r.size);
-      const name = escapeHtml(r.productName ?? r.catalogProductName ?? "");
       const cat = escapeHtml(r.catalogProductName ?? "");
       const c = Math.max(0, Math.floor(Number(r.casesOnHand) || 0));
       const b = Math.max(0, Math.floor(Number(r.boxesOnHand) || 0));
-      return `<tr
+      html.push(`<tr
+        class="inv-editor-size-row"
         data-slug="${slug}"
         data-size="${size}"
         data-catalog-name="${cat}"
       >
-        <td>
-          <input
-            class="inv-editor-input inv-editor-input--name"
-            type="text"
-            data-field="name"
-            value="${name}"
-            spellcheck="false"
-            aria-label="Product name for ${size}"
-          />
-        </td>
-        <td><span class="admin-muted">${size}</span></td>
+        <td class="inv-editor-product-spacer" aria-hidden="true"></td>
+        <td class="inv-editor-size-cell"><span class="admin-muted">${size}</span></td>
         <td class="inv-editor-num">
           <input
             class="inv-editor-input inv-editor-input--num"
@@ -199,9 +154,10 @@ function renderEditorTable(editor) {
             aria-label="Boxes in stock for ${size}"
           />
         </td>
-      </tr>`;
-    })
-    .join("");
+      </tr>`);
+    }
+  }
+  tbody.innerHTML = html.join("");
 }
 
 async function loadStock(session) {
@@ -224,8 +180,7 @@ async function loadStock(session) {
         banner.hidden = false;
         banner.textContent =
           "Storefront global out-of-stock is ON (store.json → site.storefrontGlobalOutOfStock). " +
-          "Cases/boxes left below match what customers see (sellable counts shown as 0). " +
-          "Turn it off in store.json to use the manual stock per size instead.";
+          "Customers see sellable stock as zero. Totals below still show physical on-hand for operations.";
       } else {
         banner.hidden = true;
         banner.textContent = "";
@@ -233,7 +188,6 @@ async function loadStock(session) {
     }
     renderSummary(overview, lineCount);
     renderEditorTable(stock?.editor || null);
-    renderOverviewTable(overview);
   } catch (e) {
     errEl.textContent = e.message || "Could not load stock.";
     errEl.hidden = false;
@@ -259,18 +213,14 @@ async function saveAllInventoryEdits(session) {
   }
   const patches = [];
   try {
-    for (const tr of tbody.querySelectorAll("tr[data-slug]")) {
+    for (const tr of tbody.querySelectorAll("tr.inv-editor-size-row[data-slug][data-size]")) {
       const slug = String(tr.dataset.slug || "").trim();
       const size = String(tr.dataset.size || "").trim();
       if (!slug || !size) {
         continue;
       }
-      const cat = String(tr.dataset.catalogName || "").trim();
-      const nameInput = tr.querySelector('[data-field="name"]');
       const caseInput = tr.querySelector('[data-field="cases"]');
       const boxInput = tr.querySelector('[data-field="boxes"]');
-      const rawName = String(nameInput?.value != null ? nameInput.value : "").trim();
-      const productName = rawName || cat || null;
       const cases = Math.max(0, Math.floor(Number(caseInput?.value) || 0));
       const boxes = Math.max(0, Math.floor(Number(boxInput?.value) || 0));
       patches.push({
@@ -279,7 +229,6 @@ async function saveAllInventoryEdits(session) {
         channel: "case",
         setOnHand: cases,
         track: true,
-        ...(productName ? { productName } : {}),
       });
       patches.push({
         productSlug: slug,
@@ -287,7 +236,6 @@ async function saveAllInventoryEdits(session) {
         channel: "box",
         setOnHand: boxes,
         track: true,
-        ...(productName ? { productName } : {}),
       });
     }
 
@@ -397,7 +345,9 @@ async function init() {
 
   document.getElementById("admin-refresh")?.addEventListener("click", async () => {
     const { data: s } = await supabase.auth.getSession();
-    if (s?.session) await bootstrap(s.session);
+    if (s?.session) {
+      await bootstrap(s.session);
+    }
   });
 
   document.getElementById("inv-save-all")?.addEventListener("click", async () => {
