@@ -337,7 +337,6 @@ body.admin-page {
   text-align: left;
   padding: 0.65rem 0.75rem;
   border-bottom: 1px solid var(--admin-border);
-  vertical-align: top;
 }
 
 .admin-table th {
@@ -1501,10 +1500,9 @@ tr.admin-order-row--handoff td {
 }
 
 .inv-summary__value--figures {
-  text-align: right;
-  font-size: 1.08rem;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.35;
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.35;
 }
 
 .inv-overview-note {
@@ -1590,10 +1588,6 @@ tr.admin-order-row--handoff td {
   text-align: right;
 }
 
-.inv-editor-col-product {
-  width: 38%;
-}
-
 .inv-editor-group-header td {
   padding-top: 1.1rem;
   padding-bottom: 0.4rem;
@@ -1610,12 +1604,6 @@ tr.admin-order-row--handoff td {
 
 .inv-editor-product-title {
   letter-spacing: 0.01em;
-}
-
-.inv-editor-size-row td.inv-editor-product-spacer {
-  width: 0.75rem;
-  border: none;
-  padding: 0;
 }
 
 .inv-editor-size-cell {

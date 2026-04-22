@@ -106,7 +106,7 @@ function renderEditorTable(editor) {
   const groups = Array.isArray(editor?.groups) ? editor.groups : [];
 
   if (!groups.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="admin-muted">No catalog products.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="3" class="admin-muted">No catalog products.</td></tr>`;
     return;
   }
 
@@ -114,7 +114,7 @@ function renderEditorTable(editor) {
   for (const g of groups) {
     const title = escapeHtml(g.catalogProductName ?? g.productSlug ?? "");
     html.push(
-      `<tr class="inv-editor-group-header"><td colspan="4" class="inv-editor-product-title">${title}</td></tr>`,
+      `<tr class="inv-editor-group-header"><td colspan="3" class="inv-editor-product-title">${title}</td></tr>`,
     );
     for (const r of g.rows || []) {
       const slug = escapeHtml(r.productSlug);
@@ -128,7 +128,6 @@ function renderEditorTable(editor) {
         data-size="${size}"
         data-catalog-name="${cat}"
       >
-        <td class="inv-editor-product-spacer" aria-hidden="true"></td>
         <td class="inv-editor-size-cell"><span class="admin-muted">${size}</span></td>
         <td class="inv-editor-num">
           <input
