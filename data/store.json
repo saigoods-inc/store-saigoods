@@ -12,7 +12,8 @@
     "phone": "+1 (615) 243 7512",
     "duns": "136336202",
     "uei": "CHQVN9139UD8",
-    "cage": "15JK6"
+    "cage": "15JK6",
+    "storefrontGlobalOutOfStock": true
   },
   "products": [
     {

@@ -1,7 +1,14 @@
 /**
  * Storefront availability from `product.inventory.lines` (merged by `/api/products`).
  * When there are no lines for a product, all sizes/channels are treated as purchasable.
+ * When `site.storefrontGlobalOutOfStock` is true, merged products include `inventory.globalOutOfStock`
+ * and all channels read as unavailable for purchase.
  */
+
+/** @param {object} product */
+export function isStorefrontGlobalOutOfStock(product) {
+  return Boolean(product?.inventory?.globalOutOfStock);
+}
 
 /** @param {object} product */
 export function getProductInventoryLines(product) {
@@ -33,6 +40,7 @@ export function availableUnitsForLine(line) {
  * @param {"box"|"case"} channel
  */
 export function isSizeChannelPurchasable(product, sizeLabel, channel) {
+  if (isStorefrontGlobalOutOfStock(product)) return false;
   const slug = product?.slug;
   if (!slug) return true;
   const lines = getProductInventoryLines(product);
@@ -59,6 +67,14 @@ export function sizesOrderedForAllocation(_product, allSizes) {
  * @param {string[]} allSizes
  */
 export function inventoryAllowsAllocations(product, caseBySize, boxBySize, allSizes) {
+  if (isStorefrontGlobalOutOfStock(product)) {
+    for (const size of allSizes || []) {
+      const c = Math.max(0, Math.floor(Number(caseBySize?.[size]) || 0));
+      const b = Math.max(0, Math.floor(Number(boxBySize?.[size]) || 0));
+      if (c > 0 || b > 0) return false;
+    }
+    return true;
+  }
   const slug = product?.slug;
   if (!slug) return true;
   const lines = getProductInventoryLines(product);

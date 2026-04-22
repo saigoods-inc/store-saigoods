@@ -712,6 +712,52 @@ button {
   margin-top: 0.5rem;
 }
 
+.product-actions__oos-hint {
+  flex: 1 1 100%;
+  margin: 0 0 0.15rem;
+  font-size: var(--fs-body-secondary);
+  color: var(--muted);
+  line-height: var(--leading-snug);
+  font-weight: var(--font-weight-normal);
+}
+
+.bundle-card--store-locked {
+  opacity: 0.9;
+}
+
+.bundle-card--store-locked .bundle-card__main:disabled,
+.bundle-card--store-locked button[data-action="bundle-increase"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.bundle-card--store-locked .bundle-card__title {
+  color: var(--muted);
+}
+
+.cart-blocked-global-oos__hint {
+  max-width: 36rem;
+  margin: 0.5rem auto 0.35rem;
+  color: var(--muted);
+  line-height: var(--leading-normal);
+}
+
+.cart-blocked-global-oos__subtle {
+  max-width: 36rem;
+  margin: 0 auto 1rem;
+  font-size: var(--fs-body-secondary);
+  color: var(--muted);
+  line-height: var(--leading-snug);
+}
+
+.cart-blocked-global-oos__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: center;
+  margin-top: 0.25rem;
+}
+
 .product-card .button {
   flex: 1 1 calc(50% - 0.325rem);
   min-height: 2.25rem;

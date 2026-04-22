@@ -5,6 +5,7 @@ import { responsiveRasterImg } from "./image-utils.js";
 import {
   inventoryAllowsAllocations,
   isSizeChannelPurchasable,
+  isStorefrontGlobalOutOfStock,
   sizesOrderedForAllocation,
 } from "./size-availability.js";
 import { escapeHtml, initSite, showToast } from "./site.js";
@@ -166,6 +167,9 @@ function applyBundleRequirementDeltas(prevReq, nextReq, allSizes) {
 }
 
 function applyBundleDelta(bundleId, delta) {
+  if (isStorefrontGlobalOutOfStock(product) && delta > 0) {
+    return;
+  }
   bundleSubmitAttempted = false;
   const sizes = store.site.sizes;
   const prevReq = computeRequiredUnits();
@@ -184,6 +188,9 @@ function applyBundleDelta(bundleId, delta) {
 }
 
 function selectBundleCard(bundleId) {
+  if (isStorefrontGlobalOutOfStock(product)) {
+    return;
+  }
   if ((bundleQty[bundleId] || 0) >= 1) {
     openBundleDropdownId = bundleId;
     return;
@@ -332,8 +339,9 @@ function focusBundleForAllocationError() {
 
 /**
  * @param {{ showBoxError: boolean, showCaseError: boolean, boxHint: string, caseHint: string }} err
+ * @param {boolean} globalOos
  */
-function renderBundleCard(b, err) {
+function renderBundleCard(b, err, globalOos) {
   const id = escapeHtml(b.id);
   const qty = Math.floor(bundleQty[b.id] || 0);
   const selected = qty > 0 ? " is-selected" : "";
@@ -396,11 +404,14 @@ function renderBundleCard(b, err) {
       ? `<p class="bundle-card__size-summary">${summaryHtml}</p>`
       : "";
 
+  const lockClass = globalOos ? " bundle-card--store-locked" : "";
+  const lockBundleUi = globalOos ? " disabled" : "";
+
   return `
-    <div class="bundle-card${selected}" data-bundle-id="${id}">
+    <div class="bundle-card${selected}${lockClass}" data-bundle-id="${id}">
       <div class="bundle-card__badges" aria-hidden="true">${badgePopular}${badgeSave}</div>
       <div class="bundle-card__row">
-        <button type="button" class="bundle-card__main" data-action="bundle-select" data-bundle-id="${id}" aria-label="Select ${escapeHtml(b.label)}, ${formatCurrency(b.priceCents)} total">
+        <button type="button" class="bundle-card__main" data-action="bundle-select" data-bundle-id="${id}" aria-label="Select ${escapeHtml(b.label)}, ${formatCurrency(b.priceCents)} total"${lockBundleUi}>
           <span class="bundle-card__title">${escapeHtml(b.label)}</span>
           <span class="bundle-card__price-total">${formatCurrency(b.priceCents)}</span>
           ${bundleCardPricePerHtml(b.priceCents, b.units, kind)}
@@ -408,7 +419,7 @@ function renderBundleCard(b, err) {
         <div class="bundle-card__stepper qty-control qty-control--round">
           <button type="button" data-action="bundle-decrease" data-bundle-id="${id}" aria-label="Decrease ${escapeHtml(b.label)} packs">−</button>
           <strong>${qty}</strong>
-          <button type="button" data-action="bundle-increase" data-bundle-id="${id}" aria-label="Increase ${escapeHtml(b.label)} packs">+</button>
+          <button type="button" data-action="bundle-increase" data-bundle-id="${id}" aria-label="Increase ${escapeHtml(b.label)} packs"${lockBundleUi}>+</button>
         </div>
       </div>
       ${collapsedSummaryBlock}
@@ -500,12 +511,15 @@ function renderProduct() {
   const caseHint = showCaseError
     ? `Total cases must equal ${reqUnits.reqCase} to match your bundle packs. Current: ${sumCases}.`
     : "";
+  const globalOos = isStorefrontGlobalOutOfStock(product);
   const hasSizeSelection = sumCases + sumBoxes > 0;
   const layoutOk =
     hasAnyBundleSelection() && subtotal > 0 && hasSizeSelection && !showBoxError && !showCaseError;
   const inventoryOk = inventoryAllowsAllocations(product, caseBySize, boxBySize, store.site.sizes);
-  const canPurchase = layoutOk && inventoryOk;
-  const stockOutOnly = layoutOk && !inventoryOk;
+  const canPurchase = !globalOos && layoutOk && inventoryOk;
+  const stockOutOnly = !globalOos && layoutOk && !inventoryOk;
+  const primaryCtaLabel = globalOos ? "New stock arriving soon" : stockOutOnly ? "Currently Out of Stock" : "Add to cart";
+  const secondaryCtaLabel = globalOos ? "New stock arriving soon" : stockOutOnly ? "Currently Out of Stock" : "Go to checkout";
 
   const err = { showBoxError, showCaseError, boxHint, caseHint };
   const bundleSection =
@@ -514,7 +528,7 @@ function renderProduct() {
         <div class="detail-block detail-block--bundles">
           <h3>Bundle &amp; Price</h3>
           <div class="bundle-grid">
-            ${bundles.map((b) => renderBundleCard(b, err)).join("")}
+            ${bundles.map((b) => renderBundleCard(b, err, globalOos)).join("")}
           </div>
           ${
             !hasAnyBundleSelection()
@@ -593,14 +607,19 @@ function renderProduct() {
         </div>
 
         <div class="product-actions">
+          ${
+            globalOos
+              ? `<p class="product-actions__oos-hint">This product is currently out of stock. We're restocking soon.</p>`
+              : ""
+          }
           <button class="button button--primary button--with-icon" type="button" data-action="add-to-cart" ${
             !canPurchase ? "disabled" : ""
           }>
             <img src="/img/cart-icon.svg" alt="" aria-hidden="true" class="button__icon" width="22" height="22" decoding="async" />
-            <span>${stockOutOnly ? "Currently Out of Stock" : "Add to cart"}</span>
+            <span>${escapeHtml(primaryCtaLabel)}</span>
           </button>
           <button class="button button--secondary" type="button" data-action="checkout" ${!canPurchase ? "disabled" : ""}>
-            ${stockOutOnly ? "Currently Out of Stock" : "Go to checkout"}
+            ${escapeHtml(secondaryCtaLabel)}
           </button>
         </div>
       </div>
@@ -620,6 +639,9 @@ function renderMissingProduct() {
 
 function handleSizeStep(channel, size, delta) {
   bundleSubmitAttempted = false;
+  if (isStorefrontGlobalOutOfStock(product) && delta > 0) {
+    return;
+  }
   if (delta > 0 && !isSizeChannelPurchasable(product, size, channel)) {
     return;
   }
@@ -666,12 +688,18 @@ async function handleProductClick(event) {
   const action = target.dataset.action;
 
   if (action === "bundle-select") {
+    if (isStorefrontGlobalOutOfStock(product)) {
+      return;
+    }
     selectBundleCard(target.dataset.bundleId);
     renderProduct();
     return;
   }
 
   if (action === "bundle-increase") {
+    if (isStorefrontGlobalOutOfStock(product)) {
+      return;
+    }
     applyBundleDelta(target.dataset.bundleId, 1);
     renderProduct();
     return;
@@ -693,6 +721,9 @@ async function handleProductClick(event) {
   }
 
   if (action === "add-to-cart") {
+    if (isStorefrontGlobalOutOfStock(product)) {
+      return;
+    }
     if (!allocationValid()) {
       bundleSubmitAttempted = true;
       focusBundleForAllocationError();
@@ -733,6 +764,9 @@ async function handleProductClick(event) {
   }
 
   if (action === "checkout") {
+    if (isStorefrontGlobalOutOfStock(product)) {
+      return;
+    }
     if (!allocationValid()) {
       bundleSubmitAttempted = true;
       focusBundleForAllocationError();

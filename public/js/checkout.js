@@ -60,6 +60,11 @@ async function init() {
   store = await initSite({ page: "cart" });
   items = getCart(store.site.sizes);
 
+  if (store?.site?.storefrontGlobalOutOfStock && items.length && !isPreviewCheckoutSuccess()) {
+    window.location.replace("/cart.html");
+    return;
+  }
+
   if (!items.length && !isPreviewCheckoutSuccess()) {
     window.location.replace("/cart.html");
     return;

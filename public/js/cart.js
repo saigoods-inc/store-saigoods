@@ -28,6 +28,12 @@ async function refreshQuote() {
     return;
   }
 
+  if (store?.site?.storefrontGlobalOutOfStock) {
+    quote = null;
+    renderCart();
+    return;
+  }
+
   try {
     quote = await getCartQuote(items);
   } catch (error) {
@@ -39,6 +45,46 @@ async function refreshQuote() {
 }
 
 function renderCart() {
+  const items = getCart(store.site.sizes);
+  const globalOos = Boolean(store?.site?.storefrontGlobalOutOfStock);
+
+  if (!items.length) {
+    cartRoot.innerHTML = `
+      <section class="page-heading">
+        <h1>Your cart</h1>
+      </section>
+
+      <div class="empty-state empty-state--wide">
+        <h3>Your cart is empty.</h3>
+        <p>Add products from the catalog, then come back here to review your order summary.</p>
+        <a class="button button--primary" href="/index.html#products">Continue shopping</a>
+      </div>
+    `;
+    return;
+  }
+
+  if (globalOos) {
+    const lines = items.length === 1 ? "1 saved line" : `${items.length} saved lines`;
+    cartRoot.innerHTML = `
+      <section class="page-heading">
+        <h1>Your cart</h1>
+      </section>
+
+      <div class="empty-state empty-state--wide cart-blocked-global-oos">
+        <h3>Purchases are temporarily unavailable</h3>
+        <p class="cart-blocked-global-oos__hint">
+          We're restocking. ${lines} in your cart can't be checked out right now. You can clear the cart or keep it until we're back in stock.
+        </p>
+        <p class="cart-blocked-global-oos__subtle">This product is currently out of stock. We're restocking soon.</p>
+        <div class="cart-blocked-global-oos__actions">
+          <button type="button" class="button button--secondary" data-action="clear-cart-global-oos">Clear cart</button>
+          <a class="button button--primary" href="/index.html#products">Continue shopping</a>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
   if (!quote || !quote.items.length) {
     cartRoot.innerHTML = `
       <section class="page-heading">
@@ -236,6 +282,13 @@ async function handleCartClick(event) {
 
   const action = target.dataset.action;
 
+  if (action === "clear-cart-global-oos") {
+    clearCart(store.site.sizes);
+    await refreshQuote();
+    showToast("Cart cleared.", "success");
+    return;
+  }
+
   if (action === "checkout") {
     await startCheckout(target);
     return;
@@ -256,6 +309,10 @@ async function handleCartClick(event) {
 }
 
 async function startCheckout(button) {
+  if (store?.site?.storefrontGlobalOutOfStock) {
+    showToast("This product is currently out of stock. We're restocking soon.", "error");
+    return;
+  }
   try {
     isCheckingOut = true;
     setButtonBusy(button, true, "Redirecting...");
