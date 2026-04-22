@@ -33,7 +33,7 @@
           <p class="admin-muted">
             Sold and to-be-shipped totals come from paid orders in Supabase (shipped vs not shipped).
             Remaining is physical on-hand from inventory (cases and loose boxes per size). Edit counts
-            below, then <strong>Save all changes</strong> to update stock on the server.
+            below, then use <strong>Save all changes</strong> at the bottom of the page to update stock on the server.
           </p>
         </div>
         <div class="admin-header__actions">
@@ -46,8 +46,6 @@
 
       <div class="admin-toolbar admin-toolbar--wrap">
         <button type="button" id="admin-refresh" class="admin-btn">Refresh</button>
-        <button type="button" id="inv-save-all" class="admin-btn admin-btn--primary">Save all changes</button>
-        <span id="inv-save-status" class="admin-muted" role="status" aria-live="polite"></span>
       </div>
 
       <p id="admin-load-error" class="admin-error" role="alert" hidden></p>
@@ -89,6 +87,7 @@
                 <th scope="col">Product</th>
                 <th scope="col">Size</th>
                 <th scope="col" class="inv-stock-readonly-qty-head">In Stock</th>
+                <th scope="col" class="inv-stock-readonly-total-head">Total</th>
               </tr>
             </thead>
             <tbody id="inv-stock-readonly-tbody"></tbody>
@@ -106,6 +105,11 @@
           <div id="inv-editor-groups" class="inv-editor-groups" role="region" aria-label="Stock by product"></div>
         </div>
       </section>
+
+      <div class="admin-toolbar admin-toolbar--wrap inv-save-toolbar" aria-label="Save inventory changes">
+        <button type="button" id="inv-save-all" class="admin-btn admin-btn--primary">Save all changes</button>
+        <span id="inv-save-status" class="admin-muted" role="status" aria-live="polite"></span>
+      </div>
     </div>
 
     <script type="module" src="/js/admin-inventory.js"></script>

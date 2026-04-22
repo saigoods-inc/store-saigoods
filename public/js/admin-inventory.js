@@ -50,6 +50,25 @@ function formatCasesBoxesInStock(cases, boxes) {
 }
 
 /**
+ * Sum all size rows for one product into display cases + boxes using that product's boxesPerCase.
+ * @param {Array<{ casesOnHand?: number, boxesOnHand?: number }>} list
+ * @param {number} boxesPerCase
+ */
+function aggregateProductStock(list, boxesPerCase) {
+  const bpc = Math.max(1, Math.floor(Number(boxesPerCase) || 10));
+  let equiv = 0;
+  for (const r of list) {
+    const c = Math.max(0, Math.floor(Number(r?.casesOnHand) || 0));
+    const b = Math.max(0, Math.floor(Number(r?.boxesOnHand) || 0));
+    equiv += c * bpc + b;
+  }
+  return {
+    cases: Math.floor(equiv / bpc),
+    boxes: equiv % bpc,
+  };
+}
+
+/**
  * @param {object | null | undefined} editor
  */
 function renderStockReadOnlyTable(editor) {
@@ -60,7 +79,7 @@ function renderStockReadOnlyTable(editor) {
   const groups = Array.isArray(editor?.groups) ? editor.groups : [];
 
   if (!groups.length) {
-    tbody.innerHTML = `<tr><td colspan="3" class="admin-muted">No catalog products.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="admin-muted">No catalog products.</td></tr>`;
     return;
   }
 
@@ -72,6 +91,9 @@ function renderStockReadOnlyTable(editor) {
     if (!n) {
       continue;
     }
+
+    const { cases: totC, boxes: totB } = aggregateProductStock(list, g.boxesPerCase);
+    const totalStr = escapeHtml(formatCasesBoxesInStock(totC, totB));
 
     for (let i = 0; i < n; i++) {
       const r = list[i];
@@ -85,6 +107,7 @@ function renderStockReadOnlyTable(editor) {
         <td class="inv-stock-readonly-product" rowspan="${n}">${productName}</td>
         <td class="inv-stock-readonly-size">${size}</td>
         <td class="inv-stock-readonly-qty">${stockStr}</td>
+        <td class="inv-stock-readonly-total" rowspan="${n}">${totalStr}</td>
       </tr>`);
       } else {
         rows.push(`<tr>
@@ -95,7 +118,7 @@ function renderStockReadOnlyTable(editor) {
     }
   }
 
-  tbody.innerHTML = rows.length ? rows.join("") : `<tr><td colspan="3" class="admin-muted">No rows.</td></tr>`;
+  tbody.innerHTML = rows.length ? rows.join("") : `<tr><td colspan="4" class="admin-muted">No rows.</td></tr>`;
 }
 
 /**

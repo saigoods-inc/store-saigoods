@@ -329,12 +329,13 @@ body.admin-page {
   width: 100%;
   border-collapse: collapse;
   min-width: 800px;
+  background-color: #fefefe;
 }
 
 .admin-table th,
 .admin-table td {
   text-align: left;
-  padding: 0.65rem 0.75rem;
+  padding: 0.45rem 0.75rem;
   border-bottom: 1px solid var(--admin-border);
 }
 
@@ -1577,17 +1578,32 @@ tr.admin-order-row--handoff td {
   border-radius: 6px;
 }
 
+.inv-save-toolbar {
+  margin-top: 1.5rem;
+  padding-bottom: 1.5rem;
+}
+
 .inv-stock-readonly-table .inv-stock-readonly-qty-head,
-.inv-stock-readonly-table .inv-stock-readonly-qty {
+.inv-stock-readonly-table .inv-stock-readonly-qty,
+.inv-stock-readonly-table .inv-stock-readonly-total-head,
+.inv-stock-readonly-table .inv-stock-readonly-total {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
+.inv-stock-readonly-table .inv-stock-readonly-total,
+.inv-stock-readonly-table .inv-stock-readonly-product {
+  font-weight: 600;
+}
+
 .inv-stock-readonly-table .inv-stock-readonly-product {
   vertical-align: top;
-  font-weight: 600;
   max-width: 22rem;
   line-height: 1.35;
+}
+
+.inv-stock-readonly-table .inv-stock-readonly-total {
+  vertical-align: top;
 }
 
 .inv-stock-readonly-table .inv-stock-readonly-size {
