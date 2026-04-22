@@ -323,7 +323,6 @@ body.admin-page {
 .admin-table-wrap {
   overflow-x: auto;
   border-radius: 8px;
-  background: var(--admin-card);
 }
 
 .admin-table {
@@ -1578,10 +1577,27 @@ tr.admin-order-row--handoff td {
   border-radius: 6px;
 }
 
+.inv-stock-readonly-table .inv-stock-readonly-qty-head,
+.inv-stock-readonly-table .inv-stock-readonly-qty {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.inv-stock-readonly-table .inv-stock-readonly-product {
+  vertical-align: top;
+  font-weight: 600;
+  max-width: 22rem;
+  line-height: 1.35;
+}
+
+.inv-stock-readonly-table .inv-stock-readonly-size {
+  white-space: nowrap;
+}
+
 .inv-editor-groups {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.4rem;
 }
 
 .inv-editor-groups-empty {

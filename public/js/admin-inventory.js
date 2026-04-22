@@ -44,6 +44,60 @@ function formatCasesBoxesLine(cases, boxes, suffix) {
   return `${c} ${cLabel} ${b} ${bLabel}${tail}`;
 }
 
+/** Physical on-hand string for read-only stock column (e.g. "20 Cases 2 Boxes"). */
+function formatCasesBoxesInStock(cases, boxes) {
+  return formatCasesBoxesLine(cases, boxes, "");
+}
+
+/**
+ * @param {object | null | undefined} editor
+ */
+function renderStockReadOnlyTable(editor) {
+  const tbody = document.getElementById("inv-stock-readonly-tbody");
+  if (!tbody) {
+    return;
+  }
+  const groups = Array.isArray(editor?.groups) ? editor.groups : [];
+
+  if (!groups.length) {
+    tbody.innerHTML = `<tr><td colspan="3" class="admin-muted">No catalog products.</td></tr>`;
+    return;
+  }
+
+  const rows = [];
+  for (const g of groups) {
+    const productName = escapeHtml(g.catalogProductName ?? g.productSlug ?? "");
+    const list = Array.isArray(g.rows) ? g.rows : [];
+    const n = list.length;
+    if (!n) {
+      continue;
+    }
+
+    for (let i = 0; i < n; i++) {
+      const r = list[i];
+      const size = escapeHtml(r.size);
+      const c = Math.max(0, Math.floor(Number(r.casesOnHand) || 0));
+      const b = Math.max(0, Math.floor(Number(r.boxesOnHand) || 0));
+      const stockStr = escapeHtml(formatCasesBoxesInStock(c, b));
+
+      if (i === 0) {
+        rows.push(`<tr>
+        <td class="inv-stock-readonly-product" rowspan="${n}">${productName}</td>
+        <td class="inv-stock-readonly-size">${size}</td>
+        <td class="inv-stock-readonly-qty">${stockStr}</td>
+      </tr>`);
+      } else {
+        rows.push(`<tr>
+        <td class="inv-stock-readonly-size">${size}</td>
+        <td class="inv-stock-readonly-qty">${stockStr}</td>
+      </tr>`);
+      }
+    }
+  }
+
+  tbody.innerHTML = rows.length ? rows.join("") : `<tr><td colspan="3" class="admin-muted">No rows.</td></tr>`;
+}
+
 /**
  * @param {object | null | undefined} overview
  * @param {number} [lineFallback]
@@ -163,7 +217,7 @@ function renderEditorTable(editor) {
       </tr>`);
     }
 
-    html.push(`<details class="inv-editor-accordion" data-product-slug="${slugSafe}" open>
+    html.push(`<details class="inv-editor-accordion" data-product-slug="${slugSafe}">
       <summary class="inv-editor-product-title">
         <span class="inv-editor-product-title__text">${title}</span>
       </summary>
@@ -205,6 +259,7 @@ async function loadStock(session) {
       }
     }
     renderSummary(overview, lineCount);
+    renderStockReadOnlyTable(stock?.editor || null);
     renderEditorTable(stock?.editor || null);
   } catch (e) {
     errEl.textContent = e.message || "Could not load stock.";

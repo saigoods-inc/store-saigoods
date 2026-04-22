@@ -77,6 +77,25 @@
         <p id="inv-order-metrics-note" class="admin-muted inv-overview-note" hidden></p>
       </section>
 
+      <section class="inv-stock-readonly" style="margin-top: 1.5rem" aria-label="Current stock snapshot">
+        <h2 style="margin: 0 0 0.35rem; font-size: 1.1rem">Current stock</h2>
+        <p class="admin-muted" style="margin: 0 0 0.65rem; max-width: 52rem">
+          Read-only view of physical on-hand by product and size (matches the editor below).
+        </p>
+        <div class="admin-table-wrap">
+          <table class="admin-table inv-stock-readonly-table" id="inv-stock-readonly-table">
+            <thead>
+              <tr>
+                <th scope="col">Product</th>
+                <th scope="col">Size</th>
+                <th scope="col" class="inv-stock-readonly-qty-head">In Stock</th>
+              </tr>
+            </thead>
+            <tbody id="inv-stock-readonly-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
       <section class="inv-editor" style="margin-top: 1.5rem" aria-label="Update on-hand stock">
         <h2 style="margin: 0 0 0.5rem; font-size: 1.1rem">Manual stock (Cases &amp; Boxes)</h2>
         <p class="admin-muted" style="margin: 0 0 0.75rem; max-width: 52rem">
