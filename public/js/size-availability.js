@@ -23,6 +23,36 @@ function findLine(lines, slug, size, channel) {
   return lines.find((l) => l.productSlug === slug && l.size === size && l.channel === ch) || null;
 }
 
+function boxesPerCaseForProduct(product) {
+  const n = Number(product?.boxesPerCase);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 10;
+}
+
+function tracked(line) {
+  return Boolean(line && line.active !== false && line.track === true);
+}
+
+function sellableBoxesForSize(product, sizeLabel) {
+  const slug = product?.slug;
+  if (!slug) return Number.POSITIVE_INFINITY;
+  const lines = getProductInventoryLines(product);
+  if (!lines.length) return Number.POSITIVE_INFINITY;
+  const caseLine = findLine(lines, slug, sizeLabel, "case");
+  const boxLine = findLine(lines, slug, sizeLabel, "box");
+  const bpc = boxesPerCaseForProduct(product);
+  let foundTracked = false;
+  let total = 0;
+  if (tracked(caseLine)) {
+    foundTracked = true;
+    total += availableUnitsForLine(caseLine) * bpc;
+  }
+  if (tracked(boxLine)) {
+    foundTracked = true;
+    total += availableUnitsForLine(boxLine);
+  }
+  return foundTracked ? total : Number.POSITIVE_INFINITY;
+}
+
 /**
  * Sellable units for this variant row (Infinity when not tracked).
  */
@@ -42,13 +72,9 @@ export function availableUnitsForLine(line) {
  */
 export function isSizeChannelPurchasable(product, sizeLabel, channel) {
   if (isStorefrontGlobalOutOfStock(product)) return false;
-  const slug = product?.slug;
-  if (!slug) return true;
-  const lines = getProductInventoryLines(product);
-  if (!lines.length) return true;
-  const line = findLine(lines, slug, sizeLabel, channel);
-  if (!line) return false;
-  return availableUnitsForLine(line) > 0;
+  const bpc = boxesPerCaseForProduct(product);
+  const needBoxes = String(channel || "").toLowerCase() === "case" ? bpc : 1;
+  return sellableBoxesForSize(product, sizeLabel) >= needBoxes;
 }
 
 /**
@@ -76,21 +102,13 @@ export function inventoryAllowsAllocations(product, caseBySize, boxBySize, allSi
     }
     return true;
   }
-  const slug = product?.slug;
-  if (!slug) return true;
-  const lines = getProductInventoryLines(product);
-  if (!lines.length) return true;
+  const bpc = boxesPerCaseForProduct(product);
   for (const size of allSizes) {
     const c = Math.max(0, Math.floor(Number(caseBySize?.[size]) || 0));
     const b = Math.max(0, Math.floor(Number(boxBySize?.[size]) || 0));
-    if (c > 0) {
-      const line = findLine(lines, slug, size, "case");
-      if (!line || line.track !== true || availableUnitsForLine(line) < c) return false;
-    }
-    if (b > 0) {
-      const line = findLine(lines, slug, size, "box");
-      if (!line || line.track !== true || availableUnitsForLine(line) < b) return false;
-    }
+    const needBoxes = c * bpc + b;
+    if (needBoxes < 1) continue;
+    if (sellableBoxesForSize(product, size) < needBoxes) return false;
   }
   return true;
 }
@@ -100,16 +118,9 @@ export function inventoryAllowsAllocations(product, caseBySize, boxBySize, allSi
  */
 export function isProductStorefrontOutOfStock(product, allSizes) {
   if (!product || isStorefrontGlobalOutOfStock(product)) return true;
-  const lines = getProductInventoryLines(product);
-  if (!lines.length) return false;
-  const slug = product.slug;
   const list = Array.isArray(allSizes) ? allSizes : [];
   for (const size of list) {
-    const c = findLine(lines, slug, size, "case");
-    const b = findLine(lines, slug, size, "box");
-    if (!c && !b) continue;
-    if (c && availableUnitsForLine(c) > 0) return false;
-    if (b && availableUnitsForLine(b) > 0) return false;
+    if (sellableBoxesForSize(product, size) > 0) return false;
   }
   return true;
 }
