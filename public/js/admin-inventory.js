@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
 import {
   clearAdminSessionUser,
   fetchReportJson,
+  fetchReportPost,
   fetchSupabasePublicConfig,
   primeAdminSessionUser,
   renderAdminNav,
@@ -135,11 +136,83 @@ function renderOverviewTable(overview) {
   tbody.innerHTML = rows.join("");
 }
 
+/**
+ * @param {object | null | undefined} editor
+ */
+function renderEditorTable(editor) {
+  const tbody = document.getElementById("inv-editor-tbody");
+  if (!tbody) {
+    return;
+  }
+  const rows = Array.isArray(editor?.rows) ? editor.rows : [];
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="admin-muted">No catalog products.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows
+    .map((r) => {
+      const slug = escapeHtml(r.productSlug);
+      const size = escapeHtml(r.size);
+      const name = escapeHtml(r.productName ?? r.catalogProductName ?? "");
+      const cat = escapeHtml(r.catalogProductName ?? "");
+      const c = Math.max(0, Math.floor(Number(r.casesOnHand) || 0));
+      const b = Math.max(0, Math.floor(Number(r.boxesOnHand) || 0));
+      return `<tr
+        data-slug="${slug}"
+        data-size="${size}"
+        data-catalog-name="${cat}"
+      >
+        <td>
+          <input
+            class="inv-editor-input inv-editor-input--name"
+            type="text"
+            data-field="name"
+            value="${name}"
+            spellcheck="false"
+            aria-label="Product name for ${size}"
+          />
+        </td>
+        <td><span class="admin-muted">${size}</span></td>
+        <td class="inv-editor-num">
+          <input
+            class="inv-editor-input inv-editor-input--num"
+            type="number"
+            inputmode="numeric"
+            min="0"
+            step="1"
+            data-field="cases"
+            value="${c}"
+            aria-label="Cases in stock for ${size}"
+          />
+        </td>
+        <td class="inv-editor-num">
+          <input
+            class="inv-editor-input inv-editor-input--num"
+            type="number"
+            inputmode="numeric"
+            min="0"
+            step="1"
+            data-field="boxes"
+            value="${b}"
+            aria-label="Boxes in stock for ${size}"
+          />
+        </td>
+      </tr>`;
+    })
+    .join("");
+}
+
 async function loadStock(session) {
   const errEl = document.getElementById("admin-load-error");
   const loading = document.getElementById("admin-loading");
   errEl.hidden = true;
   loading.hidden = false;
+  const status = document.getElementById("inv-save-status");
+  if (status) {
+    status.textContent = "";
+  }
   try {
     const stock = await fetchReportJson("/api/admin-stock", session.access_token);
     const overview = stock?.overview || null;
@@ -152,19 +225,102 @@ async function loadStock(session) {
         banner.textContent =
           "Storefront global out-of-stock is ON (store.json → site.storefrontGlobalOutOfStock). " +
           "Cases/boxes left below match what customers see (sellable counts shown as 0). " +
-          "Physical stock in stock.json is unchanged; sold columns still reflect on-hand vs baselines.";
+          "Turn it off in store.json to use the manual stock per size instead.";
       } else {
         banner.hidden = true;
         banner.textContent = "";
       }
     }
     renderSummary(overview, lineCount);
+    renderEditorTable(stock?.editor || null);
     renderOverviewTable(overview);
   } catch (e) {
     errEl.textContent = e.message || "Could not load stock.";
     errEl.hidden = false;
   }
   loading.hidden = true;
+}
+
+/**
+ * @param {import("@supabase/supabase-js").Session} session
+ */
+async function saveAllInventoryEdits(session) {
+  const status = document.getElementById("inv-save-status");
+  const btn = document.getElementById("inv-save-all");
+  const tbody = document.getElementById("inv-editor-tbody");
+  if (!tbody) {
+    return;
+  }
+  if (status) {
+    status.textContent = "Saving…";
+  }
+  if (btn) {
+    btn.disabled = true;
+  }
+  const patches = [];
+  try {
+    for (const tr of tbody.querySelectorAll("tr[data-slug]")) {
+      const slug = String(tr.dataset.slug || "").trim();
+      const size = String(tr.dataset.size || "").trim();
+      if (!slug || !size) {
+        continue;
+      }
+      const cat = String(tr.dataset.catalogName || "").trim();
+      const nameInput = tr.querySelector('[data-field="name"]');
+      const caseInput = tr.querySelector('[data-field="cases"]');
+      const boxInput = tr.querySelector('[data-field="boxes"]');
+      const rawName = String(nameInput?.value != null ? nameInput.value : "").trim();
+      const productName = rawName || cat || null;
+      const cases = Math.max(0, Math.floor(Number(caseInput?.value) || 0));
+      const boxes = Math.max(0, Math.floor(Number(boxInput?.value) || 0));
+      patches.push({
+        productSlug: slug,
+        size,
+        channel: "case",
+        setOnHand: cases,
+        track: true,
+        ...(productName ? { productName } : {}),
+      });
+      patches.push({
+        productSlug: slug,
+        size,
+        channel: "box",
+        setOnHand: boxes,
+        track: true,
+        ...(productName ? { productName } : {}),
+      });
+    }
+
+    if (!patches.length) {
+      if (status) {
+        status.textContent = "Nothing to save.";
+      }
+      return;
+    }
+
+    await fetchReportPost("/api/admin/inventory", session.access_token, {
+      action: "stock_patch",
+      patches,
+      reason: "Admin manual on-hand (cases & boxes)",
+    });
+    if (status) {
+      status.textContent = "Saved.";
+    }
+    await loadStock(session);
+  } catch (e) {
+    if (status) {
+      status.textContent = e?.message || "Save failed.";
+    }
+    const errEl = document.getElementById("admin-load-error");
+    if (errEl) {
+      errEl.textContent = e?.message || "Save failed.";
+      errEl.hidden = false;
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+    }
+  }
 }
 
 async function bootstrap(session) {
@@ -242,6 +398,14 @@ async function init() {
   document.getElementById("admin-refresh")?.addEventListener("click", async () => {
     const { data: s } = await supabase.auth.getSession();
     if (s?.session) await bootstrap(s.session);
+  });
+
+  document.getElementById("inv-save-all")?.addEventListener("click", async () => {
+    const { data: s } = await supabase.auth.getSession();
+    if (!s?.session) {
+      return;
+    }
+    await saveAllInventoryEdits(s.session);
   });
 }
 

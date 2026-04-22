@@ -1,5 +1,6 @@
 import { formatCurrency, getStore, searchProducts } from "./catalog.js";
 import { responsiveRasterImg } from "./image-utils.js";
+import { isProductStorefrontOutOfStock } from "./size-availability.js";
 import { escapeHtml, initSite } from "./site.js";
 
 const productGrid = document.querySelector("[data-product-grid]");
@@ -95,8 +96,17 @@ function renderCatalog(products) {
 
   productGrid.innerHTML = products
     .map((product) => {
+      const cardOos = isProductStorefrontOutOfStock(product, store.site.sizes);
+      const oosBlock = cardOos
+        ? `<p class="product-card__oos" role="status">Out of stock</p>`
+        : "";
+      const cta = cardOos
+        ? `<span class="button button--primary button--disabled" aria-disabled="true">Unavailable</span>`
+        : `<a class="button button--primary" href="/product.html?slug=${encodeURIComponent(product.slug)}">
+                View product
+              </a>`;
       return `
-        <article class="product-card product-card--${escapeHtml(product.intro.theme)}">
+        <article class="product-card product-card--${escapeHtml(product.intro.theme)}${cardOos ? " product-card--oos" : ""}">
           <div class="product-card__media">
             ${responsiveRasterImg(product.cardImage, {
               alt: product.name,
@@ -109,11 +119,9 @@ function renderCatalog(products) {
             <h3>${escapeHtml(product.name)}</h3>
             <p class="product-card__price">${catalogCardPriceLabel(product)}</p>
             <p class="product-card__copy">${escapeHtml(product.subtext)}</p>
-
+            ${oosBlock}
             <div class="product-card__actions">
-              <a class="button button--primary" href="/product.html?slug=${encodeURIComponent(product.slug)}">
-                View product
-              </a>
+              ${cta}
             </div>
           </div>
         </article>

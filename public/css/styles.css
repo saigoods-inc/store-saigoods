@@ -704,6 +704,37 @@ button {
   line-height: var(--leading-normal);
 }
 
+.product-card--oos .product-card__media {
+  opacity: 0.88;
+}
+
+.product-card__oos {
+  margin: 0;
+  font-size: var(--fs-body-secondary);
+  font-weight: var(--font-weight-medium);
+  color: #8b2942;
+  line-height: var(--leading-snug);
+}
+
+.product-card .button--disabled {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: not-allowed;
+  opacity: 0.55;
+  pointer-events: none;
+  flex: 1 1 calc(50% - 0.325rem);
+  min-height: 2.25rem;
+  padding: 0.65rem 1rem;
+  font-size: var(--fs-small);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--leading-normal);
+  border: 0;
+  border-radius: 0.35rem;
+  background: #b8b8b8;
+  color: #fff;
+}
+
 .product-card__actions,
 .product-actions {
   display: flex;

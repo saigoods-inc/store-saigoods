@@ -1573,3 +1573,39 @@ tr.admin-order-row--handoff td {
   border: 1px solid var(--admin-border);
   border-radius: 6px;
 }
+
+.inv-editor-table .inv-editor-num {
+  text-align: right;
+  width: 7.5rem;
+}
+
+.inv-editor-input {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--admin-border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.inv-editor-input--name {
+  min-width: 12rem;
+}
+
+.inv-editor-input--num {
+  max-width: 6.5rem;
+  margin-left: auto;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-code {
+  font-size: 0.92em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.06);
+}

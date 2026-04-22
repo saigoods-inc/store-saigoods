@@ -31,10 +31,11 @@
         <div>
           <h1>Inventory</h1>
           <p class="admin-muted">
-            Overview of cases and boxes on hand (tracked lines only). Sold totals use optional baselines:
-            original cases on case lines, original boxes on box lines. The box column is total boxes on
-            hand (including inside sealed cases); one short case (for example 5 boxes instead of 10 in
-            that case) lowers total boxes and the case-equivalent column without changing the case count.
+            Overview and manual entry: on-hand case and box counts are the source of truth for the
+            storefront (per product and size). Sold totals use optional baselines: original cases on
+            case lines, original boxes on box lines. The box column is total boxes on hand (including
+            inside sealed cases). Edit the form below, then <strong>Save all changes</strong> to
+            update <code class="admin-code">data/stock.json</code> on the server.
           </p>
         </div>
         <div class="admin-header__actions">
@@ -47,6 +48,8 @@
 
       <div class="admin-toolbar admin-toolbar--wrap">
         <button type="button" id="admin-refresh" class="admin-btn">Refresh</button>
+        <button type="button" id="inv-save-all" class="admin-btn admin-btn--primary">Save all changes</button>
+        <span id="inv-save-status" class="admin-muted" role="status" aria-live="polite"></span>
       </div>
 
       <p id="admin-load-error" class="admin-error" role="alert" hidden></p>
@@ -78,6 +81,29 @@
           </div>
         </div>
         <p id="inv-baseline-note" class="admin-muted inv-overview-note" hidden></p>
+      </section>
+
+      <section class="inv-editor" style="margin-top: 1.5rem" aria-label="Update on-hand stock">
+        <h2 style="margin: 0 0 0.5rem; font-size: 1.1rem">Manual stock (cases &amp; boxes)</h2>
+        <p class="admin-muted" style="margin: 0 0 0.75rem; max-width: 52rem">
+          Each row is one product and size. Set <em>Cases in stock</em> and <em>Boxes in stock</em> to
+          the physical on-hand amount (reservations subtract at checkout; leave note in ops if you need
+          a manual reserve). Product name is stored on both case and box lines and may differ from the
+          catalog display name.
+        </p>
+        <div class="admin-table-wrap">
+          <table class="admin-table inv-editor-table" id="inv-editor-table">
+            <thead>
+              <tr>
+                <th scope="col">Product name (stored on stock lines)</th>
+                <th scope="col">Size</th>
+                <th scope="col" class="inv-editor-num">Cases in stock</th>
+                <th scope="col" class="inv-editor-num">Boxes in stock</th>
+              </tr>
+            </thead>
+            <tbody id="inv-editor-tbody"></tbody>
+          </table>
+        </div>
       </section>
 
       <div class="admin-table-wrap" style="margin-top: 1.25rem">

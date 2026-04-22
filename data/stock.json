@@ -7,11 +7,11 @@
       "channel": "case",
       "productName": "Nitrile Examination \u2013 Standard",
       "track": true,
-      "onHand": 182,
-      "reserved": 2,
+      "onHand": 180,
+      "reserved": 0,
       "incoming": 0,
       "damaged": 0,
-      "originalCartons": 182
+      "originalCartons": 180
     },
     {
       "productSlug": "nitrile-standard",
@@ -19,11 +19,11 @@
       "channel": "box",
       "productName": "Nitrile Examination \u2013 Standard",
       "track": true,
-      "onHand": 1820,
-      "reserved": 20,
+      "onHand": 1800,
+      "reserved": 0,
       "incoming": 0,
       "damaged": 0,
-      "originalBoxes": 1820
+      "originalBoxes": 1800
     },
     {
       "productSlug": "nitrile-standard",
@@ -35,7 +35,7 @@
       "reserved": 0,
       "incoming": 0,
       "damaged": 0,
-      "originalCartons": 792
+      "originalCartons": 782
     },
     {
       "productSlug": "nitrile-standard",
@@ -47,7 +47,7 @@
       "reserved": 0,
       "incoming": 0,
       "damaged": 0,
-      "originalBoxes": 7920
+      "originalBoxes": 7820
     },
     {
       "productSlug": "nitrile-standard",
@@ -79,11 +79,11 @@
       "channel": "case",
       "productName": "Black Nitrile \u2013 General",
       "track": true,
-      "onHand": 201,
-      "reserved": 1,
+      "onHand": 200,
+      "reserved": 0,
       "incoming": 0,
       "damaged": 0,
-      "originalCartons": 201
+      "originalCartons": 200
     },
     {
       "productSlug": "black-nitrile-general",
@@ -91,11 +91,11 @@
       "channel": "box",
       "productName": "Black Nitrile \u2013 General",
       "track": true,
-      "onHand": 2015,
-      "reserved": 15,
+      "onHand": 2000,
+      "reserved": 0,
       "incoming": 0,
       "damaged": 0,
-      "originalBoxes": 2015
+      "originalBoxes": 2000
     },
     {
       "productSlug": "black-nitrile-general",

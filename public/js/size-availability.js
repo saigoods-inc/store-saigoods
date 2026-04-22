@@ -1,6 +1,7 @@
 /**
  * Storefront availability from `product.inventory.lines` (merged by `/api/products`).
- * When there are no lines for a product, all sizes/channels are treated as purchasable.
+ * When there are no lines for a product, all sizes/channels are treated as purchasable (legacy).
+ * When a product has at least one inventory line, a missing line for a size/channel is not purchasable.
  * When `site.storefrontGlobalOutOfStock` is true, merged products include `inventory.globalOutOfStock`
  * and all channels read as unavailable for purchase.
  */
@@ -46,7 +47,7 @@ export function isSizeChannelPurchasable(product, sizeLabel, channel) {
   const lines = getProductInventoryLines(product);
   if (!lines.length) return true;
   const line = findLine(lines, slug, sizeLabel, channel);
-  if (!line) return true;
+  if (!line) return false;
   return availableUnitsForLine(line) > 0;
 }
 
@@ -84,12 +85,31 @@ export function inventoryAllowsAllocations(product, caseBySize, boxBySize, allSi
     const b = Math.max(0, Math.floor(Number(boxBySize?.[size]) || 0));
     if (c > 0) {
       const line = findLine(lines, slug, size, "case");
-      if (line && line.track && availableUnitsForLine(line) < c) return false;
+      if (!line || line.track !== true || availableUnitsForLine(line) < c) return false;
     }
     if (b > 0) {
       const line = findLine(lines, slug, size, "box");
-      if (line && line.track && availableUnitsForLine(line) < b) return false;
+      if (!line || line.track !== true || availableUnitsForLine(line) < b) return false;
     }
+  }
+  return true;
+}
+
+/**
+ * For catalog cards: true when the product has inventory rows and no size has sellable case or box stock.
+ */
+export function isProductStorefrontOutOfStock(product, allSizes) {
+  if (!product || isStorefrontGlobalOutOfStock(product)) return true;
+  const lines = getProductInventoryLines(product);
+  if (!lines.length) return false;
+  const slug = product.slug;
+  const list = Array.isArray(allSizes) ? allSizes : [];
+  for (const size of list) {
+    const c = findLine(lines, slug, size, "case");
+    const b = findLine(lines, slug, size, "box");
+    if (!c && !b) continue;
+    if (c && availableUnitsForLine(c) > 0) return false;
+    if (b && availableUnitsForLine(b) > 0) return false;
   }
   return true;
 }

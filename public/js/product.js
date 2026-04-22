@@ -159,10 +159,12 @@ function defaultSpread(total, sizesOrder, allSizes) {
 function applyBundleRequirementDeltas(prevReq, nextReq, allSizes) {
   const order = sizesOrderedForAllocation(product, allSizes);
   if (nextReq.reqBox !== prevReq.reqBox) {
-    boxBySize = defaultSpread(nextReq.reqBox, order, allSizes);
+    const orderBox = order.filter((s) => isSizeChannelPurchasable(product, s, "box"));
+    boxBySize = defaultSpread(nextReq.reqBox, orderBox, allSizes);
   }
   if (nextReq.reqCase !== prevReq.reqCase) {
-    caseBySize = defaultSpread(nextReq.reqCase, order, allSizes);
+    const orderCase = order.filter((s) => isSizeChannelPurchasable(product, s, "case"));
+    caseBySize = defaultSpread(nextReq.reqCase, orderCase, allSizes);
   }
 }
 

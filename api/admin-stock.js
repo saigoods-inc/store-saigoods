@@ -2,6 +2,7 @@ import { assertReportsAuthorized } from "../lib/reports-auth.js";
 import {
   applyAdminStockPatches,
   buildInventoryDashboardOverview,
+  buildInventoryEditorGrid,
   readStockData,
 } from "../lib/stock.js";
 import { loadStore } from "../lib/store.js";
@@ -22,6 +23,7 @@ export default async function handler(req, res) {
         ...stock,
         storefrontGlobalOutOfStock: Boolean(site?.storefrontGlobalOutOfStock),
         overview: buildInventoryDashboardOverview(),
+        editor: buildInventoryEditorGrid(),
       });
       return;
     }
@@ -37,6 +39,8 @@ export default async function handler(req, res) {
     res.status(200).json({
       ok: true,
       stock: next,
+      overview: buildInventoryDashboardOverview(),
+      editor: buildInventoryEditorGrid(),
     });
   } catch (error) {
     console.error(error);
