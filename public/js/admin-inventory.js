@@ -291,6 +291,11 @@ async function loadStock(session) {
   loading.hidden = true;
 }
 
+const SAVE_STOCK_WARNING =
+  "Warning: you are about to write all case and box counts from this screen to the server inventory. " +
+  "That updates what the storefront and fulfillment use. If you are unsure, press Cancel and double-check the numbers. " +
+  "Do you want to continue?";
+
 /**
  * @param {import("@supabase/supabase-js").Session} session
  */
@@ -301,47 +306,52 @@ async function saveAllInventoryEdits(session) {
   if (!root) {
     return;
   }
+
+  const patches = [];
+  for (const tr of root.querySelectorAll("tr.inv-editor-size-row[data-slug][data-size]")) {
+    const slug = String(tr.dataset.slug || "").trim();
+    const size = String(tr.dataset.size || "").trim();
+    if (!slug || !size) {
+      continue;
+    }
+    const caseInput = tr.querySelector('[data-field="cases"]');
+    const boxInput = tr.querySelector('[data-field="boxes"]');
+    const cases = Math.max(0, Math.floor(Number(caseInput?.value) || 0));
+    const boxes = Math.max(0, Math.floor(Number(boxInput?.value) || 0));
+    patches.push({
+      productSlug: slug,
+      size,
+      channel: "case",
+      setOnHand: cases,
+      track: true,
+    });
+    patches.push({
+      productSlug: slug,
+      size,
+      channel: "box",
+      setOnHand: boxes,
+      track: true,
+    });
+  }
+
+  if (!patches.length) {
+    if (status) {
+      status.textContent = "Nothing to save.";
+    }
+    return;
+  }
+
+  if (!window.confirm(SAVE_STOCK_WARNING)) {
+    return;
+  }
+
   if (status) {
     status.textContent = "Saving…";
   }
   if (btn) {
     btn.disabled = true;
   }
-  const patches = [];
   try {
-    for (const tr of root.querySelectorAll("tr.inv-editor-size-row[data-slug][data-size]")) {
-      const slug = String(tr.dataset.slug || "").trim();
-      const size = String(tr.dataset.size || "").trim();
-      if (!slug || !size) {
-        continue;
-      }
-      const caseInput = tr.querySelector('[data-field="cases"]');
-      const boxInput = tr.querySelector('[data-field="boxes"]');
-      const cases = Math.max(0, Math.floor(Number(caseInput?.value) || 0));
-      const boxes = Math.max(0, Math.floor(Number(boxInput?.value) || 0));
-      patches.push({
-        productSlug: slug,
-        size,
-        channel: "case",
-        setOnHand: cases,
-        track: true,
-      });
-      patches.push({
-        productSlug: slug,
-        size,
-        channel: "box",
-        setOnHand: boxes,
-        track: true,
-      });
-    }
-
-    if (!patches.length) {
-      if (status) {
-        status.textContent = "Nothing to save.";
-      }
-      return;
-    }
-
     await fetchReportPost("/api/admin-inventory", session.access_token, {
       action: "stock_patch",
       patches,

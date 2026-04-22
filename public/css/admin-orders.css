@@ -83,6 +83,20 @@ body.admin-page {
   padding: 1.25rem 1rem 2rem;
 }
 
+/* Inventory page: main content grows; save bar stays at bottom of the viewport when content is short. */
+.admin-app--inventory {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding-bottom: 0;
+}
+
+.admin-app--inventory .inv-layout-main {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .admin-header {
   display: flex;
   flex-wrap: wrap;
@@ -329,7 +343,7 @@ body.admin-page {
   width: 100%;
   border-collapse: collapse;
   min-width: 800px;
-  background-color: #fefefe;
+  background-color: #fff;
 }
 
 .admin-table th,
@@ -1579,8 +1593,12 @@ tr.admin-order-row--handoff td {
 }
 
 .inv-save-toolbar {
-  margin-top: 1.5rem;
-  padding-bottom: 1.5rem;
+  flex-shrink: 0;
+  margin-top: auto;
+  padding: 1rem 0 1.5rem;
+  margin-bottom: 0;
+  border-top: 1px solid var(--admin-border);
+  background: var(--admin-card);
 }
 
 .inv-stock-readonly-table .inv-stock-readonly-qty-head,

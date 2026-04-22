@@ -26,7 +26,7 @@
       </div>
     </div>
 
-    <div id="admin-app" class="admin-app" hidden>
+    <div id="admin-app" class="admin-app admin-app--inventory" hidden>
       <header class="admin-header">
         <div>
           <h1>Inventory</h1>
@@ -44,6 +44,7 @@
 
       <div id="admin-nav"></div>
 
+      <main class="inv-layout-main">
       <div class="admin-toolbar admin-toolbar--wrap">
         <button type="button" id="admin-refresh" class="admin-btn">Refresh</button>
       </div>
@@ -105,11 +106,12 @@
           <div id="inv-editor-groups" class="inv-editor-groups" role="region" aria-label="Stock by product"></div>
         </div>
       </section>
+      </main>
 
-      <div class="admin-toolbar admin-toolbar--wrap inv-save-toolbar" aria-label="Save inventory changes">
+      <footer class="admin-toolbar admin-toolbar--wrap inv-save-toolbar" aria-label="Save inventory changes">
         <button type="button" id="inv-save-all" class="admin-btn admin-btn--primary">Save all changes</button>
         <span id="inv-save-status" class="admin-muted" role="status" aria-live="polite"></span>
-      </div>
+      </footer>
     </div>
 
     <script type="module" src="/js/admin-inventory.js"></script>
