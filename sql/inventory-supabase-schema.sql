@@ -1,8 +1,9 @@
 -- Inventory persistence for SAI Goods (Supabase Postgres)
 -- Run once in Supabase SQL editor (or via migration pipeline).
 --
--- Env (Vercel / server): INVENTORY_BACKEND=supabase
--- Required: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (server only; never expose to browser)
+-- Env (Vercel / server): SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY enable DB inventory by default.
+-- Optional: INVENTORY_BACKEND=file to keep JSON stock while using Supabase for other data.
+-- Service role key is server only; never expose to the browser.
 
 -- Extensions
 create extension if not exists "pgcrypto";
