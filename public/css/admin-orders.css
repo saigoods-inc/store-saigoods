@@ -1506,6 +1506,18 @@ tr.admin-order-row--handoff td {
   line-height: 1.45;
 }
 
+.inv-global-oos-banner {
+  margin: 0.75rem 0 0;
+  padding: 0.65rem 0.85rem;
+  max-width: 52rem;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #5c4d3a;
+  background: #fffbeb;
+  border: 1px solid #e8d4a8;
+  border-radius: 8px;
+}
+
 .inv-overview-table .inv-num {
   text-align: right;
   font-variant-numeric: tabular-nums;

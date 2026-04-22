@@ -144,6 +144,20 @@ async function loadStock(session) {
     const stock = await fetchReportJson("/api/admin-stock", session.access_token);
     const overview = stock?.overview || null;
     const lineCount = Array.isArray(stock?.lines) ? stock.lines.length : 0;
+    const gOos = Boolean(stock?.storefrontGlobalOutOfStock ?? overview?.storefrontGlobalOutOfStock);
+    const banner = document.getElementById("inv-global-oos-banner");
+    if (banner) {
+      if (gOos) {
+        banner.hidden = false;
+        banner.textContent =
+          "Storefront global out-of-stock is ON (store.json → site.storefrontGlobalOutOfStock). " +
+          "Cases/boxes left below match what customers see (sellable counts shown as 0). " +
+          "Physical stock in stock.json is unchanged; sold columns still reflect on-hand vs baselines.";
+      } else {
+        banner.hidden = true;
+        banner.textContent = "";
+      }
+    }
     renderSummary(overview, lineCount);
     renderOverviewTable(overview);
   } catch (e) {

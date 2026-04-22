@@ -4,6 +4,7 @@ import {
   buildInventoryDashboardOverview,
   readStockData,
 } from "../lib/stock.js";
+import { loadStore } from "../lib/store.js";
 
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
@@ -16,8 +17,10 @@ export default async function handler(req, res) {
 
     if (req.method === "GET") {
       const stock = readStockData();
+      const site = loadStore()?.site;
       res.status(200).json({
         ...stock,
+        storefrontGlobalOutOfStock: Boolean(site?.storefrontGlobalOutOfStock),
         overview: buildInventoryDashboardOverview(),
       });
       return;
