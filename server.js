@@ -219,7 +219,10 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    if (pathname === "/api/admin/inventory" && (req.method === "GET" || req.method === "POST")) {
+    if (
+      (pathname === "/api/admin/inventory" || pathname === "/api/admin-inventory") &&
+      (req.method === "GET" || req.method === "POST")
+    ) {
       const body = req.method === "POST" ? await readJsonBody(req) : undefined;
       await adminInventoryHandler(
         { method: req.method, headers: req.headers, body },

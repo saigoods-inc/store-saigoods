@@ -298,7 +298,7 @@ async function saveAllInventoryEdits(session) {
       return;
     }
 
-    await fetchReportPost("/api/admin/inventory", session.access_token, {
+    await fetchReportPost("/api/admin-inventory", session.access_token, {
       action: "stock_patch",
       patches,
       reason: "Admin manual on-hand (cases & boxes)",
