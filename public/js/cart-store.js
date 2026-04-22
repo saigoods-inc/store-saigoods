@@ -1,5 +1,5 @@
 const CART_STORAGE_KEY = "saigoods-cart-v1";
-const FALLBACK_SIZES = ["Small", "Medium", "Large", "X Large"];
+const FALLBACK_SIZES = ["S", "M", "L", "XL"];
 
 export function getCart(sizes = FALLBACK_SIZES) {
   const cartMap = cleanCartMap(readCartMap(), sizes);

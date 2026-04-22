@@ -98,7 +98,9 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/api/products" && req.method === "GET") {
       // Always read from disk so site metadata (phone, address, etc.) updates without restarting Node.
-      return sendJson(res, 200, await mergeInventoryIntoStore(readStoreData()));
+      return sendJson(res, 200, await mergeInventoryIntoStore(readStoreData()), {
+        "Cache-Control": "no-store",
+      });
     }
 
     if (pathname.startsWith("/api/products/") && req.method === "GET") {
@@ -702,8 +704,11 @@ async function serveFile(res, filePath, method) {
   }
 }
 
-function sendJson(res, statusCode, body) {
-  res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
+function sendJson(res, statusCode, body, extraHeaders = {}) {
+  res.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    ...extraHeaders,
+  });
   res.end(JSON.stringify(body));
 }
 

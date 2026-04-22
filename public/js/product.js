@@ -1,4 +1,4 @@
-import { bundleCardPricePerHtml, formatCurrency, getProduct } from "./catalog.js";
+import { bundleCardPricePerHtml, formatCurrency, getProduct, storefrontSizesForProduct } from "./catalog.js";
 import { getCart, setProductQuantities } from "./cart-store.js";
 import { formatBundleCardSizeSummaryHtml, perBundleSummaryMap } from "./bundle-size-summary.js";
 import { responsiveRasterImg } from "./image-utils.js";
@@ -41,7 +41,7 @@ async function init() {
     return;
   }
 
-  const sizes = store.site.sizes;
+  const sizes = storefrontSizesForProduct(product, store);
   const bundles = product.bundles || [];
 
   bundleQty = Object.fromEntries(bundles.map((b) => [b.id, 0]));
@@ -64,7 +64,7 @@ async function init() {
  * Restore Bundle & Price and Size & Quantity from the cart line for this slug (e.g. cart “Edit”).
  */
 function hydrateProductStateFromCart() {
-  const sizes = store.site.sizes;
+  const sizes = storefrontSizesForProduct(product, store);
   const bundles = product.bundles || [];
   const knownIds = new Set(bundles.map((b) => b.id));
 
@@ -173,7 +173,7 @@ function applyBundleDelta(bundleId, delta) {
     return;
   }
   bundleSubmitAttempted = false;
-  const sizes = store.site.sizes;
+  const sizes = storefrontSizesForProduct(product, store);
   const prevReq = computeRequiredUnits();
   const prevQ = Math.floor(bundleQty[bundleId] || 0);
   const nextQ = Math.max(0, prevQ + delta);
@@ -198,7 +198,7 @@ function selectBundleCard(bundleId) {
     return;
   }
   bundleSubmitAttempted = false;
-  const sizes = store.site.sizes;
+  const sizes = storefrontSizesForProduct(product, store);
   const prevReq = computeRequiredUnits();
   bundleQty = { ...bundleQty, [bundleId]: 1 };
   openBundleDropdownId = bundleId;
@@ -232,7 +232,7 @@ function allocationValid() {
 
 /** Sizes that are out of stock for this product but still have a positive allocation. */
 function unavailableSizesWithQuantity() {
-  const sizes = store.site.sizes;
+  const sizes = storefrontSizesForProduct(product, store);
   const names = [];
   for (const s of sizes) {
     const c = Math.floor(caseBySize[s] || 0);
@@ -390,7 +390,7 @@ function renderBundleCard(b, err, globalOos) {
     `
       : "";
 
-  const sizes = store.site.sizes;
+  const sizes = storefrontSizesForProduct(product, store);
   const mapForKind =
     kind === "box" ? boxBySize : kind === "case" ? caseBySize : null;
   const summaryMap =
@@ -431,7 +431,7 @@ function renderBundleCard(b, err, globalOos) {
 }
 
 function renderSizeColumn(title, channel, map, { invalid = false, hint = "", hideHeader = false } = {}) {
-  const sizes = store.site.sizes;
+  const sizes = storefrontSizesForProduct(product, store);
   const { reqBox, reqCase } = computeRequiredUnits();
   const req = channel === "box" ? reqBox : reqCase;
   const total = sumChannel(map);
@@ -517,7 +517,12 @@ function renderProduct() {
   const hasSizeSelection = sumCases + sumBoxes > 0;
   const layoutOk =
     hasAnyBundleSelection() && subtotal > 0 && hasSizeSelection && !showBoxError && !showCaseError;
-  const inventoryOk = inventoryAllowsAllocations(product, caseBySize, boxBySize, store.site.sizes);
+  const inventoryOk = inventoryAllowsAllocations(
+    product,
+    caseBySize,
+    boxBySize,
+    storefrontSizesForProduct(product, store),
+  );
   const canPurchase = !globalOos && layoutOk && inventoryOk;
   const stockOutOnly = !globalOos && layoutOk && !inventoryOk;
   const primaryCtaLabel = globalOos ? "New stock arriving soon" : stockOutOnly ? "Currently Out of Stock" : "Add to cart";

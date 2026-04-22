@@ -11,6 +11,7 @@ export default async function handler(req, res) {
   try {
     const raw = readFileSync(getStorePath(), "utf8");
     const store = JSON.parse(raw);
+    res.setHeader("Cache-Control", "no-store");
     res.status(200).json(await mergeInventoryIntoStore(store));
   } catch (error) {
     console.error(error);

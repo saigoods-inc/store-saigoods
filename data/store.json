@@ -2,7 +2,7 @@
   "site": {
     "name": "SAI Goods Store",
     "legalName": "SAI Goods Inc.",
-    "sizes": ["Small", "Medium", "Large", "X Large"],
+    "sizes": ["S", "M", "L", "XL"],
     "addressLines": [
       "6001 Jackson Square Blvd,",
       "Ste 400, La Vergne, Tennessee",
@@ -20,6 +20,7 @@
       "id": "prod_standard",
       "slug": "nitrile-standard",
       "name": "Nitrile Examination \u2013 Standard",
+      "supportedSizes": ["S", "M", "L"],
       "shortName": "Standard Series",
       "priceCents": 6799,
       "hardinPriceCents": 6799,
@@ -157,6 +158,7 @@
       "id": "prod_general",
       "slug": "black-nitrile-general",
       "name": "Black Nitrile \u2013 General",
+      "supportedSizes": ["M", "L"],
       "shortName": "General Purpose",
       "priceCents": 7399,
       "hardinPriceCents": 7399,
@@ -296,6 +298,7 @@
       "id": "prod_heavy",
       "slug": "black-nitrile-heavy-duty",
       "name": "Black Nitrile \u2013 Heavy Duty",
+      "supportedSizes": ["L", "XL"],
       "shortName": "Heavy Duty",
       "priceCents": 14299,
       "hardinPriceCents": 14299,

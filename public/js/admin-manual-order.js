@@ -19,7 +19,7 @@ const US_STATES = [
 ];
 
 let supabase = null;
-let siteSizes = ["Small", "Medium", "Large", "X Large"];
+let siteSizes = ["S", "M", "L", "XL"];
 let products = [];
 /** Order id for payment link + PATCH saves (null = new draft on next save). */
 let editingOrderId = null;

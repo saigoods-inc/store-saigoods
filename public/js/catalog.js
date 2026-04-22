@@ -18,6 +18,23 @@ export async function getProduct(slug) {
   return store.products.find((product) => product.slug === slug) || null;
 }
 
+/**
+ * Sizes shown and allocated on the PDP for one product (subset when `supportedSizes` is set).
+ * @param {object | null | undefined} product
+ * @param {{ site?: { sizes?: string[] } }} store
+ */
+export function storefrontSizesForProduct(product, store) {
+  const site = Array.isArray(store?.site?.sizes) ? store.site.sizes : [];
+  if (!product || typeof product !== "object") {
+    return [...site];
+  }
+  const sup = product.supportedSizes;
+  if (Array.isArray(sup) && sup.length) {
+    return sup.map((s) => String(s || "").trim()).filter(Boolean);
+  }
+  return [...site];
+}
+
 export function searchProducts(products, query) {
   const terms = normaliseQuery(query);
 

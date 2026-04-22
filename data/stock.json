@@ -3,7 +3,7 @@
   "lines": [
     {
       "productSlug": "nitrile-standard",
-      "size": "Small",
+      "size": "S",
       "channel": "case",
       "productName": "Nitrile Examination \u2013 Standard",
       "track": true,
@@ -15,7 +15,7 @@
     },
     {
       "productSlug": "nitrile-standard",
-      "size": "Small",
+      "size": "S",
       "channel": "box",
       "productName": "Nitrile Examination \u2013 Standard",
       "track": true,
@@ -27,7 +27,7 @@
     },
     {
       "productSlug": "nitrile-standard",
-      "size": "Medium",
+      "size": "M",
       "channel": "case",
       "productName": "Nitrile Examination \u2013 Standard",
       "track": true,
@@ -39,7 +39,7 @@
     },
     {
       "productSlug": "nitrile-standard",
-      "size": "Medium",
+      "size": "M",
       "channel": "box",
       "productName": "Nitrile Examination \u2013 Standard",
       "track": true,
@@ -51,7 +51,7 @@
     },
     {
       "productSlug": "nitrile-standard",
-      "size": "Large",
+      "size": "L",
       "channel": "case",
       "productName": "Nitrile Examination \u2013 Standard",
       "track": true,
@@ -63,7 +63,7 @@
     },
     {
       "productSlug": "nitrile-standard",
-      "size": "Large",
+      "size": "L",
       "channel": "box",
       "productName": "Nitrile Examination \u2013 Standard",
       "track": true,
@@ -75,7 +75,7 @@
     },
     {
       "productSlug": "black-nitrile-general",
-      "size": "Medium",
+      "size": "M",
       "channel": "case",
       "productName": "Black Nitrile \u2013 General",
       "track": true,
@@ -87,7 +87,7 @@
     },
     {
       "productSlug": "black-nitrile-general",
-      "size": "Medium",
+      "size": "M",
       "channel": "box",
       "productName": "Black Nitrile \u2013 General",
       "track": true,
@@ -99,7 +99,7 @@
     },
     {
       "productSlug": "black-nitrile-general",
-      "size": "Large",
+      "size": "L",
       "channel": "case",
       "productName": "Black Nitrile \u2013 General",
       "track": true,
@@ -111,7 +111,7 @@
     },
     {
       "productSlug": "black-nitrile-general",
-      "size": "Large",
+      "size": "L",
       "channel": "box",
       "productName": "Black Nitrile \u2013 General",
       "track": true,
@@ -123,7 +123,7 @@
     },
     {
       "productSlug": "black-nitrile-heavy-duty",
-      "size": "Large",
+      "size": "L",
       "channel": "case",
       "productName": "Black Nitrile \u2013 Heavy Duty",
       "track": true,
@@ -135,7 +135,7 @@
     },
     {
       "productSlug": "black-nitrile-heavy-duty",
-      "size": "Large",
+      "size": "L",
       "channel": "box",
       "productName": "Black Nitrile \u2013 Heavy Duty",
       "track": true,
@@ -147,7 +147,7 @@
     },
     {
       "productSlug": "black-nitrile-heavy-duty",
-      "size": "X Large",
+      "size": "XL",
       "channel": "case",
       "productName": "Black Nitrile \u2013 Heavy Duty",
       "track": true,
@@ -159,7 +159,7 @@
     },
     {
       "productSlug": "black-nitrile-heavy-duty",
-      "size": "X Large",
+      "size": "XL",
       "channel": "box",
       "productName": "Black Nitrile \u2013 Heavy Duty",
       "track": true,

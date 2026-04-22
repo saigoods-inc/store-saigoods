@@ -29,7 +29,7 @@ let openModalGeneration = 0;
 
 /** slug:bundleId -> label (from /api/products). */
 const bundleLabelBySlugId = new Map();
-let siteSizes = ["Small", "Medium", "Large", "X Large"];
+let siteSizes = ["S", "M", "L", "XL"];
 
 function escapeHtml(s) {
   return String(s ?? "")

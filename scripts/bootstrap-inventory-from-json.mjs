@@ -14,6 +14,9 @@ import { fileURLToPath } from "node:url";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { dbSizeLabelsMatchingCatalogSize } from "../lib/size-labels.js";
+import { getSupportedSizesForProduct } from "../lib/store.js";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 
@@ -83,19 +86,22 @@ async function ensureProduct(slug, name) {
 }
 
 async function ensureVariant(productId, sizeLabel, boxesPerCase) {
-  const { data: existing, error: e1 } = await sb
+  const labels = dbSizeLabelsMatchingCatalogSize(sizeLabel);
+  const { data: rows, error: e1 } = await sb
     .from("product_variants")
-    .select("id")
+    .select("id, size_label")
     .eq("product_id", productId)
-    .eq("size_label", sizeLabel)
-    .maybeSingle();
+    .in("size_label", labels)
+    .limit(1);
   if (e1) {
     throw e1;
   }
+  const existing = Array.isArray(rows) && rows.length ? rows[0] : null;
   if (existing?.id) {
     await sb
       .from("product_variants")
       .update({
+        size_label: String(sizeLabel || "").trim(),
         boxes_per_case: Math.max(1, Math.floor(Number(boxesPerCase) || 10)),
         active: true,
         updated_at: new Date().toISOString(),
@@ -148,7 +154,6 @@ async function ensureLevel(variantId, cases, boxes, casesBaseline, boxesBaseline
 
 async function main() {
   const store = readJson("data/store.json");
-  const knownSizes = Array.isArray(store?.site?.sizes) ? store.site.sizes : [];
   const products = Array.isArray(store?.products) ? store.products : [];
 
   let stock = { lines: [] };
@@ -178,15 +183,21 @@ async function main() {
     }
     const productId = await ensureProduct(slug, String(p.name || slug));
     const bpc = Math.max(1, Math.floor(Number(p.boxesPerCase) || 10));
-    for (const size of knownSizes) {
+    for (const size of getSupportedSizesForProduct(p)) {
       const sizeLabel = String(size || "").trim();
       if (!sizeLabel) {
         continue;
       }
       const variantId = await ensureVariant(productId, sizeLabel, bpc);
-      const legacy = bySlugSize.get(`${slug}\t${sizeLabel}`) || {};
-      const caseLine = legacy.case;
-      const boxLine = legacy.box;
+      let legacy = null;
+      for (const lab of dbSizeLabelsMatchingCatalogSize(sizeLabel)) {
+        legacy = bySlugSize.get(`${slug}\t${lab}`);
+        if (legacy) {
+          break;
+        }
+      }
+      const caseLine = legacy?.case;
+      const boxLine = legacy?.box;
       const cases = caseLine ? Math.max(0, Math.floor(Number(caseLine.onHand) || 0)) : 0;
       const boxes = boxLine ? Math.max(0, Math.floor(Number(boxLine.onHand) || 0)) : 0;
       const casesBaseline =

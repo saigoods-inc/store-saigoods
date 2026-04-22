@@ -1,4 +1,4 @@
-import { formatCurrency, getStore, searchProducts } from "./catalog.js";
+import { formatCurrency, getStore, searchProducts, storefrontSizesForProduct } from "./catalog.js";
 import { responsiveRasterImg } from "./image-utils.js";
 import { isProductStorefrontOutOfStock } from "./size-availability.js";
 import { escapeHtml, initSite } from "./site.js";
@@ -96,7 +96,7 @@ function renderCatalog(products) {
 
   productGrid.innerHTML = products
     .map((product) => {
-      const cardOos = isProductStorefrontOutOfStock(product, store.site.sizes);
+      const cardOos = isProductStorefrontOutOfStock(product, storefrontSizesForProduct(product, store));
       const oosBlock = cardOos
         ? `<p class="product-card__oos" role="status">Out of stock</p>`
         : "";
