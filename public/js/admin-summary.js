@@ -97,10 +97,10 @@ function renderShippingZoneRanking(summary) {
     .map((row, i) => {
       const zone = String(row.carrier || "Unknown").trim() || "Unknown";
       return `<tr>
-        <td>${escapeHtml(String(i + 1))}</td>
+        <td class="summary-td-rank">${escapeHtml(String(i + 1))}</td>
         <td>${escapeHtml(zone)}</td>
-        <td>${escapeHtml(String(row.orders || 0))}</td>
-        <td class="summary-na">—</td>
+        <td class="summary-td-num">${escapeHtml(String(row.orders || 0))}</td>
+        <td class="summary-na summary-td-muted">—</td>
       </tr>`;
     })
     .join("");
@@ -122,10 +122,10 @@ function renderRecentPurchasesTable(summary) {
       (row) => `<tr>
         <td>${escapeHtml(fmtDateTime(row.paidAt))}</td>
         <td>${escapeHtml(row.orderRef || "—")}</td>
-        <td class="summary-na">—</td>
-        <td class="summary-na">—</td>
+        <td>${escapeHtml(row.productPreview || "—")}</td>
+        <td>${escapeHtml(row.quantityPreview || "—")}</td>
         <td>${escapeHtml(row.customer || "—")}</td>
-        <td>${escapeHtml(fmtCents(row.revenueCents || 0))}</td>
+        <td class="summary-td-num">${escapeHtml(fmtCents(row.revenueCents || 0))}</td>
       </tr>`,
     )
     .join("");
@@ -134,25 +134,28 @@ function renderRecentPurchasesTable(summary) {
 function renderProductRankingTable(summary) {
   const tbody = document.getElementById("summary-product-ranking-tbody");
   if (!tbody) return;
-  const recent = Array.isArray(summary?.breakdown?.recentFinancialActivity)
-    ? [...summary.breakdown.recentFinancialActivity]
-    : [];
-  if (!recent.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="summary-empty">No paid orders in this range.</td></tr>`;
+  const rows = Array.isArray(summary?.breakdown?.productRanking) ? summary.breakdown.productRanking : [];
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="summary-empty">No line items in this range.</td></tr>`;
     return;
   }
-  recent.sort((a, b) => (Number(b.revenueCents) || 0) - (Number(a.revenueCents) || 0));
-  tbody.innerHTML = recent
-    .slice(0, 12)
+  tbody.innerHTML = rows
+    .slice(0, 25)
     .map(
-      (row) => `<tr>
-        <td>${escapeHtml(row.customer || row.orderRef || "—")}</td>
-        <td>${escapeHtml(row.orderRef || "—")}</td>
-        <td>1</td>
-        <td>${escapeHtml(fmtCents(row.revenueCents || 0))}</td>
+      (r) => `<tr>
+        <td>${escapeHtml(String(r.name || "—"))}</td>
+        <td class="summary-td-mono">${escapeHtml(String(r.slug || "—"))}</td>
+        <td class="summary-td-num">${escapeHtml(String(r.quantityUnits ?? 0))}</td>
+        <td class="summary-td-num">${escapeHtml(fmtCents(r.revenueCents || 0))}</td>
       </tr>`,
     )
     .join("");
+}
+
+function truncateDonutLegendLabel(s, maxLen) {
+  const t = String(s || "").trim();
+  if (t.length <= maxLen) return t;
+  return `${t.slice(0, Math.max(1, maxLen - 1))}…`;
 }
 
 function setupCanvasForContainer(canvas) {
@@ -181,7 +184,7 @@ function drawDonutChart(canvas, segments) {
     ctx.fillStyle = "#9ca3af";
     ctx.font = "13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("No revenue in this range", cx, cy);
+    ctx.fillText("No product line revenue in this range", cx, cy);
     return;
   }
 
@@ -200,33 +203,41 @@ function drawDonutChart(canvas, segments) {
 
   ctx.font = "600 11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
   ctx.textAlign = "left";
-  let ly = Math.max(20, cy - rOuter * 0.55);
+  const legendX = width * 0.56;
+  let ly = Math.max(16, cy - rOuter * 0.52);
+  const maxLabelChars = Math.max(18, Math.floor((width - legendX - 12) / 6.2));
   segments.forEach((seg) => {
     const pct = Math.round(((Number(seg.value) || 0) / total) * 1000) / 10;
+    const label = truncateDonutLegendLabel(seg.label, maxLabelChars);
     ctx.fillStyle = seg.color;
-    ctx.fillRect(width * 0.58, ly, 10, 10);
+    ctx.fillRect(legendX, ly, 9, 9);
     ctx.fillStyle = "#4b5563";
-    ctx.fillText(`${seg.label} (${pct}%)`, width * 0.58 + 16, ly + 9);
-    ly += 20;
+    ctx.fillText(`${label} (${pct}%)`, legendX + 14, ly + 8);
+    ly += 17;
   });
 }
 
 function renderProductDonut(summary) {
-  const k = summary?.kpis || {};
-  const net = Math.max(0, Number(k.netAfterVariableCostsCents) || 0);
-  const ship = Math.max(0, Number(k.totalShippingExpenseCents) || 0);
-  const fee = Math.max(0, Number(k.totalPlatformFeesCents) || 0);
-  const rev = Math.max(0, Number(k.totalRevenueCents) || 0);
-  const remainder = Math.max(0, rev - net - ship - fee);
-  const segs = [
-    { label: "Net (current profit)", value: net, color: "#059669" },
-    { label: "Shipping", value: ship, color: "#d97706" },
-    { label: "Platform fees", value: fee, color: "#7c3aed" },
-  ];
-  if (remainder > 0) {
-    segs.push({ label: "Other / rounding", value: remainder, color: "#94a3b8" });
+  const canvas = document.getElementById("chart-product-donut");
+  const rows = Array.isArray(summary?.breakdown?.productRanking) ? summary.breakdown.productRanking : [];
+  const total = rows.reduce((s, r) => s + Math.max(0, Number(r.revenueCents) || 0), 0);
+  const palette = ["#2563eb", "#0d9488", "#6366f1", "#d97706", "#db2777", "#94a3b8"];
+  if (!rows.length || total <= 0) {
+    drawDonutChart(canvas, []);
+    return;
   }
-  drawDonutChart(document.getElementById("chart-product-donut"), segs);
+  const top = rows.slice(0, 5);
+  const topSum = top.reduce((s, r) => s + Math.max(0, Number(r.revenueCents) || 0), 0);
+  const other = Math.max(0, total - topSum);
+  const segs = top.map((r, i) => ({
+    label: String(r.name || r.slug || "Product").trim() || "Product",
+    value: Math.max(0, Number(r.revenueCents) || 0),
+    color: palette[i % 5],
+  }));
+  if (other > 0) {
+    segs.push({ label: "Other products", value: other, color: palette[5] });
+  }
+  drawDonutChart(canvas, segs);
 }
 
 function renderAlerts(summary) {

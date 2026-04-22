@@ -74,7 +74,7 @@
 
       <div class="summary-dashboard-layout">
         <aside class="summary-alerts-panel" aria-label="Alerts and watchouts">
-          <h2 class="summary-alerts-panel__title">Alerts &amp; watchouts</h2>
+          <h2 class="summary-alerts-panel__title">Alerts &amp; Watchouts</h2>
           <div class="summary-alerts-panel__scroll">
             <div class="summary-alerts-list" id="alerts-list"></div>
           </div>
@@ -85,41 +85,42 @@
             <div class="summary-kpi-donut-block__kpis">
               <div class="summary-kpi-row summary-kpi-row--primary">
                 <article class="summary-kpi-card summary-kpi-card--profit">
-                  <p class="summary-kpi-card__label">Current profit</p>
+                  <p class="summary-kpi-card__label">Current Profit</p>
                   <p id="kpi-net-after-variable" class="summary-kpi-card__value summary-kpi-card__value--hero">—</p>
                 </article>
                 <article class="summary-kpi-card summary-kpi-card--medium">
-                  <p class="summary-kpi-card__label">Shipping expense</p>
+                  <p class="summary-kpi-card__label">Shipping Expense</p>
                   <p id="kpi-shipping-expense" class="summary-kpi-card__value">—</p>
                 </article>
                 <article class="summary-kpi-card summary-kpi-card--medium">
-                  <p class="summary-kpi-card__label">Total Order</p>
+                  <p class="summary-kpi-card__label">Total Orders</p>
                   <p id="kpi-total-orders" class="summary-kpi-card__value">—</p>
                 </article>
               </div>
               <div class="summary-kpi-row summary-kpi-row--secondary">
                 <article class="summary-kpi-card summary-kpi-card--small">
-                  <p class="summary-kpi-card__label">Total revenue</p>
+                  <p class="summary-kpi-card__label">Total Revenue</p>
                   <p id="kpi-total-revenue" class="summary-kpi-card__value">—</p>
                 </article>
                 <article class="summary-kpi-card summary-kpi-card--small">
-                  <p class="summary-kpi-card__label">Avg. shipping cost</p>
+                  <p class="summary-kpi-card__label">Avg. Shipping Cost</p>
                   <p id="kpi-avg-shipping" class="summary-kpi-card__value">—</p>
                 </article>
                 <article class="summary-kpi-card summary-kpi-card--small">
-                  <p class="summary-kpi-card__label">Average order value</p>
+                  <p class="summary-kpi-card__label">Average Order Value</p>
                   <p id="kpi-aov" class="summary-kpi-card__value">—</p>
                 </article>
               </div>
             </div>
-            <article class="summary-card summary-card--donut" aria-label="Product ranking">
+            <article class="summary-card summary-card--donut" aria-label="Product ranking chart">
               <header class="summary-card__header">
-                <h2 class="summary-card__title">Product ranking</h2>
+                <h2 class="summary-card__title">Product Ranking</h2>
+                <p class="summary-card__sub admin-muted">Share of line-item revenue (top products)</p>
               </header>
               <canvas
                 id="chart-product-donut"
                 class="summary-donut-canvas"
-                aria-label="Share of revenue after variable costs"
+                aria-label="Share of line-item revenue by top products"
                 role="img"
               ></canvas>
             </article>
@@ -127,7 +128,7 @@
 
           <article class="summary-card summary-card--zone">
             <header class="summary-card__header">
-              <h2 class="summary-card__title">Shipping zone ranking</h2>
+              <h2 class="summary-card__title">Shipping Zone Ranking</h2>
             </header>
             <div class="admin-table-wrap">
               <table class="admin-table summary-table">
@@ -147,7 +148,7 @@
       </div>
 
       <section class="summary-section summary-section--full" aria-labelledby="heading-recent-purchases">
-        <h2 id="heading-recent-purchases" class="summary-section__title">Recent purchases</h2>
+        <h2 id="heading-recent-purchases" class="summary-section__title">Recent Purchases</h2>
         <div class="summary-card summary-card--table">
           <div class="admin-table-wrap">
             <table class="admin-table summary-table">
@@ -168,13 +169,13 @@
       </section>
 
       <section class="summary-section summary-section--full" aria-labelledby="heading-product-ranking">
-        <h2 id="heading-product-ranking" class="summary-section__title">Product ranking</h2>
+        <h2 id="heading-product-ranking" class="summary-section__title">Product Ranking</h2>
         <div class="summary-card summary-card--table">
           <div class="admin-table-wrap">
             <table class="admin-table summary-table">
               <thead>
                 <tr>
-                  <th>Product name</th>
+                  <th>Product Name</th>
                   <th>SKU</th>
                   <th>Quantity</th>
                   <th>Total $ collected</th>
