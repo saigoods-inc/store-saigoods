@@ -27,6 +27,7 @@ let editingOrderId = null;
 let lastCreatedOrderId = null;
 /** @type {object | null} */
 let lastQuote = null;
+let estimateStale = false;
 
 /** After “Continue — apply discount anyway”, or loaded from draft with admin override. */
 let discountOverrideConfirmed = false;
@@ -42,6 +43,93 @@ let productState = {};
 let allocationSubmitAttempted = false;
 
 const SEND_PAYMENT_LINK_DEFAULT_LABEL = "Send payment link email";
+
+function quoteView(data) {
+  const hasV1 =
+    data &&
+    typeof data === "object" &&
+    data.shipping &&
+    typeof data.shipping === "object" &&
+    data.totals &&
+    typeof data.totals === "object";
+  if (hasV1) {
+    return {
+      merchandiseFormatted:
+        data?.merchandise?.originalSubtotalFormatted ||
+        data?.merchandise?.subtotalFormatted ||
+        data?.subtotalFormatted ||
+        "—",
+      discountFormatted:
+        Number(data?.merchandise?.discountCents || 0) > 0
+          ? data?.merchandise?.discountFormatted || "—"
+          : null,
+      shippingStatus: String(data?.shipping?.quoteStatus || "").trim() || "error",
+      shippingFormatted: data?.shipping?.amountFormatted || "—",
+      shippingServiceLabel: data?.shipping?.serviceLabel || null,
+      shippingMode: data?.shipping?.mode || null,
+      residentialSurchargeCents: Math.max(0, Math.round(Number(data?.shipping?.residentialSurchargeCents) || 0)),
+      residentialSurchargeFormatted:
+        data?.shipping?.residentialSurchargeFormatted || data?.residentialSurchargeFormatted || "—",
+      taxFormatted: data?.tax?.amountFormatted || data?.taxFormatted || "—",
+      totalFormatted: data?.totals?.totalFormatted || data?.totalFormatted || "—",
+      warnings: Array.isArray(data?.warnings) ? data.warnings : [],
+      userFacingError: data?.userFacingError ? String(data.userFacingError) : null,
+      canCheckout: data?.canCheckout !== false,
+    };
+  }
+
+  return {
+    merchandiseFormatted: data?.originalMerchandiseSubtotalFormatted || data?.subtotalFormatted || "—",
+    discountFormatted:
+      Number(data?.merchandiseDiscountCents || 0) > 0 ? data?.merchandiseDiscountFormatted || "—" : null,
+    shippingStatus: "included_in_merchandise",
+    shippingFormatted: data?.shippingFormatted || "—",
+    shippingServiceLabel: null,
+    shippingMode: "baked_in",
+    residentialSurchargeCents: Math.max(0, Number(data?.residentialSurchargeCents) || 0),
+    residentialSurchargeFormatted: data?.residentialSurchargeFormatted || "—",
+    taxFormatted: data?.taxFormatted || "—",
+    totalFormatted: data?.totalFormatted || "—",
+    warnings: Array.isArray(data?.warnings) ? data.warnings : [],
+    userFacingError: null,
+    canCheckout: true,
+  };
+}
+
+function shippingStatusLabel(v) {
+  switch (v?.shippingStatus) {
+    case "included_in_merchandise":
+      return "Included in merchandise";
+    case "not_requested":
+      return "Address not confirmed";
+    case "rated":
+      return v.shippingServiceLabel ? `${v.shippingServiceLabel} (${v.shippingFormatted})` : v.shippingFormatted;
+    case "invalid_address":
+      return "Address invalid";
+    case "provider_unavailable":
+      return "Quote temporarily unavailable";
+    case "error":
+      return "Quote failed";
+    default:
+      return v?.shippingFormatted || "—";
+  }
+}
+
+function markEstimatePreviewStale() {
+  if (!lastQuote) {
+    return;
+  }
+  if (estimateStale) {
+    return;
+  }
+  estimateStale = true;
+  const preview = document.getElementById("manual-preview");
+  const pre = document.getElementById("manual-preview-body");
+  if (preview && pre) {
+    preview.hidden = false;
+    pre.textContent = `${String(pre.textContent || "").trim()}\n\nNote: Quote may be stale. Recalculate totals before saving or sending payment link.`;
+  }
+}
 
 function isWalkInMode() {
   return typeof document !== "undefined" && document.body?.dataset?.adminOrderMode === "walk-in";
@@ -734,24 +822,28 @@ function onManualProductsClick(e) {
   }
 
   if (action === "bundle-select") {
+    markEstimatePreviewStale();
     selectBundleCard(slug, t.dataset.bundleId);
     renderProductInputs();
     e.stopPropagation();
     return;
   }
   if (action === "bundle-increase") {
+    markEstimatePreviewStale();
     applyBundleDelta(slug, t.dataset.bundleId, 1);
     renderProductInputs();
     e.stopPropagation();
     return;
   }
   if (action === "bundle-decrease") {
+    markEstimatePreviewStale();
     applyBundleDelta(slug, t.dataset.bundleId, -1);
     renderProductInputs();
     e.stopPropagation();
     return;
   }
   if (action === "size-step") {
+    markEstimatePreviewStale();
     const delta = Number(t.dataset.delta) || 0;
     handleSizeStep(slug, t.dataset.channel, t.dataset.size, delta);
     renderProductInputs();
@@ -772,6 +864,7 @@ function onManualProductsInput(e) {
   }
   const n = Math.max(0, Math.floor(Number(t.value) || 0));
   st.caseBySize[size] = n;
+  markEstimatePreviewStale();
 }
 
 function fillStateSelect() {
@@ -888,6 +981,8 @@ function clearFormNewOrder() {
   syncWalkInPaymentPanel();
   document.getElementById("manual-preview").hidden = true;
   document.getElementById("manual-result").hidden = true;
+  lastQuote = null;
+  estimateStale = false;
   setEditingBanner("", false);
   resetProductStateFromCatalog();
   renderProductInputs();
@@ -963,6 +1058,8 @@ async function openDraftForEdit(orderId) {
     fillFormFromOrder(order);
     editingOrderId = String(order.id);
     lastCreatedOrderId = String(order.id);
+    lastQuote = null;
+    estimateStale = false;
     resetSendPaymentLinkButtonState();
     const sendLinkBtn = document.getElementById("btn-send-link");
     if (sendLinkBtn && !isWalkInMode()) {
@@ -1080,6 +1177,7 @@ async function runEstimate() {
   };
   const data = await fetchReportPost(staffOrderApi("estimate"), token, body);
   lastQuote = data;
+  estimateStale = false;
 
   if (data?.adminLocalDiscountForced) {
     discountOverrideConfirmed = true;
@@ -1087,30 +1185,26 @@ async function runEstimate() {
 
   const preview = document.getElementById("manual-preview");
   const pre = document.getElementById("manual-preview-body");
+  const v = quoteView(data);
   const lines = [
-    `Merchandise: ${data.originalMerchandiseSubtotalFormatted || data.subtotalFormatted}`,
+    `Merchandise: ${v.merchandiseFormatted}`,
   ];
-  if (data.merchandiseDiscountFormatted && Number(data.merchandiseDiscountCents) > 0) {
-    lines.push(`Discount: −${data.merchandiseDiscountFormatted}`);
+  if (v.discountFormatted) {
+    lines.push(`Discount: −${v.discountFormatted}`);
   }
-  const baseCents = Math.max(0, Number(data.baseShippingCents) || 0);
-  const shipCents = Math.max(0, Number(data.shippingCents) || 0);
-  const resCents = Math.max(0, Number(data.residentialSurchargeCents) || 0);
-  const shipBase =
-    typeof data.baseShippingCents === "number"
-      ? baseCents === 0
-        ? "Free"
-        : data.baseShippingFormatted || "—"
-      : shipCents === 0 || shipCents === resCents
-        ? "Free"
-        : data.shippingFormatted || "—";
-  lines.push(`Shipping: ${shipBase}`);
-  if (Math.max(0, Number(data.residentialSurchargeCents) || 0) > 0 && data.residentialSurchargeFormatted) {
-    lines.push(`Residential surcharge: ${data.residentialSurchargeFormatted}`);
+  lines.push(`Shipping: ${shippingStatusLabel(v)}`);
+  if (v.residentialSurchargeCents > 0 && v.residentialSurchargeFormatted) {
+    lines.push(`Residential surcharge: ${v.residentialSurchargeFormatted}`);
   }
-  lines.push(`Tax: ${data.taxFormatted}`, `Total: ${data.totalFormatted}`);
-  if (Array.isArray(data.warnings) && data.warnings.length) {
-    lines.push("", ...data.warnings.map((w) => `Note: ${w}`));
+  lines.push(`Tax: ${v.taxFormatted}`, `Total: ${v.totalFormatted}`);
+  if (v.userFacingError) {
+    lines.push("", `Action needed: ${v.userFacingError}`);
+  }
+  if (Array.isArray(v.warnings) && v.warnings.length) {
+    lines.push("", ...v.warnings.map((w) => `Note: ${w}`));
+  }
+  if (!v.canCheckout) {
+    lines.push("", "Status: Quote is not ready for checkout. Resolve the issue above and recalculate.");
   }
   pre.textContent = lines.join("\n");
   preview.hidden = false;
@@ -1425,6 +1519,26 @@ async function init() {
   document.getElementById("apply_local_discount")?.addEventListener("change", () => {
     discountOverrideConfirmed = false;
     setDiscountOverridePanelVisible(false);
+    markEstimatePreviewStale();
+  });
+
+  const manualForm = document.getElementById("manual-order-form");
+  manualForm?.addEventListener("input", (e) => {
+    const name = e?.target?.name;
+    if (!name) {
+      return;
+    }
+    const affectsQuote = [
+      "addr_line1",
+      "addr_line2",
+      "addr_city",
+      "addr_state",
+      "addr_zip",
+      "apply_local_discount",
+    ];
+    if (affectsQuote.includes(name)) {
+      markEstimatePreviewStale();
+    }
   });
 
   document.getElementById("btn-discount-override")?.addEventListener("click", async () => {

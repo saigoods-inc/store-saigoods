@@ -3,6 +3,7 @@ import { computeCheckoutEstimate, checkoutFlowErrorJsonFields } from "../lib/che
 import { computeEconomicsSnapshotForOrder } from "../lib/order-economics.js";
 import { sendManualOrderPaymentLinkEmail } from "../lib/manual-order-payment-email.js";
 import {
+  buildOrderQuoteSnapshotColumns,
   getOrderByIdForService,
   updateOrderPaymentLinkSent,
 } from "../lib/orders.js";
@@ -21,7 +22,7 @@ function getServiceClient() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-async function syncOrderTotalsFromQuote(client, orderId, quote) {
+async function syncOrderTotalsFromQuote(client, orderId, quote, shippingAddress) {
   const amountCents =
     Math.max(0, Number(quote.subtotalCents) || 0) + Math.max(0, Number(quote.shippingCents) || 0);
   const taxCollected = Math.max(0, Number(quote.taxCents) || 0);
@@ -36,11 +37,13 @@ async function syncOrderTotalsFromQuote(client, orderId, quote) {
       total_cents: quote.totalCents,
       amount: amountCents,
       tax_collected: taxCollected,
+      ...buildOrderQuoteSnapshotColumns({ quote, shippingAddress }),
       admin_local_discount_override: Boolean(quote.adminLocalDiscountForced),
       updated_at: new Date().toISOString(),
       ...computeEconomicsSnapshotForOrder(quote.items, quote),
     })
-    .eq("id", orderId);
+    .eq("id", orderId)
+    .eq("order_status", "draft");
 
   if (error) {
     throw error;
@@ -114,7 +117,7 @@ export default async function handler(req, res) {
     });
 
     const client = getServiceClient();
-    await syncOrderTotalsFromQuote(client, order.id, quote);
+    await syncOrderTotalsFromQuote(client, order.id, quote, shipAddr);
 
     const normalizedCode = order.discount_code_used
       ? normalizeDiscountCode(String(order.discount_code_used))

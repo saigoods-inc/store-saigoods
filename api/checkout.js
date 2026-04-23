@@ -1,4 +1,4 @@
-import { buildQuote } from "../lib/quote.js";
+import { buildFullCheckoutQuote } from "../lib/checkout-totals.js";
 import { createPendingOrder } from "../lib/orders.js";
 import { createPaymentLink } from "../lib/square.js";
 
@@ -18,7 +18,11 @@ export default async function handler(req, res) {
       return;
     }
 
-    const quote = buildQuote(items, { omitShippingEstimate: true });
+    const quote = await buildFullCheckoutQuote(items, customer?.address || {}, {
+      flow: "checkout",
+      receiptRebuild: true,
+      shippingContext: null,
+    });
 
     if (!quote.items.length) {
       res.status(400).json({ error: "Your cart is empty." });

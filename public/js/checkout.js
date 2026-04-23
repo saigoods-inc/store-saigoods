@@ -53,6 +53,8 @@ let store;
 let items = [];
 let latestEstimate = null;
 let cardInstance = null;
+let estimateStale = true;
+let estimateLoading = false;
 
 document.addEventListener("DOMContentLoaded", init);
 
@@ -321,18 +323,97 @@ function readDiscountCode() {
   return root.querySelector('[name="discountCode"]')?.value?.trim() || "";
 }
 
-/** Base shipping line — catalog includes shipping; line is always Free unless a future non-zero base is added. */
-function baseShippingDisplayFromEstimate(data) {
-  const base = Math.max(0, Math.round(Number(data?.baseShippingCents) || 0));
-  if (typeof data?.baseShippingCents === "number") {
-    return base === 0 ? "Free" : String(data.baseShippingFormatted || "—");
+/** Estimate adapter: prefer QuoteResponseV1 nested fields with legacy fallback. */
+function quoteView(data) {
+  const hasV1 =
+    data &&
+    typeof data === "object" &&
+    data.shipping &&
+    typeof data.shipping === "object" &&
+    data.totals &&
+    typeof data.totals === "object";
+
+  if (hasV1) {
+    return {
+      subtotalFormatted:
+        data?.merchandise?.originalSubtotalFormatted ||
+        data?.merchandise?.subtotalFormatted ||
+        data?.subtotalFormatted ||
+        "—",
+      discountFormatted:
+        Number(data?.merchandise?.discountCents || 0) > 0
+          ? data?.merchandise?.discountFormatted || "—"
+          : null,
+      shippingMode: String(data?.shipping?.mode || "").trim() || null,
+      shippingStatus: String(data?.shipping?.quoteStatus || "").trim() || "error",
+      shippingAmountFormatted:
+        data?.shipping?.amountFormatted || data?.shippingFormatted || "—",
+      residentialSurchargeCents: Math.max(0, Math.round(Number(data?.shipping?.residentialSurchargeCents) || 0)),
+      residentialSurchargeFormatted:
+        data?.shipping?.residentialSurchargeFormatted || data?.residentialSurchargeFormatted || "—",
+      taxFormatted: data?.tax?.amountFormatted || data?.taxFormatted || "—",
+      totalFormatted: data?.totals?.totalFormatted || data?.totalFormatted || "—",
+      canCheckout: data?.canCheckout !== false,
+      userFacingError: data?.userFacingError ? String(data.userFacingError) : null,
+      warnings: Array.isArray(data?.warnings) ? data.warnings : [],
+    };
   }
+
   const ship = Math.max(0, Math.round(Number(data?.shippingCents) || 0));
   const res = Math.max(0, Math.round(Number(data?.residentialSurchargeCents) || 0));
-  if (ship === 0 || ship === res) {
-    return "Free";
+  return {
+    subtotalFormatted:
+      data?.originalMerchandiseSubtotalFormatted || data?.subtotalFormatted || "—",
+    discountFormatted:
+      Number(data?.merchandiseDiscountCents || 0) > 0 ? data?.merchandiseDiscountFormatted || "—" : null,
+    shippingMode: "baked_in",
+    shippingStatus: "included_in_merchandise",
+    shippingAmountFormatted: ship === 0 || ship === res ? "Included in merchandise" : data?.shippingFormatted || "—",
+    residentialSurchargeCents: res,
+    residentialSurchargeFormatted: data?.residentialSurchargeFormatted || "—",
+    taxFormatted: data?.taxFormatted || "—",
+    totalFormatted: data?.totalFormatted || "—",
+    canCheckout: true,
+    userFacingError: null,
+    warnings: Array.isArray(data?.warnings) ? data.warnings : [],
+  };
+}
+
+function shippingStatusDisplay(v) {
+  switch (v?.shippingStatus) {
+    case "included_in_merchandise":
+      return "Included in merchandise";
+    case "not_requested":
+      return "Enter shipping address to quote";
+    case "rated":
+      return v.shippingAmountFormatted || "—";
+    case "invalid_address":
+      return "Address invalid";
+    case "provider_unavailable":
+      return "Quote temporarily unavailable";
+    case "error":
+      return "Quote unavailable";
+    default:
+      return v?.shippingAmountFormatted || "—";
   }
-  return data.shippingFormatted || "—";
+}
+
+function markEstimateStale() {
+  if (!latestEstimate) {
+    return;
+  }
+  estimateStale = true;
+  const warningsEl = document.getElementById("checkout-warnings");
+  if (warningsEl) {
+    warningsEl.hidden = false;
+    warningsEl.innerHTML =
+      '<p class="summary-card__note">Shipping details changed. Click "Confirm shipping address" to refresh quote.</p>';
+  }
+  const sumShip = document.getElementById("sum-ship");
+  if (sumShip) {
+    sumShip.textContent = "Requote required";
+  }
+  syncPayButtonForAddressSuggestion();
 }
 
 function resetCheckoutSummaryDiscountAmount() {
@@ -357,24 +438,19 @@ function applyCheckoutOrderSummary(data, opts = {}) {
   const sumDiscount = document.getElementById("sum-discount");
   const sumTax = document.getElementById("sum-tax");
   const sumTotal = document.getElementById("sum-total");
-  const discountCents = Math.max(0, Math.round(Number(data?.merchandiseDiscountCents) || 0));
-  const showDiscountBreakdown =
-    data?.hardinDiscountApplied === true &&
-    typeof data?.originalMerchandiseSubtotalFormatted === "string" &&
-    discountCents > 0;
+  const view = quoteView(data);
+  const showDiscountBreakdown = Boolean(view.discountFormatted);
 
   const discountRow = document.getElementById("checkout-row-discount");
 
   if (sumSub) {
-    sumSub.textContent = showDiscountBreakdown
-      ? data.originalMerchandiseSubtotalFormatted
-      : data.subtotalFormatted;
+    sumSub.textContent = view.subtotalFormatted;
   }
 
   if (sumDiscount && discountRow) {
     if (showDiscountBreakdown) {
       discountRow.hidden = false;
-      sumDiscount.textContent = `-${data.merchandiseDiscountFormatted}`;
+      sumDiscount.textContent = `-${view.discountFormatted}`;
     } else {
       discountRow.hidden = true;
       sumDiscount.textContent = "—";
@@ -399,13 +475,13 @@ function applyCheckoutOrderSummary(data, opts = {}) {
         discountRow.hidden = true;
       }
     } else {
-      sumShip.textContent = baseShippingDisplayFromEstimate(data);
-      sumTax.textContent = data.taxFormatted;
-      const resCents = Math.max(0, Math.round(Number(data?.residentialSurchargeCents) || 0));
+      sumShip.textContent = shippingStatusDisplay(view);
+      sumTax.textContent = view.taxFormatted;
+      const resCents = view.residentialSurchargeCents;
       if (resRow && sumRes) {
-        if (resCents > 0 && data.residentialSurchargeFormatted) {
+        if (resCents > 0 && view.residentialSurchargeFormatted) {
           resRow.hidden = false;
-          sumRes.textContent = data.residentialSurchargeFormatted;
+          sumRes.textContent = view.residentialSurchargeFormatted;
           if (resHint) {
             resHint.hidden = false;
           }
@@ -417,7 +493,7 @@ function applyCheckoutOrderSummary(data, opts = {}) {
         }
       }
     }
-    sumTotal.textContent = data.totalFormatted;
+    sumTotal.textContent = view.totalFormatted;
   }
 }
 
@@ -557,6 +633,18 @@ function syncPayButtonForAddressSuggestion() {
     payBtn.disabled = true;
     payBtn.title =
       'Please tap "Use suggested address" above, or edit your address and click Confirm shipping address again.';
+  } else if (estimateLoading) {
+    payBtn.disabled = true;
+    payBtn.title = "Refreshing shipping quote…";
+  } else if (!latestEstimate) {
+    payBtn.disabled = true;
+    payBtn.title = 'Click "Confirm shipping address" to quote shipping.';
+  } else if (estimateStale) {
+    payBtn.disabled = true;
+    payBtn.title = 'Shipping details changed. Click "Confirm shipping address" to refresh quote.';
+  } else if (latestEstimate?.canCheckout === false) {
+    payBtn.disabled = true;
+    payBtn.title = latestEstimate?.userFacingError || "Shipping quote is not ready.";
   } else {
     payBtn.disabled = false;
     payBtn.removeAttribute("title");
@@ -686,6 +774,11 @@ async function runEstimate(options = {}) {
   }
 
   try {
+    estimateLoading = true;
+    if (!initialSummary && sumShip) {
+      sumShip.textContent = "Calculating…";
+    }
+    syncPayButtonForAddressSuggestion();
     const dc = readDiscountCode();
     const payload = { items, address };
     // Only send a discount code after the shopper clicks "Confirm shipping address".
@@ -712,6 +805,7 @@ async function runEstimate(options = {}) {
     }
 
     latestEstimate = data;
+    estimateStale = false;
     clearDiscountSectionWarning();
     clearAddressFieldErrors();
     applyCheckoutOrderSummary(data, { initialSummary });
@@ -722,11 +816,27 @@ async function runEstimate(options = {}) {
     }
 
     if (warningsEl) {
-      const w = Array.isArray(data.warnings) ? [...data.warnings] : [];
+      const view = quoteView(data);
+      const w = [...(Array.isArray(view.warnings) ? view.warnings : [])];
       if (data.hardinDiscountBlocked === "incomplete_address" && readDiscountCode()) {
         w.push(
           'Complete your shipping address and click "Confirm shipping address" to apply a discount code.',
         );
+      }
+      const statusMessageMap = {
+        included_in_merchandise: "Shipping is included in merchandise pricing for this order.",
+        not_requested: "Enter a full shipping address and confirm to get a live shipping quote.",
+        rated: null,
+        invalid_address: "Please fix the shipping address to get a shipping quote.",
+        provider_unavailable: "Shipping provider is temporarily unavailable. Please retry.",
+        error: "Shipping quote failed. Please retry.",
+      };
+      const status = String(view.shippingStatus || "");
+      if (statusMessageMap[status]) {
+        w.push(statusMessageMap[status]);
+      }
+      if (view.userFacingError) {
+        showShippingSectionError(view.userFacingError);
       }
       if (w.length) {
         warningsEl.hidden = false;
@@ -767,6 +877,10 @@ async function runEstimate(options = {}) {
     }
     hideAddressSuggestion();
     latestEstimate = null;
+    estimateStale = true;
+    syncPayButtonForAddressSuggestion();
+  } finally {
+    estimateLoading = false;
     syncPayButtonForAddressSuggestion();
   }
 }
@@ -960,9 +1074,14 @@ function wireCheckoutFieldClearErrors() {
     t.classList.remove("checkout-input--error");
     if (t.matches?.('[name="line1"], [name="city"], [name="postalCode"]')) {
       clearShippingSectionError();
+      markEstimateStale();
     }
     if (t.matches?.('[name="discountCode"]')) {
       clearDiscountSectionWarning();
+      markEstimateStale();
+    }
+    if (t.matches?.('[name="line2"]')) {
+      markEstimateStale();
     }
   });
   root.addEventListener("change", (e) => {
@@ -977,6 +1096,9 @@ function wireCheckoutFieldClearErrors() {
     if (t?.name === "state" && t.classList.contains("checkout-input--error")) {
       t.classList.remove("checkout-input--error");
       clearShippingSectionError();
+    }
+    if (t?.name === "state") {
+      markEstimateStale();
     }
   });
 }
@@ -1042,6 +1164,14 @@ function wireEvents() {
     if (!latestEstimate) {
       setAddressFieldsError(true);
       showShippingSectionError('Click "Confirm shipping address" first, or fix any address errors.');
+      return;
+    }
+    if (estimateStale) {
+      showShippingSectionError('Shipping details changed. Click "Confirm shipping address" to refresh quote.');
+      return;
+    }
+    if (latestEstimate?.canCheckout === false) {
+      showShippingSectionError(latestEstimate?.userFacingError || "Shipping quote is not ready.");
       return;
     }
 

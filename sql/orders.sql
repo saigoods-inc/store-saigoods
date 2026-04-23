@@ -28,6 +28,20 @@ create table if not exists public.orders (
   items jsonb not null default '[]'::jsonb,
   subtotal_cents integer not null default 0,
   shipping_cents integer not null default 0,
+  paid_shipping_amount_cents integer not null default 0,
+  quoted_shipping_mode text,
+  quoted_shipping_status text,
+  quoted_shipping_amount_cents integer not null default 0,
+  quoted_shipping_residential_surcharge_cents integer not null default 0,
+  quoted_shipping_total_cents integer not null default 0,
+  quoted_shipping_service_code text,
+  quoted_shipping_service_label text,
+  quoted_shipping_currency text,
+  quoted_shipping_provider text,
+  quoted_shipping_provider_quote_id text,
+  quoted_taxable_shipping_cents integer not null default 0,
+  quoted_parcel_summary_json jsonb,
+  quoted_address_snapshot_json jsonb,
   tax_cents integer not null default 0,
   total_cents integer not null default 0,
   provider text not null default 'square',
@@ -41,6 +55,20 @@ create table if not exists public.orders (
 
 comment on column public.orders.amount is 'Pretax order total (subtotal + shipping), cents.';
 comment on column public.orders.tax_collected is 'Sales tax collected, cents (TN nexus).';
+comment on column public.orders.paid_shipping_amount_cents is 'Shipping amount charged to customer at payment finalization; keep shipping_cents mirrored during transition.';
+comment on column public.orders.quoted_shipping_mode is 'Quote shipping mode snapshot (e.g. baked_in, live_ups).';
+comment on column public.orders.quoted_shipping_status is 'Quote shipping status snapshot (e.g. quoted, included_in_merchandise, invalid_address).';
+comment on column public.orders.quoted_shipping_amount_cents is 'Base quoted shipping amount before surcharge, cents.';
+comment on column public.orders.quoted_shipping_residential_surcharge_cents is 'Quoted residential surcharge, cents.';
+comment on column public.orders.quoted_shipping_total_cents is 'Quoted shipping line charged to customer, cents.';
+comment on column public.orders.quoted_shipping_service_code is 'Quoted carrier service code.';
+comment on column public.orders.quoted_shipping_service_label is 'Quoted carrier service display label.';
+comment on column public.orders.quoted_shipping_currency is 'Quoted shipping currency (USD).';
+comment on column public.orders.quoted_shipping_provider is 'Quoted shipping provider identifier (e.g. ups).';
+comment on column public.orders.quoted_shipping_provider_quote_id is 'Provider quote/rate identifier captured at quote time.';
+comment on column public.orders.quoted_taxable_shipping_cents is 'Quoted shipping amount that is taxable, cents.';
+comment on column public.orders.quoted_parcel_summary_json is 'Quoted parcel planning snapshot used for shipping quote.';
+comment on column public.orders.quoted_address_snapshot_json is 'Quoted ship-to snapshot (input + normalized/validated shape).';
 comment on column public.orders.state is 'Shipping destination state, 2-letter US.';
 comment on column public.orders.updated_at is 'Last row update (draft saves, payment link, etc.).';
 

@@ -76,6 +76,8 @@ export default async function handler(req, res) {
     const quote = await buildFullCheckoutQuote(parsed.items, mergedAddress, {
       pricingTier,
       shippingContext: addrCheck.shippingContext,
+      flow: "checkout",
+      addressValidationResult: addrCheck,
     });
     const customer = {
       name: parsed.name,

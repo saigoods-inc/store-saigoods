@@ -141,6 +141,42 @@ function safeShippoParcelAuditJson(row) {
   return null;
 }
 
+function safeJsonObjectColumn(row, key) {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+  const v = row[key];
+  if (v == null) {
+    return null;
+  }
+  if (typeof v === "object" && !Array.isArray(v)) {
+    return v;
+  }
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (!t) {
+      return null;
+    }
+    try {
+      const p = JSON.parse(t);
+      if (p && typeof p === "object" && !Array.isArray(p)) {
+        return p;
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function safeQuotedParcelSummaryJson(row) {
+  return safeJsonObjectColumn(row, "quoted_parcel_summary_json");
+}
+
+function safeQuotedAddressSnapshotJson(row) {
+  return safeJsonObjectColumn(row, "quoted_address_snapshot_json");
+}
+
 function shippoParcelPieceCount(row) {
   try {
     const a = safeShippoParcelAuditJson(row);
@@ -216,6 +252,82 @@ function parcelAuditSummaryLines(row) {
   } catch {
     return [];
   }
+}
+
+function quotedParcelSummaryLines(row) {
+  try {
+    const q = safeQuotedParcelSummaryJson(row);
+    const parcels = Array.isArray(q?.parcels) ? q.parcels : [];
+    if (!parcels.length) {
+      return [];
+    }
+    return parcels.map((p, i) => {
+      const length = Number(p?.length);
+      const width = Number(p?.width);
+      const height = Number(p?.height);
+      const distanceUnit = String(p?.distanceUnit || p?.distance_unit || "in");
+      const weight = Number(p?.weight);
+      const massUnit = String(p?.massUnit || p?.mass_unit || "lb");
+      if (Number.isFinite(length) && Number.isFinite(width) && Number.isFinite(height) && Number.isFinite(weight)) {
+        return `${i + 1}. ${length}x${width}x${height} ${distanceUnit} · ${weight} ${massUnit}`;
+      }
+      return `${i + 1}. (see quoted parcel snapshot)`;
+    });
+  } catch {
+    return [];
+  }
+}
+
+function formatAddressForDisplay(address) {
+  if (!address || typeof address !== "object") {
+    return "";
+  }
+  const line1 = String(address.line1 || "").trim();
+  const line2 = String(address.line2 || "").trim();
+  const city = String(address.city || "").trim();
+  const state = String(address.state || "").trim();
+  const postalCode = String(address.postalCode || address.zip || "").trim();
+  const country = String(address.country || "").trim();
+  const name = String(address.name || "").trim();
+  const email = String(address.email || "").trim();
+  const phone = String(address.phone || "").trim();
+  const cityLine = [city, state, postalCode].filter(Boolean).join(", ");
+  return [name, line1, line2, cityLine, country, email ? `Email: ${email}` : "", phone ? `Phone: ${phone}` : ""]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function quotedAddressSnapshotDisplay(row) {
+  const snapshot = safeQuotedAddressSnapshotJson(row);
+  if (!snapshot) {
+    return "—";
+  }
+  const normalized = formatAddressForDisplay(snapshot.normalizedAddress);
+  if (normalized) {
+    return normalized;
+  }
+  const input = formatAddressForDisplay(snapshot.inputAddress);
+  if (input) {
+    return input;
+  }
+  return "—";
+}
+
+function selectedShippoRateAmountCents(row) {
+  const selectedId = String(row?.shippo_selected_rate_object_id || "").trim();
+  if (!selectedId) {
+    return null;
+  }
+  const rates = shippoRatesList(row);
+  const hit = rates.find((r) => r && String(r.object_id || "").trim() === selectedId);
+  if (!hit) {
+    return null;
+  }
+  const amount = Number.parseFloat(String(hit.amount ?? ""));
+  if (!Number.isFinite(amount) || amount < 0) {
+    return null;
+  }
+  return Math.round(amount * 100);
 }
 
 function shipmentReadyForRates(row) {
@@ -2278,17 +2390,21 @@ function openModal(row, options = {}) {
     );
 
   let parcelSummaryHtml = "";
+  let quotedAddressSnapshotHtml = `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">—</p>`;
   let multiNoteHtml = "";
   try {
-    const parcelLines = parcelAuditSummaryLines(row);
+    const parcelLines = quotedParcelSummaryLines(row);
+    const fallbackParcelLines = parcelLines.length ? parcelLines : parcelAuditSummaryLines(row);
+    const quotedParcelSummary = safeQuotedParcelSummaryJson(row);
     const audit = safeShippoParcelAuditJson(row);
-    const multiNote = audit?.multiPieceCarrierNote;
+    const multiNote = quotedParcelSummary?.multiPieceNote || audit?.multiPieceCarrierNote;
     parcelSummaryHtml =
-      parcelLines.length > 0
-        ? `<ul style="margin:0.35rem 0 0;padding-left:1.1rem;font-size:12px;line-height:1.45">${parcelLines
+      fallbackParcelLines.length > 0
+        ? `<ul style="margin:0.35rem 0 0;padding-left:1.1rem;font-size:12px;line-height:1.45">${fallbackParcelLines
             .map((line) => `<li>${escapeHtml(line)}</li>`)
             .join("")}</ul>`
         : `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">No parcel dimensions on file yet. Weights come from catalog defaults when applicable.</p>`;
+    quotedAddressSnapshotHtml = `<pre class="admin-address-card" style="margin:0.35rem 0 0;padding:0.5rem;background:#fafafa;border-radius:6px;font-family:inherit;font-size:12px;white-space:pre-wrap">${escapeHtml(quotedAddressSnapshotDisplay(row))}</pre>`;
     multiNoteHtml =
       multiNote && String(multiNote).trim()
         ? `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px;line-height:1.45">${escapeHtml(String(multiNote))}</p>`
@@ -2339,6 +2455,24 @@ function openModal(row, options = {}) {
       : "";
 
   const canMarkShipped = paymentPaid && !isOrderShipped(row) && manualFulfillmentRecordComplete(row);
+  const quotedShippingCents =
+    row?.quoted_shipping_total_cents != null && Number.isFinite(Number(row.quoted_shipping_total_cents))
+      ? Math.max(0, Math.round(Number(row.quoted_shipping_total_cents)))
+      : row?.shipping_cents != null && Number.isFinite(Number(row.shipping_cents))
+        ? Math.max(0, Math.round(Number(row.shipping_cents)))
+        : 0;
+  const paidShippingCents =
+    row?.paid_shipping_amount_cents != null && Number.isFinite(Number(row.paid_shipping_amount_cents))
+      ? Math.max(0, Math.round(Number(row.paid_shipping_amount_cents)))
+      : quotedShippingCents;
+  const quotedServiceLabel = String(
+    row?.quoted_shipping_service_label || row?.quoted_shipping_service_code || row?.shippo_label_service || "—",
+  ).trim();
+  const actualLabelCostCents =
+    row?.admin_external_label_cost_cents != null && Number.isFinite(Number(row.admin_external_label_cost_cents))
+      ? Math.max(0, Math.round(Number(row.admin_external_label_cost_cents)))
+      : selectedShippoRateAmountCents(row);
+  const shippingDeltaCents = actualLabelCostCents != null ? paidShippingCents - actualLabelCostCents : null;
 
   let modalMainRenderOk = false;
   try {
@@ -2421,11 +2555,13 @@ function openModal(row, options = {}) {
         <h4 class="admin-muted" style="margin:1rem 0 0.35rem;font-size:12px;text-transform:uppercase">Package</h4>
         ${parcelSummaryHtml}
         ${multiNoteHtml}
+        <h4 class="admin-muted" style="margin:1rem 0 0.35rem;font-size:12px;text-transform:uppercase">Quoted address snapshot</h4>
+        ${quotedAddressSnapshotHtml}
         <h4 class="admin-muted" style="margin:1rem 0 0.35rem;font-size:12px;text-transform:uppercase">Payment</h4>
         <pre style="margin:0;font-size:13px;font-family:inherit">${escapeHtml(formatPaymentColumnLabel(row))} · ${escapeHtml(row.payment_id || "—")}
-Subtotal ${escapeHtml(fmt(row.subtotal_cents))} · Shipping ${escapeHtml(fmt(row.shipping_cents))} · Tax ${escapeHtml(fmt(row.tax_cents))} · Total ${escapeHtml(
-      fmt(row.total_cents),
-    )}</pre>
+Merchandise subtotal ${escapeHtml(fmt(row.subtotal_cents))} · Quoted shipping charged ${escapeHtml(fmt(quotedShippingCents))} · Tax ${escapeHtml(fmt(row.tax_cents))} · Total paid ${escapeHtml(fmt(row.total_cents))}
+Quoted shipping service ${escapeHtml(quotedServiceLabel)} · Paid shipping mirror ${escapeHtml(fmt(paidShippingCents))}
+Actual label cost ${escapeHtml(actualLabelCostCents != null ? fmt(actualLabelCostCents) : "Pending")} · Shipping delta ${escapeHtml(shippingDeltaCents != null ? fmt(shippingDeltaCents) : "Pending")}</pre>
       </div>
     </div>
 
