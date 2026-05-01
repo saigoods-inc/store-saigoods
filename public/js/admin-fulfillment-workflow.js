@@ -1,8 +1,8 @@
 /**
- * Admin fulfillment: external label purchase, platform-agnostic (3 steps).
+ * Admin fulfillment: two visible steps (details + shipped). External label APIs remain on the server.
  */
 
-export const FULFILLMENT_STEP_LABELS = ["Order created & paid", "Label records", "Shipped"];
+export const FULFILLMENT_STEP_LABELS = ["Order created & paid", "Shipped"];
 
 /** Legacy Shippo-purchased label (still shown in technical details when present). */
 export function orderLabelPurchased(row) {
@@ -50,7 +50,7 @@ export function isOrderShipped(row) {
   return String(row?.order_status || "") === "shipped" || Boolean(row?.admin_handoff_at);
 }
 
-/** @returns {number} 0–2 active step hint for tab UI; -1 unpaid/cancelled */
+/** @returns {number} 0–1 active step hint for tab UI; -1 unpaid/cancelled */
 export function deriveActiveFulfillmentStepIndex(row) {
   if (!row || isOrderCancelled(row)) {
     return -1;
@@ -59,16 +59,13 @@ export function deriveActiveFulfillmentStepIndex(row) {
     return -1;
   }
   if (isOrderShipped(row)) {
-    return 2;
-  }
-  if (!manualFulfillmentRecordComplete(row)) {
     return 1;
   }
-  return 2;
+  return 0;
 }
 
 export function canNavigateToFulfillmentTab(row, tabIndex) {
-  if (tabIndex < 0 || tabIndex > 2) {
+  if (tabIndex < 0 || tabIndex > 1) {
     return false;
   }
   if (!isPaymentPaid(row) || isOrderCancelled(row)) {
@@ -83,9 +80,9 @@ export function canEditFulfillmentTab(row, tabIndex) {
     return false;
   }
   if (isOrderShipped(row)) {
-    return tabIndex !== 2;
+    return tabIndex !== 1;
   }
-  return tabIndex >= 0 && tabIndex <= 2;
+  return tabIndex >= 0 && tabIndex <= 1;
 }
 
 export function fulfillmentTabDone(row, tabIndex) {
@@ -93,9 +90,6 @@ export function fulfillmentTabDone(row, tabIndex) {
     return isPaymentPaid(row);
   }
   if (tabIndex === 1) {
-    return manualFulfillmentRecordComplete(row);
-  }
-  if (tabIndex === 2) {
     return isOrderShipped(row);
   }
   return false;
@@ -126,8 +120,12 @@ export function fulfillmentNextActionLabel(row) {
   if (isOrderShipped(row)) {
     return "Complete";
   }
+  const os = String(row?.order_status || "");
+  if (os === "label_purchased" || os === "ready_to_ship") {
+    return "Print label · Apply · Ship";
+  }
   if (!manualFulfillmentRecordComplete(row)) {
-    return "Record label & uploads";
+    return "Open details";
   }
   return "Mark shipped";
 }
@@ -142,8 +140,12 @@ export function fulfillmentSummaryTitle(row) {
   if (isOrderShipped(row)) {
     return "Shipped";
   }
+  const os = String(row?.order_status || "");
+  if (os === "label_purchased") {
+    return "Labels purchased";
+  }
   if (!manualFulfillmentRecordComplete(row)) {
-    return "Label records";
+    return "Fulfillment";
   }
   return "Ready to ship";
 }

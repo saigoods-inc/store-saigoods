@@ -1,6 +1,6 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
 import {
   clearAdminSessionUser,
+  createSupabaseAdminClient,
   fetchReportPost,
   fetchSupabasePublicConfig,
   primeAdminSessionUser,
@@ -22,6 +22,8 @@ import {
 
 let supabase = null;
 let ordersCache = [];
+/** @type {Map<string, object[]>} order id string -> order_shippo_labels rows (sorted by parcel_index) */
+let orderShippoLabelsCache = new Map();
 /** When set, background Shippo refresh may re-render the open modal for this order id. */
 let modalOpenOrderId = null;
 /** Incremented on each modal open so async hydration cannot overwrite a newer render. */
@@ -37,6 +39,55 @@ function escapeHtml(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function getShippoLabelsForOrderFromCache(orderId) {
+  return orderShippoLabelsCache.get(String(orderId)) || null;
+}
+
+/** Main table Shipping column: prefer purchased per-package Shippo labels. */
+function tableShippingRollupFromShippoLabels(row) {
+  const labels = getShippoLabelsForOrderFromCache(row.id);
+  if (!labels?.length) {
+    return null;
+  }
+  const purchased = labels.filter((r) => String(r.status || "") === "purchased");
+  if (!purchased.length) {
+    return null;
+  }
+  const carriers = [...new Set(purchased.map((r) => String(r.carrier || "").trim()).filter(Boolean))];
+  const carrierLine =
+    carriers.length === 0 ? "UPS" : carriers.length === 1 ? carriers[0] : `${carriers[0]} (+${carriers.length - 1})`;
+  const tracks = purchased.map((r) => String(r.tracking_number || "").trim()).filter(Boolean);
+  let trackingLine = "—";
+  if (tracks.length === 1) {
+    trackingLine = tracks[0];
+  } else if (tracks.length > 1) {
+    trackingLine = `${tracks.length} labels`;
+  }
+  const n =
+    labels[0]?.parcel_count != null && Number.isFinite(Number(labels[0].parcel_count))
+      ? Math.max(0, Math.round(Number(labels[0].parcel_count)))
+      : labels.length;
+  const failed = labels.some((r) => String(r.status || "") === "failed");
+  const allPurchased = n > 0 && purchased.length >= n && !failed;
+  const note = allPurchased ? "Label purchased" : purchased.length ? "Partial labels" : "—";
+  return { carrier: carrierLine, trackingLine, note };
+}
+
+/** PostgREST: filter bigint `order_id` with a number; DOM/data often provides a digit string. */
+function coerceOrderIdForSupabaseFilter(orderId) {
+  if (orderId == null || orderId === "") {
+    return orderId;
+  }
+  if (typeof orderId === "number" && Number.isFinite(orderId)) {
+    return orderId;
+  }
+  const s = String(orderId).trim();
+  if (/^\d+$/.test(s)) {
+    return Number(s);
+  }
+  return orderId;
 }
 
 function formatExternalTrackingDisplay(row) {
@@ -86,6 +137,29 @@ function formatPaymentStatus(status) {
   if (status === "paid") return "Paid";
   if (status === "pending") return "Awaiting payment";
   return status ? String(status) : "—";
+}
+
+function formatManualInPersonMethod(m) {
+  const s = String(m || "").toLowerCase();
+  if (s === "cash") {
+    return "Cash";
+  }
+  if (s === "check") {
+    return "Check";
+  }
+  if (s === "other") {
+    return "Other";
+  }
+  return s ? s : "—";
+}
+
+function isManualPayLaterDraftUnpaid(row) {
+  return (
+    String(row?.order_source) === "manual" &&
+    String(row?.order_status) === "draft" &&
+    String(row?.payment_flow) === "pay_later" &&
+    String(row?.status || "").toLowerCase() !== "paid"
+  );
 }
 
 function shippoSyncLabel(row) {
@@ -330,6 +404,224 @@ function selectedShippoRateAmountCents(row) {
   return Math.round(amount * 100);
 }
 
+/** Checkout carrier line used for “shipping charged” vs label-cost delta (prefers quoted_shipping_amount_cents). */
+function quotedCarrierLineAmountCents(row) {
+  if (row?.quoted_shipping_amount_cents != null && Number.isFinite(Number(row.quoted_shipping_amount_cents))) {
+    return Math.max(0, Math.round(Number(row.quoted_shipping_amount_cents)));
+  }
+  if (row?.paid_shipping_amount_cents != null && Number.isFinite(Number(row.paid_shipping_amount_cents))) {
+    return Math.max(0, Math.round(Number(row.paid_shipping_amount_cents)));
+  }
+  if (row?.quoted_shipping_total_cents != null && Number.isFinite(Number(row.quoted_shipping_total_cents))) {
+    return Math.max(0, Math.round(Number(row.quoted_shipping_total_cents)));
+  }
+  if (row?.shipping_cents != null && Number.isFinite(Number(row.shipping_cents))) {
+    return Math.max(0, Math.round(Number(row.shipping_cents)));
+  }
+  return 0;
+}
+
+function paidShippingMirrorCents(row) {
+  if (row?.paid_shipping_amount_cents != null && Number.isFinite(Number(row.paid_shipping_amount_cents))) {
+    return Math.max(0, Math.round(Number(row.paid_shipping_amount_cents)));
+  }
+  return quotedCarrierLineAmountCents(row);
+}
+
+/**
+ * @returns {{ cents: number | null, source: "shippo_packages" | "admin_external" | "legacy_rate" | null }}
+ */
+function actualLabelSpendCents(row, labelRows) {
+  if (Array.isArray(labelRows) && labelRows.length) {
+    let sum = 0;
+    let n = 0;
+    for (const r of labelRows) {
+      if (String(r.status || "") !== "purchased") {
+        continue;
+      }
+      if (r.amount_cents != null && Number.isFinite(Number(r.amount_cents))) {
+        sum += Math.max(0, Math.round(Number(r.amount_cents)));
+        n += 1;
+      }
+    }
+    if (n > 0) {
+      return { cents: sum, source: "shippo_packages" };
+    }
+  }
+  if (row?.admin_external_label_cost_cents != null && Number.isFinite(Number(row.admin_external_label_cost_cents))) {
+    return { cents: Math.max(0, Math.round(Number(row.admin_external_label_cost_cents))), source: "admin_external" };
+  }
+  const sr = selectedShippoRateAmountCents(row);
+  if (sr != null) {
+    return { cents: sr, source: "legacy_rate" };
+  }
+  return { cents: null, source: null };
+}
+
+function buildShippingEconomyHtml(row, labelRows, fmt) {
+  const quotedLine = quotedCarrierLineAmountCents(row);
+  const paidMirror = paidShippingMirrorCents(row);
+  const svc = String(row?.quoted_shipping_service_label || row?.quoted_shipping_service_code || row?.shippo_label_service || "—").trim();
+  const { cents: actual, source } = actualLabelSpendCents(row, labelRows);
+  const delta = actual != null ? quotedLine - actual : null;
+  const actualLabel =
+    source === "shippo_packages"
+      ? "Shippo labels (sum of packages)"
+      : source === "admin_external"
+        ? "Recorded manually"
+        : source === "legacy_rate"
+          ? "Legacy single-rate quote"
+          : null;
+  const lines = [
+    `Quoted shipping charged (checkout carrier line): ${fmt(quotedLine)}`,
+    `Paid shipping (payment mirror): ${fmt(paidMirror)}`,
+    `Quoted service: ${svc}`,
+    actual != null
+      ? `Actual label cost (${actualLabel}): ${fmt(actual)}`
+      : "Actual label cost: Pending (buy labels or record manual cost on Label records)",
+    delta != null ? `Shipping delta (quoted carrier line − actual label cost): ${fmt(delta)}` : "Shipping delta: Pending",
+  ];
+  return lines.join("\n");
+}
+
+function ymdTodayLocal() {
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Display-only queue hint for admin (does not affect pricing).
+ */
+function buildPlannedShipDateQueueStatusHtml(row) {
+  const ymd = String(row?.shippo_shipment_date || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+    return `<p class="admin-muted" data-planned-ship-queue style="margin:0.35rem 0 0;font-size:12px">No date set — optional for label date and queue.</p>`;
+  }
+  if (isOrderShipped(row)) {
+    return `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">Shipped — planned date was for operations only.</p>`;
+  }
+  const today = ymdTodayLocal();
+  if (ymd === today) {
+    return `<p class="admin-planned-ship-queue admin-planned-ship-queue--today" style="margin:0.35rem 0 0;font-size:12px;font-weight:600">Ready to ship today</p>`;
+  }
+  if (ymd > today) {
+    return `<p class="admin-planned-ship-queue" style="margin:0.35rem 0 0;font-size:12px">Scheduled to ship on ${escapeHtml(ymd)}</p>`;
+  }
+  return `<p class="admin-planned-ship-queue admin-planned-ship-queue--past" style="margin:0.35rem 0 0;font-size:12px">Ship date passed</p>`;
+}
+
+function buildPlannedShipDateControlHtml(row) {
+  const id = escapeHtml(String(row.id));
+  const raw = String(row.shippo_shipment_date || "").trim();
+  const safeForDateInput = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : "";
+  const valueAttr = safeForDateInput ? ` value="${escapeHtml(safeForDateInput)}"` : "";
+  return `<div class="admin-planned-ship-date" data-planned-ship-date-wrap="${id}">
+    <label class="admin-muted" style="display:block;font-size:12px;margin-bottom:0.25rem">Planned ship date</label>
+    <div style="display:flex;flex-wrap:wrap;gap:0.45rem;align-items:center">
+      <input type="date" class="admin-input-date" aria-label="Planned ship date"${valueAttr} data-shippo-shipment-date-input="${id}" />
+      <button type="button" class="admin-btn admin-btn--small" data-save-shippo-shipment-date="${id}">Save</button>
+      <button type="button" class="admin-btn admin-btn--small" data-clear-shippo-shipment-date="${id}">Clear</button>
+    </div>
+    ${buildPlannedShipDateQueueStatusHtml(row)}
+    <p class="admin-muted" style="margin:0.35rem 0 0;font-size:11px;line-height:1.45">Used for label <code>shipment_date</code> and shipping queue. This does not recalculate the customer’s shipping charge.</p>
+  </div>`;
+}
+
+function buildCostSummaryPanelHtml(row, labelRows, fmt) {
+  const dateRaw = String(row?.shippo_shipment_date || "").trim();
+  const dateLine = /^\d{4}-\d{2}-\d{2}$/.test(dateRaw) ? dateRaw : "Not set";
+  const quotedLine = quotedCarrierLineAmountCents(row);
+  const { cents: actual } = actualLabelSpendCents(row, labelRows);
+  const delta = actual != null ? quotedLine - actual : null;
+  return `<dl class="admin-order-cost-dl">
+    <dt>Planned ship date</dt><dd>${escapeHtml(dateLine)}</dd>
+    <dt>Quoted shipping charged</dt><dd>${escapeHtml(fmt(quotedLine))}</dd>
+    <dt>Actual label cost</dt><dd>${actual != null ? escapeHtml(fmt(actual)) : "Pending"}</dd>
+    <dt>Shipping delta</dt><dd>${delta != null ? escapeHtml(fmt(delta)) : "Pending"}</dd>
+  </dl>`;
+}
+
+function buildTrackingRollupHtml(row, labelRows) {
+  if (!Array.isArray(labelRows) || labelRows.length === 0) {
+    return `<p style="margin:0;font-size:13px;line-height:1.55"><strong>Carrier (recorded)</strong> ${escapeHtml(row.admin_external_carrier || row.shippo_label_carrier || "—")}</p>
+<p style="margin:0.35rem 0 0;font-size:13px;line-height:1.55"><strong>Service</strong> ${escapeHtml(row.admin_external_service || row.shippo_label_service || "—")}</p>
+<p style="margin:0.5rem 0 0;font-size:13px;font-weight:600">Tracking #</p>
+<div style="margin:0.25rem 0 0;font-size:13px;line-height:1.55">${formatTrackingListHtml(row)}</div>
+<p style="margin:0.5rem 0 0;font-size:13px"><strong>Label source</strong> ${escapeHtml(externalLabelSourceSummary(row))}</p>`;
+  }
+  const inScope = labelRows.filter((r) => r.parcel_index != null);
+  const purch = inScope.filter((r) => String(r.status || "") === "purchased");
+  const failed = inScope.filter((r) => String(r.status || "") === "failed");
+  const n =
+    labelRows[0]?.parcel_count != null && Number.isFinite(Number(labelRows[0].parcel_count))
+      ? Math.max(0, Math.round(Number(labelRows[0].parcel_count)))
+      : inScope.length;
+  if (!purch.length) {
+    return `<p class="admin-muted" style="margin:0;font-size:13px">No purchased Shippo labels yet. Use <strong>Buy all labels</strong> above, or see legacy tracking below.</p>
+<p style="margin:0.5rem 0 0;font-size:13px;line-height:1.55"><strong>Carrier (recorded)</strong> ${escapeHtml(row.admin_external_carrier || row.shippo_label_carrier || "—")}</p>
+<div style="margin:0.35rem 0 0;font-size:13px;line-height:1.55">${formatTrackingListHtml(row)}</div>`;
+  }
+  const carriers = [...new Set(purch.map((r) => String(r.carrier || "").trim()).filter(Boolean))];
+  const carrierLine =
+    carriers.length === 0 ? "—" : carriers.length === 1 ? carriers[0] : `${carriers[0]} (+${carriers.length - 1} more)`;
+  const services = [...new Set(purch.map((r) => String(r.servicelevel_name || "").trim()).filter(Boolean))];
+  const serviceLine =
+    services.length === 0 ? "—" : services.length === 1 ? services[0] : `${services[0]} (+${services.length - 1} variants)`;
+  const tracks = purch.map((r) => String(r.tracking_number || "").trim()).filter(Boolean);
+  let labelStatusText = "—";
+  if (n > 0) {
+    if (purch.length >= n && failed.length === 0) {
+      labelStatusText = "Label purchased";
+    } else if (purch.length > 0 && purch.length < n) {
+      labelStatusText = failed.length ? "Partial labels (some failed)" : "Partial labels";
+    } else if (purch.length > 0 && failed.length > 0) {
+      labelStatusText = "Partial labels (some failed)";
+    }
+  }
+  const trackBlock =
+    tracks.length === 0
+      ? `<p class="admin-muted" style="margin:0.25rem 0 0">—</p>`
+      : `<div class="admin-tracking-num-list">${tracks.map((t) => `<div>${escapeHtml(t)}</div>`).join("")}</div>`;
+  return `<p style="margin:0;font-size:13px;line-height:1.55"><strong>Carrier</strong> ${escapeHtml(carrierLine)}</p>
+<p style="margin:0.35rem 0 0;font-size:13px;line-height:1.55"><strong>Service</strong> ${escapeHtml(serviceLine)}</p>
+<p style="margin:0.5rem 0 0;font-size:13px;font-weight:600">Tracking #</p>
+${trackBlock}
+<p style="margin:0.5rem 0 0;font-size:13px"><strong>Label source</strong> Shippo</p>
+<p style="margin:0.35rem 0 0;font-size:13px"><strong>Label status</strong> ${escapeHtml(labelStatusText)}</p>`;
+}
+
+function patchShippoMultiLabelActionButtons(row, labelRows) {
+  const id = String(row.id);
+  const buyBtn = document.querySelector(`[data-shippo-buy-all-labels="${id}"]`);
+  const openAllBtn = document.querySelector(`[data-shippo-open-all-labels="${id}"]`);
+  const list = Array.isArray(labelRows) ? labelRows : [];
+  const n =
+    list[0]?.parcel_count != null && Number.isFinite(Number(list[0].parcel_count))
+      ? Math.max(0, Math.round(Number(list[0].parcel_count)))
+      : list.length;
+  const purchased = list.filter((r) => String(r.status || "") === "purchased").length;
+  const failed = list.filter((r) => String(r.status || "") === "failed").length;
+  const allPurchased = n > 0 && purchased === n && failed === 0;
+  const diag = missingShippoAddressFields(row);
+  const canBuyBase =
+    String(row?.status || "").toLowerCase() === "paid" && !isOrderShipped(row) && !diag.missing.length;
+
+  if (buyBtn) {
+    if (allPurchased) {
+      buyBtn.disabled = true;
+      buyBtn.textContent = "Labels already purchased";
+    } else {
+      buyBtn.disabled = !canBuyBase;
+      buyBtn.textContent = "Buy all labels";
+    }
+  }
+  if (openAllBtn) {
+    openAllBtn.textContent = "Open all labels";
+    const anyPdf = list.some((r) => String(r.status || "") === "purchased" && String(r.label_url || "").trim());
+    openAllBtn.disabled = !anyPdf;
+  }
+}
+
 function shipmentReadyForRates(row) {
   try {
     const sid = String(row?.shippo_shipment_object_id || "").trim();
@@ -513,16 +805,17 @@ function computeFulfillmentWorkflow(row) {
   if (isWalkInOrder(row) && os === "draft") {
     return base({
       key: "walk_in_draft",
-      label: "Walk-in draft",
+      label: "Walk-in draft (unpaid)",
       nextAction: "Complete walk-in",
       activeStepIndex: 0,
     });
   }
   if (String(row?.order_source) === "manual" && os === "draft") {
+    const isPayLater = String(row?.payment_flow || "") === "pay_later";
     return base({
-      key: "manual_draft",
-      label: "Manual draft",
-      nextAction: "Email payment link",
+      key: isPayLater ? "manual_pay_later" : "manual_draft",
+      label: isPayLater ? "Pay later (unpaid)" : "Manual draft",
+      nextAction: isPayLater ? "Record payment when received" : "Email payment link",
       activeStepIndex: 0,
     });
   }
@@ -545,6 +838,15 @@ function computeFulfillmentWorkflow(row) {
     });
   }
 
+  if (row.shippo_label_required === false) {
+    return base({
+      key: "no_carrier_label",
+      label: "Paid · pickup or local",
+      nextAction: "Hand off or deliver — no Shippo label",
+      activeStepIndex: 0,
+    });
+  }
+
   const missing = missingShippoAddressFields(row).missing;
   if (missing.length > 0) {
     return base({
@@ -557,13 +859,24 @@ function computeFulfillmentWorkflow(row) {
     });
   }
 
+  if (os === "partial_label_purchase") {
+    return base({
+      key: "partial_shippo_labels",
+      label: "Paid · partial Shippo labels",
+      nextAction: "Open order details and finish failed packages",
+      activeStepIndex: 0,
+      variant: "error",
+      blockingIssue: "Not all per-package Shippo labels were purchased. Use Retry on failed rows or Buy all labels again (skips already purchased).",
+    });
+  }
+
   if (isOrderShipped(row)) {
     if (isTrackingDelivered(row)) {
       return base({
         key: "delivered",
         label: "Delivered",
         nextAction: "—",
-        activeStepIndex: 2,
+        activeStepIndex: 1,
       });
     }
     if (isTrackingInTransit(row)) {
@@ -571,14 +884,14 @@ function computeFulfillmentWorkflow(row) {
         key: "in_transit",
         label: "In transit",
         nextAction: "Track package",
-        activeStepIndex: 2,
+        activeStepIndex: 1,
       });
     }
     return base({
       key: "shipped",
       label: "Shipped",
       nextAction: "—",
-      activeStepIndex: 2,
+      activeStepIndex: 1,
     });
   }
 
@@ -587,7 +900,7 @@ function computeFulfillmentWorkflow(row) {
       key: "need_label_records",
       label: "Paid · record shipment",
       nextAction: "",
-      activeStepIndex: 1,
+      activeStepIndex: 0,
     });
   }
 
@@ -595,15 +908,15 @@ function computeFulfillmentWorkflow(row) {
     key: "ready_mark_shipped",
     label: "Ready to mark shipped",
     nextAction: "Confirm shipped",
-    activeStepIndex: 2,
+    activeStepIndex: 1,
     blockingIssue: fulfillmentBlockingIssue(row),
     variant: fulfillmentVariantForRow(row),
   });
 }
 
 /**
- * Clickable 3-step fulfillment stepper (external label platforms).
- * @param {number} [selectedTab] 0–2
+ * Clickable 2-step fulfillment stepper.
+ * @param {number} [selectedTab] 0–1
  */
 function buildFulfillmentProgressHtml(row, selectedTab = 0) {
   const wf = computeFulfillmentWorkflow(row);
@@ -622,7 +935,7 @@ function buildFulfillmentProgressHtml(row, selectedTab = 0) {
     </div>`;
   }
 
-  const sel = Math.min(Math.max(Number.isFinite(selectedTab) ? selectedTab : 0, 0), 2);
+  const sel = Math.min(Math.max(Number.isFinite(selectedTab) ? selectedTab : 0, 0), 1);
   const err = wf.variant === "error";
   const activeIdx = deriveActiveFulfillmentStepIndex(row);
 
@@ -846,6 +1159,175 @@ function isWalkInOrder(row) {
   return String(row.order_type || "") === "walk_in" || String(row.order_source || "") === "walk_in";
 }
 
+function isManualOrder(row) {
+  return String(row?.order_source || "") === "manual" || String(row?.order_type || "") === "manual";
+}
+
+function isOnlineOrder(row) {
+  return !isWalkInOrder(row) && !isManualOrder(row);
+}
+
+function isOrderPaid(row) {
+  return String(row?.status || "").toLowerCase() === "paid";
+}
+
+function isPickupOrLocal(row) {
+  if (!isManualOrder(row)) {
+    return false;
+  }
+  const m = effectiveFulfillmentMethodForDisplay(row);
+  return m === "pickup" || m === "local_delivery";
+}
+
+function isCarrierFulfillment(row) {
+  return isManualOrder(row) && effectiveFulfillmentMethodForDisplay(row) === "carrier";
+}
+
+/** Online always shows Shippo; manual carrier only after paid; walk-in/pickup/local never. */
+function shouldShowShippoSections(row) {
+  if (isOnlineOrder(row)) {
+    return true;
+  }
+  return isCarrierFulfillment(row) && isOrderPaid(row);
+}
+
+/** Existing modal record-payment flow is only for manual pay-later draft unpaid orders. */
+function shouldShowRecordPayment(row) {
+  return isManualPayLaterDraftUnpaid(row);
+}
+
+/** Walk-in + manual non-Shippo experience (or unpaid manual carrier gate). */
+function shouldUseNonShippoDetailsModal(row) {
+  return isWalkInOrder(row) || isPickupOrLocal(row) || (isCarrierFulfillment(row) && !isOrderPaid(row));
+}
+
+function renderNonShippoDetailsModalHtml(row, itemLines, fmt) {
+  const orderRef = escapeHtml(row.order_ref || "Order");
+  const orderId = escapeHtml(String(row.id || "—"));
+  const customerName = escapeHtml(row.customer_name || "—");
+  const customerEmail = escapeHtml(row.customer_email || "—");
+  const customerPhone = escapeHtml(row.customer_phone || "—");
+  const paymentLabel = escapeHtml(formatPaymentColumnLabel(row));
+  const paymentMethodRaw = formatManualInPersonMethod(row.payment_method || row.manual_payment_method || "");
+  const paymentMethod = escapeHtml(paymentMethodRaw === "—" ? "Not recorded" : paymentMethodRaw);
+  const lifecycle = buildManualOrderLifecycleModalHtml(row);
+  const paymentLinkMeta = buildManualPaymentLinkMetaModalHtml(row);
+  const itemHtml = itemLines.length ? itemLines.map((l) => l.html).join("") : `<p class="admin-muted">—</p>`;
+  const isWalkIn = isWalkInOrder(row);
+  const paid = isOrderPaid(row);
+  const showRecord = shouldShowRecordPayment(row);
+  const fulfillmentLabel = isWalkIn ? "Walk-in POS" : escapeHtml(formatFulfillmentMethodLabelForManual(row));
+  const statusLine = escapeHtml(String(row.order_status || "—"));
+  const shipToSnapshot = escapeHtml(formatMergedShipToDisplay(row));
+  const showShipTo = isCarrierFulfillment(row) && !paid;
+  const sourceLabel = isWalkIn ? "Walk-in" : "Manual";
+  const paymentStatePill = paid
+    ? `<span class="admin-badge admin-badge--paid">Paid</span>`
+    : `<span class="admin-badge admin-badge--awaiting_payment">Unpaid</span>`;
+  const fulfillmentStateLabel = paid
+    ? isWalkIn
+      ? "Paid at POS"
+      : "Ready for fulfillment"
+    : "Awaiting payment";
+  const inventoryLine = row.inventoryWarning
+    ? `<dt>Inventory</dt><dd>${escapeHtml(String(row.inventoryWarning))}</dd>`
+    : "";
+  const receiptLine = row.admin_buyer_notify_sent_at
+    ? `<dt>Receipt</dt><dd>Sent ${escapeHtml(formatDate(row.admin_buyer_notify_sent_at))}</dd>`
+    : "";
+
+  return `
+    <h2>${orderRef}</h2>
+    <div class="admin-modal__section admin-modal__section--non-shippo">
+      <section class="admin-order-mini-card">
+        <h3 class="admin-order-detail-section__title">Order</h3>
+        <div class="admin-order-mini-card__head">
+          <div class="admin-order-mini-card__id-block">
+            <div class="admin-order-mini-card__ref">${orderRef}</div>
+            <div class="admin-order-mini-card__id">ID: ${orderId}</div>
+          </div>
+          <div class="admin-order-mini-card__pills">
+            <span class="admin-order-tag admin-order-tag--inline">${sourceLabel}</span>
+            ${paymentStatePill}
+          </div>
+        </div>
+        <dl class="admin-order-dl">
+          <dt>Status</dt><dd>${statusLine}</dd>
+          <dt>Fulfillment</dt><dd>${fulfillmentLabel}</dd>
+        </dl>
+      </section>
+
+      ${
+        isCarrierFulfillment(row) && !isWalkIn
+          ? `<section class="admin-order-mini-card">
+        <h3 class="admin-order-detail-section__title">Planned shipment</h3>
+        ${buildPlannedShipDateControlHtml(row)}
+        <p class="admin-muted" style="margin:0.5rem 0 0;font-size:12px;line-height:1.45">After payment, use <strong>Sync to Shippo</strong> in the full shipping view to apply this date to new shipments.</p>
+      </section>`
+          : ""
+      }
+
+      <section class="admin-order-mini-card">
+        <h3 class="admin-order-detail-section__title">Customer</h3>
+        <dl class="admin-order-dl">
+          <dt>Name</dt><dd>${customerName}</dd>
+          <dt>Email</dt><dd>${customerEmail}</dd>
+          <dt>Phone</dt><dd>${customerPhone}</dd>
+        </dl>
+      </section>
+
+      <section class="admin-order-mini-card">
+        <h3 class="admin-order-detail-section__title">Items Purchased</h3>
+        <div class="admin-modal__line-items admin-modal__line-items--cards">${itemHtml}</div>
+      </section>
+
+      <section class="admin-order-mini-card">
+        <h3 class="admin-order-detail-section__title">Payment</h3>
+        <dl class="admin-order-dl">
+          <dt>Summary</dt><dd>${paymentLabel}</dd>
+          <dt>Method</dt><dd>${paymentMethod}</dd>
+          <dt>Merchandise</dt><dd>${escapeHtml(fmt(row.subtotal_cents))}</dd>
+          <dt>Tax</dt><dd>${escapeHtml(fmt(row.tax_cents))}</dd>
+          <dt>Total</dt><dd>${escapeHtml(fmt(row.total_cents))}</dd>
+          <dt>${paid ? "Total paid" : "Balance due"}</dt><dd>${escapeHtml(fmt(row.total_cents))}</dd>
+        </dl>
+        ${lifecycle}
+        ${paymentLinkMeta}
+        ${
+          showRecord
+            ? `<div class="admin-order-mini-card__actions">
+          <button type="button" class="admin-btn admin-btn--primary" data-record-payment-modal="${escapeHtml(String(row.id))}">Record payment</button>
+        </div>`
+            : ""
+        }
+      </section>
+
+      ${
+        showShipTo
+          ? `<section class="admin-order-mini-card">
+        <h3 class="admin-order-detail-section__title">Shipping address snapshot</h3>
+        <pre class="admin-address-card admin-address-card--plain">${shipToSnapshot}</pre>
+      </section>`
+          : ""
+      }
+
+      <section class="admin-order-mini-card">
+        <h3 class="admin-order-detail-section__title">${isWalkIn ? "POS notes / status" : "Fulfillment status"}</h3>
+        <dl class="admin-order-dl">
+          <dt>Current state</dt><dd>${fulfillmentStateLabel}</dd>
+          ${inventoryLine}
+          ${receiptLine}
+          ${
+            row.manual_payment_note
+              ? `<dt>Notes</dt><dd>${escapeHtml(String(row.manual_payment_note))}</dd>`
+              : `<dt>Notes</dt><dd>—</dd>`
+          }
+        </dl>
+      </section>
+    </div>
+  `;
+}
+
 function applyWorkflowRowTheme(tr, row) {
   if (!tr || !row) {
     return;
@@ -875,13 +1357,19 @@ function paymentBadgeKey(row) {
 function formatPaymentColumnLabel(row) {
   if (isWalkInOrder(row)) {
     if (row.order_status === "draft") {
-      return "Draft (walk-in)";
+      return "Draft (unpaid)";
     }
     if (String(row.status || "").toLowerCase() === "paid" && row.payment_method) {
-      return `Paid (${String(row.payment_method)})`;
+      return `Paid (${formatManualInPersonMethod(row.payment_method)})`;
     }
   }
   if (String(row.order_source) === "manual") {
+    if (String(row.status || "").toLowerCase() === "paid" && row.payment_method) {
+      return `Paid (${formatManualInPersonMethod(row.payment_method)})`;
+    }
+    if (row.order_status === "draft" && String(row.payment_flow) === "pay_later") {
+      return "Pay later (unpaid)";
+    }
     if (row.order_status === "draft") {
       return "Draft";
     }
@@ -890,6 +1378,203 @@ function formatPaymentColumnLabel(row) {
     }
   }
   return formatPaymentStatus(row.status);
+}
+
+function shouldShowManualPaymentLinkMeta(row) {
+  if (String(row?.order_source) !== "manual") {
+    return false;
+  }
+  const os = String(row?.order_status || "");
+  return os === "draft" || os === "payment_link_sent";
+}
+
+/** Unpaid and past stored expiry — display-only badge, no enforcement. */
+function isUnpaidPaymentLinkPastExpiry(row) {
+  if (String(row?.status || "").toLowerCase() === "paid") {
+    return false;
+  }
+  const exp = row?.payment_link_expires_at;
+  if (exp == null || exp === "") {
+    return false;
+  }
+  const t = new Date(exp).getTime();
+  if (!Number.isFinite(t)) {
+    return false;
+  }
+  return t < Date.now();
+}
+
+/**
+ * For manual rows: `payment_flow` from DB, or legacy inference when a link was stored before the column existed.
+ */
+function effectivePaymentFlowForDisplay(row) {
+  if (String(row?.order_source) !== "manual") {
+    return null;
+  }
+  const raw = row?.payment_flow;
+  if (raw != null && String(raw).trim() !== "") {
+    return String(raw).trim();
+  }
+  const link = row?.payment_link_url;
+  if (link != null && String(link).trim() !== "") {
+    return "square_payment_link";
+  }
+  return null;
+}
+
+function formatPaymentFlowLabelForManual(row) {
+  const flow = effectivePaymentFlowForDisplay(row);
+  if (flow == null) {
+    return "—";
+  }
+  if (flow === "square_payment_link") {
+    return "Square payment link";
+  }
+  if (flow === "pay_later") {
+    return "Pay later";
+  }
+  return flow;
+}
+
+/** @returns {string} carrier | pickup | local_delivery when manual; null never after infer. */
+function effectiveFulfillmentMethodForDisplay(row) {
+  if (String(row?.order_source) !== "manual") {
+    return null;
+  }
+  const raw = row?.fulfillment_method;
+  if (raw != null && String(raw).trim() !== "") {
+    return String(raw).trim();
+  }
+  return "carrier";
+}
+
+function formatFulfillmentMethodLabelForManual(row) {
+  const m = effectiveFulfillmentMethodForDisplay(row);
+  if (m === "carrier") {
+    return "Ship with carrier";
+  }
+  if (m === "pickup") {
+    return "Pickup";
+  }
+  if (m === "local_delivery") {
+    return "Local delivery";
+  }
+  if (m == null) {
+    return "—";
+  }
+  return m;
+}
+
+/**
+ * Pre–UI rows: shippo_label_required null → treat as Yes (legacy carrier send).
+ * @returns {"Yes"|"No"}
+ */
+function formatShippoLabelRequiredForManual(row) {
+  if (String(row?.order_source) !== "manual") {
+    return "—";
+  }
+  const v = row?.shippo_label_required;
+  if (v == null) {
+    return "Yes";
+  }
+  return v ? "Yes" : "No";
+}
+
+function buildManualOrderLifecycleTableHtml(row) {
+  if (String(row?.order_source) !== "manual") {
+    return "";
+  }
+  const recordedAt =
+    row?.manual_payment_recorded_at && String(row.status || "").toLowerCase() === "paid"
+      ? formatDate(row.manual_payment_recorded_at)
+      : null;
+  const recordedBy = row?.manual_payment_recorded_by
+    ? `<div class="admin-muted">Recorded by: ${escapeHtml(String(row.manual_payment_recorded_by))}</div>`
+    : "";
+  const recLine =
+    recordedAt && row.manual_payment_method
+      ? `<div class="admin-muted">In-person: ${escapeHtml(
+          formatManualInPersonMethod(row.manual_payment_method),
+        )} · ${escapeHtml(recordedAt)}</div>${recordedBy}${
+          row.manual_payment_note
+            ? `<div class="admin-muted" style="margin-top:0.2rem">Note: ${escapeHtml(
+                String(row.manual_payment_note).slice(0, 120),
+              )}${String(row.manual_payment_note).length > 120 ? "…" : ""}</div>`
+            : ""
+        }`
+      : "";
+  return `<div class="admin-manual-lifecycle-meta" style="margin-top:0.3rem;font-size:11px;line-height:1.5">
+    <div class="admin-muted">Payment flow: ${escapeHtml(formatPaymentFlowLabelForManual(row))}</div>
+    <div class="admin-muted">Fulfillment: ${escapeHtml(formatFulfillmentMethodLabelForManual(row))}</div>
+    <div class="admin-muted">Shippo required: ${escapeHtml(formatShippoLabelRequiredForManual(row))}</div>
+    ${recLine}
+  </div>`;
+}
+
+function buildManualPaymentLinkMetaTableHtml(row) {
+  if (!shouldShowManualPaymentLinkMeta(row)) {
+    return "";
+  }
+  const sent = formatDate(row.payment_link_sent_at);
+  const exp = formatDate(row.payment_link_expires_at);
+  const expired = isUnpaidPaymentLinkPastExpiry(row);
+  const badge = expired
+    ? `<div style="margin-top:0.25rem"><span class="admin-badge admin-badge--payment-link-expired" title="Display only — not enforced yet">Payment link expired</span></div>`
+    : "";
+  return `<div class="admin-payment-link-meta" style="margin-top:0.35rem;font-size:11px;line-height:1.45">
+    <div class="admin-muted">Payment link sent at: ${escapeHtml(sent)}</div>
+    <div class="admin-muted">Payment link expires at: ${escapeHtml(exp)}</div>
+    ${badge}
+  </div>`;
+}
+
+function buildManualOrderLifecycleModalHtml(row) {
+  if (String(row?.order_source) !== "manual") {
+    return "";
+  }
+  const paidManual =
+    String(row?.status || "").toLowerCase() === "paid" && row?.manual_payment_method
+      ? `<dt>Recorded payment</dt><dd>${escapeHtml(formatManualInPersonMethod(row.manual_payment_method))} · ${escapeHtml(
+          formatDate(row.manual_payment_recorded_at) || "—",
+        )}${
+          row.manual_payment_recorded_by
+            ? ` (${escapeHtml(String(row.manual_payment_recorded_by))})`
+            : ""
+        }${
+          row.manual_payment_note
+            ? `<br /><span class="admin-muted" style="font-size:12px">Note: ${escapeHtml(
+                String(row.manual_payment_note),
+              )}</span>`
+            : ""
+        }</dd>`
+      : "";
+  return `<div class="admin-order-detail-sub" style="margin:0 0 0.5rem">
+    <dl class="admin-order-dl" style="margin:0">
+      <dt>Payment flow</dt><dd>${escapeHtml(formatPaymentFlowLabelForManual(row))}</dd>
+      <dt>Fulfillment</dt><dd>${escapeHtml(formatFulfillmentMethodLabelForManual(row))}</dd>
+      <dt>Shippo required</dt><dd>${escapeHtml(formatShippoLabelRequiredForManual(row))}</dd>
+      ${paidManual}
+    </dl>
+  </div>`;
+}
+
+function buildManualPaymentLinkMetaModalHtml(row) {
+  if (!shouldShowManualPaymentLinkMeta(row)) {
+    return "";
+  }
+  const sent = formatDate(row.payment_link_sent_at);
+  const exp = formatDate(row.payment_link_expires_at);
+  const expired = isUnpaidPaymentLinkPastExpiry(row);
+  const badge = expired
+    ? ` <span class="admin-badge admin-badge--payment-link-expired" title="Display only — not enforced yet">Payment link expired</span>`
+    : "";
+  return `<div class="admin-order-detail-sub" style="margin:0 0 0.5rem">
+    <h4 class="admin-muted" style="margin:0 0 0.35rem;font-size:12px;text-transform:uppercase">Payment link</h4>
+    <dl class="admin-order-dl" style="margin:0">
+      <dt>Payment link sent at</dt><dd>${escapeHtml(sent)}</dd>
+      <dt>Payment link expires at</dt><dd>${escapeHtml(exp)}${badge}</dd>
+    </dl>
+  </div>`;
 }
 
 /**
@@ -1021,6 +1706,126 @@ function describeLineItems(items) {
   return { lines, text };
 }
 
+function fmtMoneyCents(c) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
+    (Number(c) || 0) / 100,
+  );
+}
+
+function openRecordPaymentModal(row) {
+  const m = document.getElementById("admin-record-payment-modal");
+  const sum = document.getElementById("admin-record-payment-summary");
+  const err = document.getElementById("admin-record-payment-error");
+  const form = document.getElementById("admin-record-payment-form");
+  const oid = document.getElementById("admin-record-payment-order-id");
+  if (!m || !sum || !form || !oid) {
+    return;
+  }
+  if (err) {
+    err.hidden = true;
+    err.textContent = "";
+  }
+  const itemText = describeLineItems(row.items).text;
+  const tot = fmtMoneyCents(row.total_cents);
+  sum.innerHTML = `<strong>${escapeHtml(row.order_ref || String(row.id))}</strong><br />
+<span class="admin-muted">Customer:</span> ${escapeHtml(row.customer_name || "—")} &lt;${escapeHtml(
+    row.customer_email || "",
+  )}&gt;<br />
+<span class="admin-muted">Total due:</span> ${escapeHtml(tot)}<br />
+<span class="admin-muted">Fulfillment:</span> ${escapeHtml(
+    formatFulfillmentMethodLabelForManual(row),
+  )} · <span class="admin-muted">Payment flow:</span> ${escapeHtml(formatPaymentFlowLabelForManual(row))}<br />
+<span class="admin-muted">Items</span>
+<pre style="margin:0.3rem 0 0;font-size:12px;line-height:1.4;white-space:pre-wrap;max-height:10rem;overflow:auto;border:0;background:transparent;font-family:inherit;padding:0">${escapeHtml(
+    itemText,
+  )}</pre>`;
+  oid.value = String(row.id);
+  const cash = form.querySelector('input[name="rec_pay_method"][value="cash"]');
+  if (cash) {
+    cash.checked = true;
+  }
+  const note = document.getElementById("admin-record-payment-note");
+  if (note) {
+    note.value = "";
+  }
+  m.hidden = false;
+}
+
+function closeRecordPaymentModal() {
+  const el = document.getElementById("admin-record-payment-modal");
+  if (el) {
+    el.hidden = true;
+  }
+}
+
+function bindRecordPaymentModal() {
+  if (document.body.dataset.recordPaymentBound === "1") {
+    return;
+  }
+  document.body.dataset.recordPaymentBound = "1";
+  document.querySelectorAll("[data-close-record-payment]").forEach((el) => {
+    el.addEventListener("click", () => closeRecordPaymentModal());
+  });
+  document.getElementById("admin-record-payment-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById("admin-record-payment-error");
+    const confirmBtn = document.getElementById("admin-record-payment-confirm");
+    if (errEl) {
+      errEl.hidden = true;
+      errEl.textContent = "";
+    }
+    const form = e.target;
+    const orderId = String(document.getElementById("admin-record-payment-order-id")?.value || "").trim();
+    const method = String(form.querySelector('input[name="rec_pay_method"]:checked')?.value || "").trim();
+    const note = String(document.getElementById("admin-record-payment-note")?.value || "").trim();
+    if (!orderId || !method) {
+      if (errEl) {
+        errEl.textContent = "Missing order or payment method.";
+        errEl.hidden = false;
+      }
+      return;
+    }
+    if (!supabase) {
+      if (errEl) {
+        errEl.textContent = "Not signed in.";
+        errEl.hidden = false;
+      }
+      return;
+    }
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      if (errEl) {
+        errEl.textContent = "Sign in again.";
+        errEl.hidden = false;
+      }
+      return;
+    }
+    if (confirmBtn) {
+      confirmBtn.disabled = true;
+    }
+    try {
+      await fetchReportPost("/api/admin-manual-order-record-payment", session.access_token, {
+        orderId,
+        manualPaymentMethod: method,
+        paymentNote: note || undefined,
+      });
+      closeRecordPaymentModal();
+      await loadOrders();
+    } catch (e2) {
+      if (errEl) {
+        errEl.textContent = e2.message || "Could not record payment.";
+        errEl.hidden = false;
+      }
+    } finally {
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+      }
+    }
+  });
+}
+
 function badgeClass(orderStatus) {
   const k = String(orderStatus || "awaiting_payment").replace(/[^a-z_]/gi, "_");
   return `admin-badge admin-badge--${k}`;
@@ -1065,6 +1870,17 @@ function bindModalShippoActions() {
   document.body.dataset.shippoModalBound = "1";
 
   document.addEventListener("click", (e) => {
+    const modalRecBtn = e.target.closest("[data-record-payment-modal]");
+    if (modalRecBtn) {
+      e.preventDefault();
+      const id = modalRecBtn.getAttribute("data-record-payment-modal");
+      const row = ordersCache.find((r) => String(r.id) === String(id));
+      if (row) {
+        openRecordPaymentModal(row);
+      }
+      return;
+    }
+
     const fulfillTab = e.target.closest(".admin-fulfillment-progress__tabs button[data-fulfillment-tab]");
     if (fulfillTab && !fulfillTab.disabled) {
       e.preventDefault();
@@ -1230,7 +2046,7 @@ function bindModalShippoActions() {
             }, 4000);
           }
           if (refreshed && String(modalOpenOrderId) === String(orderId)) {
-            openModal(refreshed, { skipShippoAutoRefresh: true, fulfillmentTab: 1 });
+            openModal(refreshed, { skipShippoAutoRefresh: true, fulfillmentTab: 0 });
           }
         } catch (err) {
           alert(err.message || "Could not save label records.");
@@ -1273,7 +2089,7 @@ function bindModalShippoActions() {
           }
           const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
           if (refreshed && String(modalOpenOrderId) === String(orderId)) {
-            openModal(refreshed, { skipShippoAutoRefresh: true, fulfillmentTab: 2 });
+            openModal(refreshed, { skipShippoAutoRefresh: true, fulfillmentTab: 1 });
           }
         } catch (err) {
           alert(err.message || "Could not confirm handoff.");
@@ -1344,7 +2160,7 @@ function bindModalShippoActions() {
           }
           const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
           if (refreshed && String(modalOpenOrderId) === String(orderId)) {
-            openModal(refreshed, { skipShippoAutoRefresh: true, fulfillmentTab: 1 });
+            openModal(refreshed, { skipShippoAutoRefresh: true, fulfillmentTab: 0 });
           }
         } catch (err) {
           alert(err.message || "Could not send email.");
@@ -1571,13 +2387,138 @@ function bindModalShippoActions() {
             if (idx >= 0) {
               ordersCache[idx] = err.body.order;
             }
-            renderTable();
-            openModal(err.body.order, { skipShippoAutoRefresh: true });
+            void openModal(err.body.order, { skipShippoAutoRefresh: true }).then(() => {
+              renderTable();
+            });
           }
           alert(err.message || "Could not purchase label.");
         } finally {
           buyLabelBtn.disabled = false;
           buyLabelBtn.textContent = prev || "Buy label (selected rate)";
+        }
+      })();
+      return;
+    }
+
+    const buyAllBtn = e.target.closest("[data-shippo-buy-all-labels]");
+    if (buyAllBtn) {
+      e.preventDefault();
+      const orderId = buyAllBtn.getAttribute("data-shippo-buy-all-labels");
+      if (!orderId || !supabase) {
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        buyAllBtn.disabled = true;
+        const prev = buyAllBtn.textContent;
+        buyAllBtn.textContent = "Purchasing…";
+        try {
+          const data = await fetchReportPost("/api/admin-order-shippo-buy-all-labels", session.access_token, {
+            orderId,
+          });
+          if (data?.order) {
+            const idx = ordersCache.findIndex((r) => String(r.id) === String(orderId));
+            if (idx >= 0) {
+              ordersCache[idx] = data.order;
+            }
+            await openModal(data.order, { skipShippoAutoRefresh: true });
+            renderTable();
+          }
+          if (data?.failedCount > 0) {
+            const m = [
+              data?.purchasedCount != null ? `Purchased: ${data.purchasedCount}` : "",
+              `Failed: ${data.failedCount}`,
+              data?.skippedCount ? `Skipped: ${data.skippedCount}` : "",
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            window.alert(m);
+          }
+        } catch (err) {
+          alert(err.message || "Could not buy all labels.");
+        } finally {
+          buyAllBtn.disabled = false;
+          const rowAfter = ordersCache.find((r) => String(r.id) === String(orderId));
+          const labsAfter = rowAfter ? getShippoLabelsForOrderFromCache(orderId) ?? [] : [];
+          if (rowAfter) {
+            patchShippoMultiLabelActionButtons(rowAfter, labsAfter);
+          } else {
+            buyAllBtn.textContent = prev || "Buy all labels";
+          }
+        }
+      })();
+      return;
+    }
+
+    const openAllBtn = e.target.closest("[data-shippo-open-all-labels]");
+    if (openAllBtn) {
+      e.preventDefault();
+      const orderId = openAllBtn.getAttribute("data-shippo-open-all-labels");
+      if (!orderId || !supabase) {
+        return;
+      }
+      void (async () => {
+        const { data, error } = await supabase
+          .from("order_shippo_labels")
+          .select("label_url, status")
+          .eq("order_id", coerceOrderIdForSupabaseFilter(orderId))
+          .order("parcel_index", { ascending: true });
+        if (error) {
+          alert(error.message || "Could not list labels.");
+          return;
+        }
+        const urls = (Array.isArray(data) ? data : []).filter((r) => r && String(r.status) === "purchased" && r.label_url).map((r) => String(r.label_url));
+        if (!urls.length) {
+          alert("No purchased labels on file yet.");
+          return;
+        }
+        for (const u of urls) {
+          window.open(u, "_blank", "noopener,noreferrer");
+        }
+      })();
+      return;
+    }
+
+    const retryLabel = e.target.closest("[data-shippo-retry-label]");
+    if (retryLabel) {
+      e.preventDefault();
+      const orderId = retryLabel.getAttribute("data-shippo-retry-label");
+      const parcelIndex = retryLabel.getAttribute("data-parcel-index");
+      if (orderId == null || !supabase) {
+        return;
+      }
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        retryLabel.disabled = true;
+        try {
+          const data = await fetchReportPost("/api/admin-order-shippo-buy-all-labels", session.access_token, {
+            orderId,
+            parcelIndex: parcelIndex != null ? Number(parcelIndex) : undefined,
+          });
+          if (data?.order) {
+            const idx = ordersCache.findIndex((r) => String(r.id) === String(orderId));
+            if (idx >= 0) {
+              ordersCache[idx] = data.order;
+            }
+            await openModal(data.order, { skipShippoAutoRefresh: true });
+            renderTable();
+          }
+        } catch (err) {
+          alert(err.message || "Could not retry label.");
+        } finally {
+          retryLabel.disabled = false;
         }
       })();
       return;
@@ -1599,6 +2540,17 @@ function bindOrdersTableEvents() {
       const id = detailBtn.getAttribute("data-detail-id");
       const row = ordersCache.find((r) => String(r.id) === String(id));
       if (row) openModal(row);
+      return;
+    }
+
+    const recBtn = e.target.closest("[data-record-payment]");
+    if (recBtn) {
+      e.preventDefault();
+      const id = recBtn.getAttribute("data-record-payment");
+      const row = ordersCache.find((r) => String(r.id) === String(id));
+      if (row) {
+        openRecordPaymentModal(row);
+      }
       return;
     }
 
@@ -1664,6 +2616,13 @@ function bindOrdersTableEvents() {
             orderId,
             shipmentDate: shipmentDate || null,
           });
+          {
+            const errLine = document.getElementById("admin-load-error");
+            if (errLine) {
+              errLine.hidden = true;
+              errLine.textContent = "";
+            }
+          }
           await loadOrders();
           renderTable();
           if (data.order) {
@@ -1676,8 +2635,20 @@ function bindOrdersTableEvents() {
           if (refreshed && String(modalOpenOrderId) === String(orderId)) {
             openModal(refreshed, { skipShippoAutoRefresh: true });
           }
+          const fb = document.getElementById("admin-orders-feedback");
+          if (fb) {
+            fb.textContent = "Planned ship date saved.";
+            fb.className = "admin-inline-toast admin-inline-toast--success";
+            fb.hidden = false;
+          }
         } catch (err) {
-          alert(err.message || "Could not save ship date.");
+          const el = document.getElementById("admin-load-error");
+          if (el) {
+            el.textContent = err?.message || "Could not save planned ship date.";
+            el.hidden = false;
+          } else {
+            alert(err?.message || "Could not save ship date.");
+          }
         } finally {
           saveShipDateBtn.disabled = false;
           saveShipDateBtn.textContent = prev || "Save date";
@@ -1713,6 +2684,13 @@ function bindOrdersTableEvents() {
             orderId,
             shipmentDate: null,
           });
+          {
+            const errLine = document.getElementById("admin-load-error");
+            if (errLine) {
+              errLine.hidden = true;
+              errLine.textContent = "";
+            }
+          }
           await loadOrders();
           renderTable();
           if (data.order) {
@@ -1725,8 +2703,20 @@ function bindOrdersTableEvents() {
           if (refreshed && String(modalOpenOrderId) === String(orderId)) {
             openModal(refreshed, { skipShippoAutoRefresh: true });
           }
+          const fb = document.getElementById("admin-orders-feedback");
+          if (fb) {
+            fb.textContent = "Planned ship date cleared.";
+            fb.className = "admin-inline-toast admin-inline-toast--success";
+            fb.hidden = false;
+          }
         } catch (err) {
-          alert(err.message || "Could not clear ship date.");
+          const el = document.getElementById("admin-load-error");
+          if (el) {
+            el.textContent = err?.message || "Could not clear planned ship date.";
+            el.hidden = false;
+          } else {
+            alert(err?.message || "Could not clear ship date.");
+          }
         } finally {
           clearShipDateBtn.disabled = false;
           clearShipDateBtn.textContent = prev || "Clear";
@@ -1801,89 +2791,109 @@ function bindOrdersTableEvents() {
 }
 
 async function init() {
-  let config;
+  let config = null;
   try {
     config = await fetchSupabasePublicConfig();
   } catch (e) {
-    document.getElementById("admin-load-error").textContent =
-      e.message || "Add SUPABASE_URL and SUPABASE_ANON_KEY to the server environment.";
-    document.getElementById("admin-load-error").hidden = false;
+    const le = document.getElementById("admin-load-error");
+    if (le) {
+      le.textContent = e?.message || "Add SUPABASE_URL and SUPABASE_ANON_KEY to the server environment.";
+      le.hidden = false;
+    }
     showLogin();
-    document.getElementById("login-form").style.display = "none";
-    return;
   }
 
-  supabase = createClient(config.supabaseUrl, config.supabaseAnonKey, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-    },
-  });
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (session?.user) {
-    primeAdminSessionUser(session);
-    showApp();
-    document.getElementById("admin-user-email").textContent = session.user.email || "";
-    renderAdminNav("orders");
-    await loadCatalog();
-    bindOrdersTableEvents();
-    bindModalShippoActions();
-    await loadOrders();
+  if (config?.supabaseUrl && config?.supabaseAnonKey) {
+    supabase = createSupabaseAdminClient(config.supabaseUrl, config.supabaseAnonKey);
   } else {
-    showLogin();
+    supabase = null;
   }
 
-  supabase.auth.onAuthStateChange(async (event, session) => {
-    if (event === "SIGNED_IN" && session?.user) {
-      if (!shouldBootstrapAdminSignedIn(session)) {
-        return;
-      }
-      document.getElementById("admin-user-email").textContent = session.user.email || "";
+  if (supabase) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (session?.user) {
+      primeAdminSessionUser(session);
       showApp();
+      document.getElementById("admin-user-email").textContent = session.user.email || "";
       renderAdminNav("orders");
       await loadCatalog();
       bindOrdersTableEvents();
       bindModalShippoActions();
+      bindRecordPaymentModal();
       await loadOrders();
-    }
-    if (event === "SIGNED_OUT") {
-      clearAdminSessionUser();
-      ordersCache = [];
-      document.getElementById("orders-tbody").innerHTML = "";
+    } else {
       showLogin();
     }
-  });
+
+    supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_IN" && session?.user) {
+        if (!shouldBootstrapAdminSignedIn(session)) {
+          return;
+        }
+        document.getElementById("admin-user-email").textContent = session.user.email || "";
+        showApp();
+        renderAdminNav("orders");
+        await loadCatalog();
+        bindOrdersTableEvents();
+        bindModalShippoActions();
+        bindRecordPaymentModal();
+        await loadOrders();
+      }
+      if (event === "SIGNED_OUT") {
+        clearAdminSessionUser();
+        ordersCache = [];
+        document.getElementById("orders-tbody").innerHTML = "";
+        showLogin();
+      }
+    });
+  } else {
+    showLogin();
+  }
 
   document.getElementById("login-form")?.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const errEl = document.getElementById("login-error");
     errEl.hidden = true;
+    if (!supabase) {
+      errEl.textContent =
+        "Server did not return Supabase configuration. Set SUPABASE_URL and SUPABASE_ANON_KEY in the app environment, restart the server, and refresh this page.";
+      errEl.hidden = false;
+      return;
+    }
     const fd = new FormData(ev.target);
     const email = String(fd.get("email") || "").trim();
     const password = String(fd.get("password") || "");
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data: signInData, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       errEl.textContent = error.message;
       errEl.hidden = false;
       return;
     }
-    const { data: afterLogin } = await supabase.auth.getSession();
-    primeAdminSessionUser(afterLogin.session);
+    const session = signInData?.session
+      ? signInData.session
+      : (await supabase.auth.getSession()).data?.session ?? null;
+    if (session) {
+      primeAdminSessionUser(session);
+    }
     showApp();
-    document.getElementById("admin-user-email").textContent = email;
+    document.getElementById("admin-user-email").textContent = session?.user?.email || email;
     renderAdminNav("orders");
     await loadCatalog();
     bindOrdersTableEvents();
     bindModalShippoActions();
+    bindRecordPaymentModal();
     await loadOrders();
   });
 
   document.getElementById("admin-logout")?.addEventListener("click", async () => {
-    await supabase.auth.signOut();
+    if (supabase) {
+      await supabase.auth.signOut();
+    } else {
+      showLogin();
+    }
   });
 
   document.getElementById("admin-refresh")?.addEventListener("click", async () => {
@@ -1937,6 +2947,35 @@ async function loadOrders() {
     }
 
     ordersCache = Array.isArray(data) ? data : [];
+    orderShippoLabelsCache = new Map();
+    if (supabase && ordersCache.length) {
+      const ids = ordersCache.map((r) => coerceOrderIdForSupabaseFilter(r.id)).filter((id) => id != null && id !== "");
+      const chunkSize = 100;
+      for (let i = 0; i < ids.length; i += chunkSize) {
+        const slice = ids.slice(i, i + chunkSize);
+        try {
+          const { data: lbls, error: lblErr } = await supabase
+            .from("order_shippo_labels")
+            .select("*")
+            .in("order_id", slice);
+          if (lblErr) {
+            break;
+          }
+          for (const lab of Array.isArray(lbls) ? lbls : []) {
+            const oid = String(lab.order_id);
+            if (!orderShippoLabelsCache.has(oid)) {
+              orderShippoLabelsCache.set(oid, []);
+            }
+            orderShippoLabelsCache.get(oid).push(lab);
+          }
+        } catch {
+          break;
+        }
+      }
+      for (const arr of orderShippoLabelsCache.values()) {
+        arr.sort((a, b) => (Number(a.parcel_index) || 0) - (Number(b.parcel_index) || 0));
+      }
+    }
     updateTimeFilterLabels();
     renderTable();
   } finally {
@@ -2017,7 +3056,10 @@ function renderTable() {
       if (walkInDraft) {
         nextActionHtml = `<div class="admin-next-action"><strong class="admin-next-action__primary">Complete walk-in</strong><p class="admin-muted admin-next-action__hint"><a href="/admin/walk-in-order.html">Open walk-in order</a></p></div>`;
       } else if (manualDraft) {
-        nextActionHtml = `<div class="admin-next-action"><strong class="admin-next-action__primary">Email payment link</strong><p class="admin-muted admin-next-action__hint">Draft — not paid yet</p></div>`;
+        const isPayLater = isManualPayLaterDraftUnpaid(row);
+        nextActionHtml = isPayLater
+          ? `<div class="admin-next-action"><strong class="admin-next-action__primary">Pay later</strong><p class="admin-muted admin-next-action__hint">Record when customer pays</p></div>`
+          : `<div class="admin-next-action"><strong class="admin-next-action__primary">Email payment link</strong><p class="admin-muted admin-next-action__hint">Draft — not paid yet</p></div>`;
       } else {
         const issueLine = wf.blockingIssue
           ? `<p class="admin-next-action__issue">${escapeHtml(wf.blockingIssue)}</p>`
@@ -2046,17 +3088,25 @@ function renderTable() {
         ? `<div class="admin-order-tag admin-order-tag--walk-in" title="In-store walk-in sale">Walk-in</div>`
         : "";
 
-      const trackShort =
-        String(row.admin_external_tracking_number || row.shippo_tracking_number || "").trim() || "—";
-      const carrierShort =
-        String(row.admin_external_carrier || row.shippo_label_carrier || "").trim() || "—";
-      const shipNote = isOrderShipped(row)
-        ? "Shipped"
-        : manualFulfillmentRecordComplete(row)
-          ? "Ready to confirm"
-          : String(row.status || "").toLowerCase() === "paid"
-            ? "Record label"
-            : "—";
+      const shippoRoll = tableShippingRollupFromShippoLabels(row);
+      const trackShort = shippoRoll
+        ? shippoRoll.trackingLine
+        : String(row.admin_external_tracking_number || row.shippo_tracking_number || "").trim() || "—";
+      const carrierShort = shippoRoll
+        ? shippoRoll.carrier
+        : String(row.admin_external_carrier || row.shippo_label_carrier || "").trim() || "—";
+      const noShippoLabel = row.shippo_label_required === false;
+      const shipNote = shippoRoll
+        ? shippoRoll.note
+        : isOrderShipped(row)
+          ? "Shipped"
+          : noShippoLabel && String(row.status || "").toLowerCase() === "paid"
+            ? "Pickup / local (no Shippo label)"
+            : manualFulfillmentRecordComplete(row)
+              ? "Ready to confirm"
+              : String(row.status || "").toLowerCase() === "paid"
+                ? "Record label"
+                : "—";
       const shippoCell = `<div style="font-size:13px;line-height:1.45"><strong>${escapeHtml(carrierShort)}</strong></div>
         <div class="admin-muted" style="margin-top:0.2rem;font-size:12px">Tracking: ${escapeHtml(trackShort)}</div>
         <div class="admin-muted" style="margin-top:0.15rem;font-size:11px">${escapeHtml(shipNote)}</div>`;
@@ -2071,12 +3121,22 @@ function renderTable() {
             ${hardinTag}
           </td>
           <td>${escapeHtml(row.customer_name || "—")}<br /><span class="admin-muted">${escapeHtml(row.customer_email || "")}</span></td>
-          <td><span class="${badgeClass(paymentBadgeKey(row))}">${escapeHtml(formatPaymentColumnLabel(row))}</span></td>
+          <td><span class="${badgeClass(paymentBadgeKey(row))}">${escapeHtml(
+            formatPaymentColumnLabel(row),
+          )}</span>${buildManualOrderLifecycleTableHtml(row)}${buildManualPaymentLinkMetaTableHtml(row)}</td>
           <td class="admin-shippo-agent-cell">${shippoCell}</td>
           <td class="admin-next-action-cell">${nextActionHtml}</td>
           <td>${escapeHtml(formatDate(row.created_at))}</td>
-          <td>
-            <button type="button" class="admin-btn admin-btn--small" data-detail-id="${escapeHtml(String(id))}">Details</button>
+          <td class="admin-row-actions-btns">
+            ${
+              isManualPayLaterDraftUnpaid(row)
+                ? `<button type="button" class="admin-btn admin-btn--small admin-btn--primary" data-record-payment="${escapeHtml(
+                    String(id),
+                  )}">Record payment</button> `
+                : ""
+            }<button type="button" class="admin-btn admin-btn--small" data-detail-id="${escapeHtml(
+              String(id),
+            )}">Details</button>
           </td>
         </tr>
       `;
@@ -2120,7 +3180,7 @@ function tryShippoBackgroundRefresh(orderId) {
       renderTable();
       const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
       if (refreshed && String(modalOpenOrderId) === String(orderId)) {
-        openModal(refreshed, { skipShippoAutoRefresh: true });
+        void openModal(refreshed, { skipShippoAutoRefresh: true });
       }
     } catch {
       /* optional; stale row is fine */
@@ -2148,22 +3208,6 @@ function buildPickupScheduleLinks(row) {
     return `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">If your carrier offers scheduled pickup, book it on their website.</p>`;
   }
   return `<div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-top:0.45rem">${links.join("")}</div>`;
-}
-
-function buildShipDateControlHtml(row) {
-  const id = escapeHtml(String(row.id));
-  const raw = String(row.shippo_shipment_date || "").trim();
-  const safeForDateInput = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : "";
-  const valueAttr = safeForDateInput ? ` value="${escapeHtml(safeForDateInput)}"` : "";
-  return `<div style="margin:0 0 0.65rem">
-    <label class="admin-muted" style="display:block;font-size:12px;margin-bottom:0.25rem">Carrier ship / pickup date</label>
-    <div style="display:flex;flex-wrap:wrap;gap:0.45rem;align-items:center">
-      <input type="date" class="admin-input-date" aria-label="Carrier ship or pickup date"${valueAttr} data-shippo-shipment-date-input="${id}" />
-      <button type="button" class="admin-btn admin-btn--small" data-save-shippo-shipment-date="${id}">Save date</button>
-      <button type="button" class="admin-btn admin-btn--small" data-clear-shippo-shipment-date="${id}">Clear</button>
-    </div>
-    <p class="admin-muted" style="margin:0.35rem 0 0;font-size:11px;line-height:1.45">Stored on this order and sent to Shippo as <code>shipment_date</code> when the shipment is created. Leave empty for Shippo’s default (request time). After changing it, use <strong>Sync to Shippo</strong> on the Label step so the shipment is recreated with the new date.</p>
-  </div>`;
 }
 
 /** Primary buttons for the current fulfillment step (modal). */
@@ -2198,16 +3242,21 @@ function buildModalShippingActionsHtml(row) {
 
 function pickFulfillmentTab(row, options) {
   if (options.fulfillmentTab != null) {
-    const t = Number(options.fulfillmentTab);
-    if (Number.isFinite(t) && t >= 0 && t <= 2 && canNavigateToFulfillmentTab(row, t)) {
-      return t;
+    let t = Number(options.fulfillmentTab);
+    if (Number.isFinite(t) && t >= 0 && t <= 2) {
+      if (t === 2) {
+        t = 1;
+      }
+      if (Number.isFinite(t) && t >= 0 && t <= 1 && canNavigateToFulfillmentTab(row, t)) {
+        return t;
+      }
     }
   }
   const ai = deriveActiveFulfillmentStepIndex(row);
   if (ai < 0) {
     return 0;
   }
-  return Math.min(ai, 2);
+  return Math.min(ai, 1);
 }
 
 function formatAddressFromOverrideJson(row, colName) {
@@ -2348,7 +3397,129 @@ async function hydrateOrderModalAuxiliary(row, gen) {
   }
 }
 
-function openModal(row, options = {}) {
+function syncOrderModalShippoEconomyAndRollup(row, labelRows, gen, fmt) {
+  if (gen !== openModalGeneration || String(modalOpenOrderId) !== String(row.id)) {
+    return;
+  }
+  const cost = document.getElementById("admin-modal-cost-summary-body");
+  if (cost) {
+    cost.innerHTML = buildCostSummaryPanelHtml(row, labelRows, fmt);
+  }
+  const roll = document.getElementById("admin-modal-tracking-rollout");
+  if (roll) {
+    roll.innerHTML = buildTrackingRollupHtml(row, labelRows);
+  }
+  patchShippoMultiLabelActionButtons(row, labelRows);
+}
+
+/**
+ * Load public.order_shippo_labels for the open modal (RLS: authenticated read).
+ * @param {object} row
+ * @param {number} gen
+ */
+async function hydrateOrderModalShippoLabels(row, gen) {
+  const orderId = row.id;
+  const fmt = (cents) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format((Number(cents) || 0) / 100);
+  if (gen !== openModalGeneration) {
+    return;
+  }
+  if (String(modalOpenOrderId) !== String(orderId)) {
+    return;
+  }
+  const idSel = String(orderId).replace(/"/g, '\\"');
+  const host = document.querySelector(`[data-shippo-labels-for="${idSel}"]`);
+  const summary = document.querySelector(`[data-shippo-summary-for="${idSel}"]`);
+  if (!host) {
+    return;
+  }
+  if (!supabase) {
+    host.innerHTML = `<p class="admin-muted" style="margin:0;font-size:12px">Sign in to load per-package labels.</p>`;
+    syncOrderModalShippoEconomyAndRollup(row, [], gen, fmt);
+    return;
+  }
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (gen !== openModalGeneration || String(modalOpenOrderId) !== String(orderId)) {
+    return;
+  }
+  if (!session) {
+    host.innerHTML = `<p class="admin-muted" style="margin:0;font-size:12px">Sign in to load per-package labels.</p>`;
+    syncOrderModalShippoEconomyAndRollup(row, [], gen, fmt);
+    return;
+  }
+  const { data, error } = await supabase
+    .from("order_shippo_labels")
+    .select("*")
+    .eq("order_id", coerceOrderIdForSupabaseFilter(orderId))
+    .order("parcel_index", { ascending: true });
+  if (gen !== openModalGeneration || String(modalOpenOrderId) !== String(orderId)) {
+    return;
+  }
+  if (error) {
+    host.innerHTML = `<p class="admin-error" style="margin:0;font-size:12px">Could not load per-package labels: ${escapeHtml(error.message || "error")}</p>`;
+    syncOrderModalShippoEconomyAndRollup(row, [], gen, fmt);
+    return;
+  }
+  const list = Array.isArray(data) ? data : [];
+  orderShippoLabelsCache.set(String(orderId), list);
+  if (!list.length) {
+    host.innerHTML = `<p class="admin-muted" style="margin:0;font-size:12px">No per-package Shippo labels on file yet. Use <strong>Buy all labels</strong> after ship-to is complete.</p>`;
+    if (summary) {
+      summary.textContent = "";
+    }
+    syncOrderModalShippoEconomyAndRollup(row, [], gen, fmt);
+    return;
+  }
+  const n = list[0]?.parcel_count != null ? Number(list[0].parcel_count) : list.length;
+  const purchased = list.filter((r) => String(r.status || "") === "purchased").length;
+  if (summary) {
+    summary.textContent = `Per-package labels: ${purchased} of ${n} purchased.`;
+  }
+  const rows = list
+    .map((r) => {
+      const idx = r.parcel_index != null ? Number(r.parcel_index) : 0;
+      const label = `Package ${idx + 1} of ${n}`;
+      const st = String(r.status || "");
+      let statusText = st;
+      if (st === "purchased") {
+        statusText = "Purchased";
+      } else if (st === "failed") {
+        statusText = "Failed";
+      } else if (st === "processing") {
+        statusText = "Processing";
+      } else if (st === "pending") {
+        statusText = "Pending";
+      }
+      const trk = String(r.tracking_number || "").trim();
+      const trkLine = trk
+        ? `<div class="admin-muted" style="font-size:11px;margin:0.2rem 0 0">Tracking: ${escapeHtml(trk)}</div>`
+        : "";
+      const err = String(r.error_message || "").trim()
+        ? `<div class="admin-error" style="font-size:11px;margin:0.2rem 0 0">${escapeHtml(String(r.error_message).slice(0, 500))}</div>`
+        : "";
+      const open =
+        st === "purchased" && r.label_url
+          ? `<a class="admin-btn admin-btn--small admin-btn--primary" href="${escapeHtml(String(r.label_url))}" target="_blank" rel="noopener">Open label</a>`
+          : "";
+      const retry =
+        st === "failed" && !isOrderShipped(row)
+          ? `<button type="button" class="admin-btn admin-btn--small" data-shippo-retry-label="${escapeHtml(String(row.id))}" data-parcel-index="${idx}">Retry</button>`
+          : "";
+      return `<tr>
+        <td>${escapeHtml(label)}</td>
+        <td><span class="admin-badge admin-badge--${st === "purchased" ? "paid" : st === "failed" ? "error" : "awaiting_payment"}">${escapeHtml(statusText)}</span></td>
+        <td style="max-width:14rem">${trkLine}${err}</td>
+        <td style="white-space:nowrap">${open} ${retry}</td>
+      </tr>`;
+    })
+    .join("");
+  host.innerHTML = `<table class="admin-shippo-multi-table"><thead><tr><th>Package</th><th>Status</th><th>Details</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+  syncOrderModalShippoEconomyAndRollup(row, list, gen, fmt);
+}
+
+async function openModal(row, options = {}) {
   const opts = options && typeof options === "object" ? options : {};
   const isBareOptions = Object.keys(opts).length === 0;
   if (isBareOptions) {
@@ -2367,13 +3538,22 @@ function openModal(row, options = {}) {
   }
 
   const gen = ++openModalGeneration;
+  const adminOrdersFeedback = document.getElementById("admin-orders-feedback");
+  if (adminOrdersFeedback) {
+    adminOrdersFeedback.textContent = "";
+    adminOrdersFeedback.hidden = true;
+  }
+  const topErr = document.getElementById("admin-load-error");
+  if (topErr) {
+    topErr.textContent = "";
+    topErr.hidden = true;
+  }
   const selectedTab = pickFulfillmentTab(row, options);
   const modalEl = document.getElementById("order-modal");
   if (modalEl) {
     modalEl.dataset.fulfillmentOrderId = String(row.id);
     modalEl.dataset.fulfillmentTab = String(selectedTab);
   }
-  const wf = computeFulfillmentWorkflow(row);
   let itemLines = [];
   try {
     itemLines = describeLineItems(row.items).lines;
@@ -2388,6 +3568,14 @@ function openModal(row, options = {}) {
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
       (Number(cents) || 0) / 100,
     );
+  const body = document.getElementById("order-modal-body");
+
+  if (shouldUseNonShippoDetailsModal(row) && body) {
+    body.innerHTML = renderNonShippoDetailsModalHtml(row, itemLines, fmt);
+    modalOpenOrderId = String(row.id);
+    document.getElementById("order-modal").hidden = false;
+    return;
+  }
 
   let parcelSummaryHtml = "";
   let quotedAddressSnapshotHtml = `<p class="admin-muted" style="margin:0.35rem 0 0;font-size:12px">—</p>`;
@@ -2413,8 +3601,6 @@ function openModal(row, options = {}) {
     console.error("[admin] parcel summary", e);
     parcelSummaryHtml = `<p class="admin-muted">—</p>`;
   }
-
-  const body = document.getElementById("order-modal-body");
 
   const paymentPaid = String(row?.status || "").toLowerCase() === "paid";
   let shipFromHtml = `<p class="admin-muted">—</p>`;
@@ -2455,69 +3641,29 @@ function openModal(row, options = {}) {
       : "";
 
   const canMarkShipped = paymentPaid && !isOrderShipped(row) && manualFulfillmentRecordComplete(row);
-  const quotedShippingCents =
-    row?.quoted_shipping_total_cents != null && Number.isFinite(Number(row.quoted_shipping_total_cents))
-      ? Math.max(0, Math.round(Number(row.quoted_shipping_total_cents)))
-      : row?.shipping_cents != null && Number.isFinite(Number(row.shipping_cents))
-        ? Math.max(0, Math.round(Number(row.shipping_cents)))
-        : 0;
-  const paidShippingCents =
-    row?.paid_shipping_amount_cents != null && Number.isFinite(Number(row.paid_shipping_amount_cents))
-      ? Math.max(0, Math.round(Number(row.paid_shipping_amount_cents)))
-      : quotedShippingCents;
-  const quotedServiceLabel = String(
-    row?.quoted_shipping_service_label || row?.quoted_shipping_service_code || row?.shippo_label_service || "—",
-  ).trim();
-  const actualLabelCostCents =
-    row?.admin_external_label_cost_cents != null && Number.isFinite(Number(row.admin_external_label_cost_cents))
-      ? Math.max(0, Math.round(Number(row.admin_external_label_cost_cents)))
-      : selectedShippoRateAmountCents(row);
-  const shippingDeltaCents = actualLabelCostCents != null ? paidShippingCents - actualLabelCostCents : null;
 
   let modalMainRenderOk = false;
   try {
     body.innerHTML = `
     <h2>${escapeHtml(row.order_ref || "Order")}</h2>
     <div class="admin-modal__section">${buildFulfillmentProgressHtml(row, selectedTab)}</div>
-    <div class="admin-modal__section admin-modal__section--fulfillment-summary">
-      <h3>Status</h3>
-      <p style="margin:0;font-size:1.05rem;font-weight:600">${escapeHtml(wf.label)}</p>
-      ${
-        wf.blockingIssue
-          ? `<p class="admin-error" style="margin:0.5rem 0 0;font-size:13px;line-height:1.45">${escapeHtml(wf.blockingIssue)}</p>`
-          : ""
-      }
-    </div>
 
     <div class="admin-fulfillment-panel" data-fulfillment-panel="0" style="display:${tabVis(0)}">
       <div class="admin-modal__section">
-        <h3>Order created &amp; paid</h3>
-        <h4 class="admin-muted" style="margin:0 0 0.35rem;font-size:12px;text-transform:uppercase">Customer</h4>
-        <pre style="margin:0 0 1rem;font-family:inherit;font-size:13px">${escapeHtml(row.customer_name || "—")}\n${escapeHtml(row.customer_email || "—")}\n${escapeHtml(row.customer_phone || "—")}</pre>
-        <h4 class="admin-muted" style="margin:0 0 0.35rem;font-size:12px;text-transform:uppercase">Ship from</h4>
-        <div class="admin-address-row">
-          <div class="admin-address-row__body" id="admin-modal-ship-from-body">${shipFromHtml}</div>
-          ${
-            canEditAddresses
-              ? `<button type="button" class="admin-icon-btn" data-toggle-from-override aria-label="Edit ship-from" title="Edit ship-from"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
-              : `<span class="admin-muted" style="font-size:11px;align-self:flex-start">Locked</span>`
-          }
-        </div>
-        <div id="admin-from-override-wrap" class="admin-shipping-edit-wrap" hidden>
-          <form id="admin-from-override-form" class="admin-shipping-edit-grid">
-            <label>Name<input name="name" value="${escapeHtml(ovFrom.name || "")}" required /></label>
-            <label>Street<input name="line1" value="${escapeHtml(ovFrom.line1 || "")}" required /></label>
-            <label>Line 2<input name="line2" value="${escapeHtml(ovFrom.line2 || "")}" /></label>
-            <label>City<input name="city" value="${escapeHtml(ovFrom.city || "")}" required /></label>
-            <label>State<input name="state" maxlength="2" value="${escapeHtml(ovFrom.state || "")}" required /></label>
-            <label>ZIP<input name="postalCode" value="${escapeHtml(ovFrom.postalCode || "")}" required /></label>
-            <label>Country<input name="country" maxlength="2" value="${escapeHtml(ovFrom.country || "US")}" required /></label>
-            <label>Email<input name="email" type="email" value="${escapeHtml(ovFrom.email || "")}" /></label>
-            <label>Phone<input name="phone" value="${escapeHtml(ovFrom.phone || "")}" /></label>
-          </form>
-          <button type="button" class="admin-btn admin-btn--small" data-save-from-override="${escapeHtml(String(row.id))}">Save sender</button>
-        </div>
-        <h4 class="admin-muted" style="margin:0.85rem 0 0.35rem;font-size:12px;text-transform:uppercase">Ship to</h4>
+        <h3 class="admin-order-tab-title">Order created &amp; paid</h3>
+
+        <div class="admin-order-detail-section">
+          <h3 class="admin-order-detail-section__title">Customer Information</h3>
+          <div class="admin-order-detail-sub">
+            <h4 class="admin-order-detail-sub__title">Customer detail</h4>
+            <dl class="admin-order-dl">
+              <dt>Name</dt><dd>${escapeHtml(row.customer_name || "—")}</dd>
+              <dt>Email</dt><dd>${escapeHtml(row.customer_email || "—")}</dd>
+              <dt>Phone</dt><dd>${escapeHtml(row.customer_phone || "—")}</dd>
+            </dl>
+          </div>
+          <div class="admin-order-detail-sub">
+            <h4 class="admin-order-detail-sub__title">Ship to address (editable)</h4>
         <div class="admin-address-row">
           <pre class="admin-address-card admin-address-row__body" style="margin:0;padding:0.5rem;background:#fafafa;border-radius:6px;font-family:inherit;font-size:13px;white-space:pre-wrap;min-width:0">${shipToReadonlyEscaped}</pre>
           ${
@@ -2542,32 +3688,101 @@ function openModal(row, options = {}) {
             <button type="button" class="admin-btn admin-btn--small" data-save-shipping-address="${escapeHtml(String(row.id))}">Save recipient</button>
           </div>
         </div>
+          </div>
+          <div class="admin-order-detail-sub">
+            <h4 class="admin-order-detail-sub__title">Ship from address (editable)</h4>
+        <div class="admin-address-row">
+          <div class="admin-address-row__body" id="admin-modal-ship-from-body">${shipFromHtml}</div>
+          ${
+            canEditAddresses
+              ? `<button type="button" class="admin-icon-btn" data-toggle-from-override aria-label="Edit ship-from" title="Edit ship-from"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
+              : `<span class="admin-muted" style="font-size:11px;align-self:flex-start">Locked</span>`
+          }
+        </div>
+        <div id="admin-from-override-wrap" class="admin-shipping-edit-wrap" hidden>
+          <form id="admin-from-override-form" class="admin-shipping-edit-grid">
+            <label>Name<input name="name" value="${escapeHtml(ovFrom.name || "")}" required /></label>
+            <label>Street<input name="line1" value="${escapeHtml(ovFrom.line1 || "")}" required /></label>
+            <label>Line 2<input name="line2" value="${escapeHtml(ovFrom.line2 || "")}" /></label>
+            <label>City<input name="city" value="${escapeHtml(ovFrom.city || "")}" required /></label>
+            <label>State<input name="state" maxlength="2" value="${escapeHtml(ovFrom.state || "")}" required /></label>
+            <label>ZIP<input name="postalCode" value="${escapeHtml(ovFrom.postalCode || "")}" required /></label>
+            <label>Country<input name="country" maxlength="2" value="${escapeHtml(ovFrom.country || "US")}" required /></label>
+            <label>Email<input name="email" type="email" value="${escapeHtml(ovFrom.email || "")}" /></label>
+            <label>Phone<input name="phone" value="${escapeHtml(ovFrom.phone || "")}" /></label>
+          </form>
+          <button type="button" class="admin-btn admin-btn--small" data-save-from-override="${escapeHtml(String(row.id))}">Save sender</button>
+        </div>
+          </div>
+        </div>
+
         <p id="admin-shipping-save-toast" class="admin-inline-toast admin-inline-toast--success" role="status" hidden></p>
         ${
           diag.missing.length
             ? `<p class="admin-error" style="margin:0.5rem 0 0">Ship-to incomplete: ${escapeHtml(diag.missing.join(", "))}</p>`
             : ""
         }
-        <h4 class="admin-muted" style="margin:1rem 0 0.35rem;font-size:12px;text-transform:uppercase">Items</h4>
+
+        <div class="admin-order-detail-section">
+          <h3 class="admin-order-detail-section__title">Planned shipment</h3>
+        ${buildPlannedShipDateControlHtml(row)}
+        <div style="margin:0.35rem 0 0">${buildModalShippingActionsHtml(row)}</div>
+        <p class="admin-muted admin-order-detail-hint" style="margin:0.5rem 0 0;font-size:12px;line-height:1.45">Each physical package gets its own Shippo shipment and label. Use <strong>Sync to Shippo</strong> after changing the planned date if a shipment already exists.</p>
+        </div>
+
+        <div class="admin-order-detail-section">
+          <h3 class="admin-order-detail-section__title">Package Information</h3>
+          <div class="admin-order-detail-sub">
+            <h4 class="admin-order-detail-sub__title">Items</h4>
         <div class="admin-modal__line-items">${
           itemLines.length ? itemLines.map((l) => l.html).join("") : `<p class="admin-muted">—</p>`
         }</div>
-        <h4 class="admin-muted" style="margin:1rem 0 0.35rem;font-size:12px;text-transform:uppercase">Package</h4>
+          </div>
+          <div class="admin-order-detail-sub">
+            <h4 class="admin-order-detail-sub__title">Package dimensions</h4>
         ${parcelSummaryHtml}
         ${multiNoteHtml}
+          </div>
+        </div>
+
+        <div class="admin-order-detail-section">
+          <h3 class="admin-order-detail-section__title">Cost Summary</h3>
+        <div id="admin-modal-cost-summary-body">${buildCostSummaryPanelHtml(row, null, fmt)}</div>
+        <div style="margin:0.75rem 0 0;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
+          <button type="button" class="admin-btn admin-btn--small admin-btn--primary" data-shippo-buy-all-labels="${escapeHtml(String(row.id))}" ${
+      paymentPaid && !isOrderShipped(row) && !diag.missing.length ? "" : "disabled"
+    }>Buy all labels</button>
+        </div>
+        </div>
+
+        <div class="admin-order-detail-section">
+          <h3 class="admin-order-detail-section__title">Order Summary</h3>
+        <h4 class="admin-muted" style="margin:0 0 0.35rem;font-size:12px;text-transform:uppercase">Per-package Shippo labels</h4>
+        <p id="admin-shippo-multi-summary" class="admin-muted" style="margin:0.35rem 0 0;font-size:12px" data-shippo-summary-for="${escapeHtml(String(row.id))}"></p>
+        <div id="admin-shippo-multi-labels-host" class="admin-shippo-multi-labels-host" data-shippo-labels-for="${escapeHtml(String(row.id))}">Loading…</div>
         <h4 class="admin-muted" style="margin:1rem 0 0.35rem;font-size:12px;text-transform:uppercase">Quoted address snapshot</h4>
         ${quotedAddressSnapshotHtml}
+        ${buildManualOrderLifecycleModalHtml(row)}
+        ${buildManualPaymentLinkMetaModalHtml(row)}
         <h4 class="admin-muted" style="margin:1rem 0 0.35rem;font-size:12px;text-transform:uppercase">Payment</h4>
-        <pre style="margin:0;font-size:13px;font-family:inherit">${escapeHtml(formatPaymentColumnLabel(row))} · ${escapeHtml(row.payment_id || "—")}
-Merchandise subtotal ${escapeHtml(fmt(row.subtotal_cents))} · Quoted shipping charged ${escapeHtml(fmt(quotedShippingCents))} · Tax ${escapeHtml(fmt(row.tax_cents))} · Total paid ${escapeHtml(fmt(row.total_cents))}
-Quoted shipping service ${escapeHtml(quotedServiceLabel)} · Paid shipping mirror ${escapeHtml(fmt(paidShippingCents))}
-Actual label cost ${escapeHtml(actualLabelCostCents != null ? fmt(actualLabelCostCents) : "Pending")} · Shipping delta ${escapeHtml(shippingDeltaCents != null ? fmt(shippingDeltaCents) : "Pending")}</pre>
-      </div>
-    </div>
+        <pre id="admin-modal-payment-core" style="margin:0;font-size:13px;font-family:inherit">${escapeHtml(formatPaymentColumnLabel(row))} · ${escapeHtml(row.payment_id || "—")}
+Merchandise subtotal ${escapeHtml(fmt(row.subtotal_cents))} · Tax ${escapeHtml(fmt(row.tax_cents))} · Total paid ${escapeHtml(fmt(row.total_cents))}</pre>
+        </div>
 
-    <div class="admin-fulfillment-panel" data-fulfillment-panel="1" style="display:${tabVis(1)}">
-      <div class="admin-modal__section">
-        <h3>Label records</h3>
+        <div class="admin-order-detail-section">
+          <h3 class="admin-order-detail-section__title">Tracking &amp; shipment</h3>
+          <div id="admin-modal-tracking-rollout"><p class="admin-muted" style="margin:0;font-size:13px">Loading…</p></div>
+        </div>
+
+        <div class="admin-order-detail-section">
+          <h3 class="admin-order-detail-section__title">Next Action</h3>
+        <p class="admin-muted" style="margin:0 0 0.65rem;font-size:13px;line-height:1.55">Print label • Apply to packages • Drop off / Pickup</p>
+        <button type="button" class="admin-btn admin-btn--small" data-shippo-open-all-labels="${escapeHtml(String(row.id))}">Open all labels</button>
+        </div>
+
+        <details class="admin-modal-details admin-order-external-details">
+          <summary>External label records (optional)</summary>
+          <div class="admin-modal__section" style="margin-top:0.65rem;padding-top:0.65rem;border-top:1px solid var(--admin-border)">
         <form id="admin-external-fulfillment-form" style="margin-top:0">
           <div class="admin-shipping-edit-grid">
           <label>Carrier / agent<input name="carrier" type="text" autocomplete="organization" value="${extCarrier}" required placeholder="e.g. UPS, USPS, Pirate Ship" /></label>
@@ -2602,10 +3817,12 @@ Actual label cost ${escapeHtml(actualLabelCostCents != null ? fmt(actualLabelCos
             ? `<p class="admin-muted" style="margin:0.5rem 0 0;font-size:12px">Notification sent ${escapeHtml(formatDate(row.admin_buyer_notify_sent_at))}</p>`
             : ""
         }
+          </div>
+        </details>
       </div>
     </div>
 
-    <div class="admin-fulfillment-panel" data-fulfillment-panel="2" style="display:${tabVis(2)}">
+    <div class="admin-fulfillment-panel" data-fulfillment-panel="1" style="display:${tabVis(1)}">
       <div class="admin-modal__section">
         <h3>Shipped</h3>
         ${
@@ -2615,7 +3832,7 @@ Actual label cost ${escapeHtml(actualLabelCostCents != null ? fmt(actualLabelCos
         <p style="margin:0.25rem 0 0;font-size:13px">${escapeHtml(row.admin_external_carrier || row.shippo_label_carrier || "—")}</p>
         <p style="margin:0.65rem 0 0;font-weight:600;font-size:13px">Tracking</p>
         ${formatTrackingListHtml(row)}`
-            : `<p class="admin-muted" style="margin:0 0 0.75rem">Confirm after the package has left your hands. You must have saved <strong>carrier</strong>, <strong>tracking</strong>, and an uploaded <strong>shipping label</strong> on the Label records tab (or a legacy Shippo label on file).</p>
+            : `<p class="admin-muted" style="margin:0 0 0.75rem">Confirm after the package has left your hands. Use <strong>Mark as shipped</strong> when shipment is complete. If you need uploaded carrier proof outside Shippo, use <strong>External label records</strong> on the first tab.</p>
         <button type="button" class="admin-btn admin-btn--primary" data-fulfillment-handoff="${escapeHtml(String(row.id))}" ${
             canMarkShipped ? "" : "disabled"
           }>Mark as shipped</button>`
@@ -2623,14 +3840,6 @@ Actual label cost ${escapeHtml(actualLabelCostCents != null ? fmt(actualLabelCos
       </div>
     </div>
 
-    <div class="admin-modal__section">
-      <h3>Tracking &amp; shipment</h3>
-      <p style="margin:0;font-size:13px;line-height:1.55"><strong>Carrier (recorded)</strong> ${escapeHtml(row.admin_external_carrier || row.shippo_label_carrier || "—")}</p>
-      <p style="margin:0.35rem 0 0;font-size:13px;line-height:1.55"><strong>Service</strong> ${escapeHtml(row.admin_external_service || row.shippo_label_service || "—")}</p>
-      <p style="margin:0.5rem 0 0;font-size:13px;font-weight:600">Tracking #</p>
-      <div style="margin:0.25rem 0 0;font-size:13px;line-height:1.55">${formatTrackingListHtml(row)}</div>
-      <p style="margin:0.5rem 0 0;font-size:13px"><strong>Label source</strong> ${escapeHtml(externalLabelSourceSummary(row))}</p>
-    </div>
     ${
       row.is_hardin_discount === true
         ? `<div class="admin-modal__section">
@@ -2667,6 +3876,7 @@ Actual label cost ${escapeHtml(actualLabelCostCents != null ? fmt(actualLabelCos
   }
   if (modalMainRenderOk) {
     void hydrateOrderModalAuxiliary(row, gen);
+    await hydrateOrderModalShippoLabels(row, gen);
   }
 }
 

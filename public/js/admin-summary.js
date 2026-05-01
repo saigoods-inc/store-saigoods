@@ -1,6 +1,6 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
 import {
   clearAdminSessionUser,
+  createSupabaseAdminClient,
   fetchReportJson,
   fetchSupabasePublicConfig,
   formatUsdCents,
@@ -140,7 +140,7 @@ function renderRecentPurchasesTable(summary) {
     ? summary.breakdown.recentFinancialActivity
     : [];
   if (!recent.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="summary-empty">No paid orders in this range.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="summary-empty">No paid orders in this range.</td></tr>`;
     return;
   }
   tbody.innerHTML = recent
@@ -151,7 +151,8 @@ function renderRecentPurchasesTable(summary) {
         <td>${escapeHtml(row.orderRef || "—")}</td>
         <td>${escapeHtml(row.productPreview || "—")}</td>
         <td>${escapeHtml(row.quantityPreview || "—")}</td>
-        <td class="summary-td-num">${escapeHtml(row.shippingCostCents != null ? fmtCents(row.shippingCostCents) : "—")}</td>
+        <td class="summary-td-num">${escapeHtml(row.shippingChargedToCustomerCents != null ? fmtCents(row.shippingChargedToCustomerCents) : "—")}</td>
+        <td class="summary-td-num">${escapeHtml(row.actualLabelCostCents != null ? fmtCents(row.actualLabelCostCents) : "—")}</td>
         <td>${escapeHtml(row.customer || "—")}</td>
         <td class="summary-td-num">${escapeHtml(fmtCents(row.revenueCents || 0))}</td>
       </tr>`,
@@ -187,7 +188,7 @@ function renderAlerts(summary) {
 
   const cards = [
     {
-      title: "Orders missing shipping cost",
+      title: "Orders missing quoted shipping (revenue)",
       data: alerts.missingShippingCost,
       rowText: (r) => `${r.orderRef || "—"} · ${fmtDateTime(r.paidAt)}`,
       warn: true,
@@ -312,87 +313,109 @@ function bindSummaryControls() {
 }
 
 async function init() {
-  let config;
+  let config = null;
   try {
     config = await fetchSupabasePublicConfig();
   } catch (e) {
-    document.getElementById("admin-load-error").textContent =
-      e.message || "Add SUPABASE_URL and SUPABASE_ANON_KEY to the server environment.";
-    document.getElementById("admin-load-error").hidden = false;
+    const le = document.getElementById("admin-load-error");
+    if (le) {
+      le.textContent = e?.message || "Add SUPABASE_URL and SUPABASE_ANON_KEY to the server environment.";
+      le.hidden = false;
+    }
     showLogin();
-    document.getElementById("login-form").style.display = "none";
-    return;
   }
 
-  supabase = createClient(config.supabaseUrl, config.supabaseAnonKey, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-    },
-  });
-
-  const presetEl = document.getElementById("summary-range-preset");
-  if (presetEl) {
-    presetEl.value = rangeState.preset;
+  if (config?.supabaseUrl && config?.supabaseAnonKey) {
+    supabase = createSupabaseAdminClient(config.supabaseUrl, config.supabaseAnonKey);
+  } else {
+    supabase = null;
   }
-  updateRangeControlsVisibility();
-  bindSummaryControls();
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  if (supabase) {
+    const presetEl = document.getElementById("summary-range-preset");
+    if (presetEl) {
+      presetEl.value = rangeState.preset;
+    }
+    updateRangeControlsVisibility();
+    bindSummaryControls();
 
-  if (session?.user) {
-    primeAdminSessionUser(session);
-    showApp();
-    document.getElementById("admin-user-email").textContent = session.user.email || "";
-    renderAdminNav("summary");
-    await loadSummary();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (session?.user) {
+      primeAdminSessionUser(session);
+      showApp();
+      document.getElementById("admin-user-email").textContent = session.user.email || "";
+      renderAdminNav("summary");
+      await loadSummary();
+    } else {
+      showLogin();
+    }
+
+    supabase.auth.onAuthStateChange(async (event, sessionAfter) => {
+      if (event === "SIGNED_IN" && sessionAfter?.user) {
+        if (!shouldBootstrapAdminSignedIn(sessionAfter)) {
+          return;
+        }
+        document.getElementById("admin-user-email").textContent = sessionAfter.user.email || "";
+        showApp();
+        renderAdminNav("summary");
+        await loadSummary();
+      }
+      if (event === "SIGNED_OUT") {
+        clearAdminSessionUser();
+        showLogin();
+      }
+    });
   } else {
     showLogin();
   }
-
-  supabase.auth.onAuthStateChange(async (event, sessionAfter) => {
-    if (event === "SIGNED_IN" && sessionAfter?.user) {
-      if (!shouldBootstrapAdminSignedIn(sessionAfter)) {
-        return;
-      }
-      document.getElementById("admin-user-email").textContent = sessionAfter.user.email || "";
-      showApp();
-      renderAdminNav("summary");
-      await loadSummary();
-    }
-    if (event === "SIGNED_OUT") {
-      clearAdminSessionUser();
-      showLogin();
-    }
-  });
 
   document.getElementById("login-form")?.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const errEl = document.getElementById("login-error");
     errEl.hidden = true;
+    if (!supabase) {
+      errEl.textContent =
+        "Server did not return Supabase configuration. Set SUPABASE_URL and SUPABASE_ANON_KEY, restart the server, and refresh.";
+      errEl.hidden = false;
+      return;
+    }
     const fd = new FormData(ev.target);
     const email = String(fd.get("email") || "").trim();
     const password = String(fd.get("password") || "");
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data: signInData, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       errEl.textContent = error.message;
       errEl.hidden = false;
       return;
     }
-    const { data: afterLogin } = await supabase.auth.getSession();
-    primeAdminSessionUser(afterLogin.session);
+    const session = signInData?.session
+      ? signInData.session
+      : (await supabase.auth.getSession()).data?.session ?? null;
+    if (session) {
+      primeAdminSessionUser(session);
+    }
+    const presetEl = document.getElementById("summary-range-preset");
+    if (presetEl) {
+      presetEl.value = rangeState.preset;
+    }
+    updateRangeControlsVisibility();
+    bindSummaryControls();
     showApp();
-    document.getElementById("admin-user-email").textContent = email;
+    document.getElementById("admin-user-email").textContent = session?.user?.email || email;
     renderAdminNav("summary");
     await loadSummary();
   });
 
   document.getElementById("admin-logout")?.addEventListener("click", async () => {
-    await supabase.auth.signOut();
+    if (supabase) {
+      await supabase.auth.signOut();
+    } else {
+      showLogin();
+    }
   });
-
 }
 
 init();

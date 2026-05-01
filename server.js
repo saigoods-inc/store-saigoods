@@ -1,3 +1,4 @@
+import "./import-env.mjs";
 import { createReadStream, readFileSync } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -6,6 +7,11 @@ import { fileURLToPath } from "node:url";
 import { enrichCartQuoteApiResponse } from "./lib/cart-api-response.js";
 import { fetchNexusSummaryRows, fetchTaxSummaryTnRows } from "./lib/orders.js";
 import { buildQuote } from "./lib/quote.js";
+import {
+  buildSupabasePublicConfig503Body,
+  resolveSupabasePublicConfigFromEnv,
+} from "./lib/supabase-public-config-env.js";
+import { isCheckoutAddressValidationEnabled } from "./lib/address-validation.js";
 import { mergeInventoryIntoProduct, mergeInventoryIntoStore } from "./lib/stock.js";
 import { assertReportsAuthorized } from "./lib/reports-auth.js";
 import adminDiscountCodesHandler from "./api/admin-discount-codes.js";
@@ -20,6 +26,7 @@ import adminOrderShippoRefreshStatusHandler from "./api/admin-order-shippo-refre
 import adminOrderShippoPreviewHandler from "./api/admin-order-shippo-preview.js";
 import adminOrderShippoShipmentHandler from "./api/admin-order-shippo-shipment.js";
 import adminOrderShippoPurchaseLabelHandler from "./api/admin-order-shippo-purchase-label.js";
+import adminOrderShippoBuyAllLabelsHandler from "./api/admin-order-shippo-buy-all-labels.js";
 import adminOrderParcelOverrideHandler from "./api/admin-order-parcel-override.js";
 import adminOrderShippoShipmentDateHandler from "./api/admin-order-shippo-shipment-date.js";
 import adminOrderUpdateShippingAddressHandler from "./api/admin-order-update-shipping-address.js";
@@ -32,6 +39,7 @@ import adminOrderShipFromDisplayHandler from "./api/admin-order-ship-from-displa
 import adminOrderExternalFulfillmentSaveHandler from "./api/admin-order-external-fulfillment-save.js";
 import adminOrderFulfillmentDocLinksHandler from "./api/admin-order-fulfillment-doc-links.js";
 import adminSummaryHandler from "./api/admin-summary.js";
+import adminManualOrderRecordPaymentHandler from "./api/admin-manual-order-record-payment.js";
 import adminManualOrderSendLinkHandler from "./api/admin-manual-order-send-link.js";
 import adminManualOrderUpdateDraftHandler from "./api/admin-manual-order-update-draft.js";
 import adminWalkInOrderCreateHandler from "./api/admin-walk-in-order-create.js";
@@ -39,6 +47,7 @@ import adminWalkInOrderDeleteDraftHandler from "./api/admin-walk-in-order-delete
 import adminWalkInOrderDraftsHandler from "./api/admin-walk-in-order-drafts.js";
 import adminWalkInOrderEstimateHandler from "./api/admin-walk-in-order-estimate.js";
 import adminWalkInOrderMarkPaidHandler from "./api/admin-walk-in-order-mark-paid.js";
+import adminWalkInOrderQuickPayHandler from "./api/admin-walk-in-order-quick-pay.js";
 import adminWalkInOrderUpdateDraftHandler from "./api/admin-walk-in-order-update-draft.js";
 import checkoutEstimateHandler from "./api/checkout-estimate.js";
 import checkoutPayHandler from "./api/checkout-pay.js";
@@ -46,8 +55,6 @@ import shippoWebhookHandler from "./api/webhooks/shippo.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-loadDotEnv();
 
 const storeJsonPath = path.join(__dirname, "data", "store.json");
 
@@ -124,18 +131,31 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/square-config" && req.method === "GET") {
       const squareApplicationId = process.env.SQUARE_APPLICATION_ID?.trim() || null;
       const squareLocationId = process.env.SQUARE_LOCATION_ID?.trim() || null;
+      const squareEnvironment =
+        (process.env.SQUARE_ENVIRONMENT || "production").toLowerCase() === "sandbox" ? "sandbox" : "production";
+
+      const checkoutAddressValidationEnabled = isCheckoutAddressValidationEnabled();
+      const isProduction = process.env.NODE_ENV === "production";
+      const checkoutShowAddressValidationDisabledBanner =
+        !checkoutAddressValidationEnabled && !isProduction;
 
       if (!squareApplicationId || !squareLocationId) {
         return sendJson(res, 503, {
           error: "Embedded checkout is not configured.",
           squareApplicationId: null,
           squareLocationId: null,
+          squareEnvironment,
+          checkoutAddressValidationEnabled,
+          checkoutShowAddressValidationDisabledBanner,
         });
       }
 
       return sendJson(res, 200, {
         squareApplicationId,
         squareLocationId,
+        squareEnvironment,
+        checkoutAddressValidationEnabled,
+        checkoutShowAddressValidationDisabledBanner,
       });
     }
 
@@ -260,6 +280,15 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === "/api/admin-manual-order-record-payment" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminManualOrderRecordPaymentHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
     if (pathname === "/api/admin-order-shippo-sync" && req.method === "POST") {
       const body = await readJsonBody(req);
       await adminOrderShippoSyncHandler(
@@ -299,6 +328,15 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/admin-order-shippo-purchase-label" && req.method === "POST") {
       const body = await readJsonBody(req);
       await adminOrderShippoPurchaseLabelHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-order-shippo-buy-all-labels" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminOrderShippoBuyAllLabelsHandler(
         { method: "POST", body, headers: req.headers },
         adaptExpressStyleResponse(res),
       );
@@ -483,6 +521,15 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === "/api/admin-walk-in-order-quick-pay" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminWalkInOrderQuickPayHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
     if (pathname === "/api/checkout" && req.method === "POST") {
       const body = await readJsonBody(req);
       const quote = buildQuote(body.items, { omitShippingEstimate: true });
@@ -522,10 +569,9 @@ const server = createServer(async (req, res) => {
     }
 
     if (pathname === "/api/supabase-public-config") {
-      const supabaseUrl = process.env.SUPABASE_URL?.trim();
-      const supabaseAnonKey = process.env.SUPABASE_ANON_KEY?.trim();
+      const { supabaseUrl, supabaseAnonKey } = resolveSupabasePublicConfigFromEnv();
       if (!supabaseUrl || !supabaseAnonKey) {
-        return sendJson(res, 503, { error: "Supabase public configuration is not set." });
+        return sendJson(res, 503, buildSupabasePublicConfig503Body());
       }
       return sendJson(res, 200, { supabaseUrl, supabaseAnonKey });
     }
@@ -637,37 +683,6 @@ const server = createServer(async (req, res) => {
 server.listen(port, () => {
   console.log(`SAI Goods Store running at http://localhost:${port}`);
 });
-
-function loadDotEnv() {
-  const envPath = path.join(__dirname, ".env");
-
-  try {
-    const raw = readFileSync(envPath, "utf8");
-
-    for (const line of raw.split(/\r?\n/)) {
-      const trimmed = line.trim();
-
-      if (!trimmed || trimmed.startsWith("#")) {
-        continue;
-      }
-
-      const separatorIndex = trimmed.indexOf("=");
-
-      if (separatorIndex === -1) {
-        continue;
-      }
-
-      const key = trimmed.slice(0, separatorIndex).trim();
-      const value = trimmed.slice(separatorIndex + 1).trim();
-
-      if (!process.env[key]) {
-        process.env[key] = value;
-      }
-    }
-  } catch {
-    // .env is optional in local development.
-  }
-}
 
 function safeJoin(root, requestPath) {
   const normalized = path.normalize(decodeURIComponent(requestPath)).replace(/^(\.\.(\/|\\|$))+/, "");

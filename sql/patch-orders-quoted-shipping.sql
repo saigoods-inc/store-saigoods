@@ -1,3 +1,4 @@
+-- For base/buffer columns + PostgREST reload, run patch-orders-checkout-quote-columns.sql (or keep using this file + patch-orders-shipping-buffer.sql).
 alter table public.orders add column if not exists paid_shipping_amount_cents integer not null default 0;
 alter table public.orders add column if not exists quoted_shipping_mode text;
 alter table public.orders add column if not exists quoted_shipping_status text;

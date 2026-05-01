@@ -72,6 +72,7 @@
       </div>
 
       <p id="admin-load-error" class="admin-error" role="alert" hidden></p>
+      <p id="admin-orders-feedback" class="admin-inline-toast admin-inline-toast--success" role="status" hidden style="margin-top:0.5rem"></p>
       <div id="admin-loading" class="admin-loading" hidden>Loading orders…</div>
 
       <div class="admin-table-wrap">
@@ -94,9 +95,60 @@
 
     <div id="order-modal" class="admin-modal" hidden aria-modal="true" role="dialog">
       <div class="admin-modal__backdrop" data-close-modal></div>
-      <div class="admin-modal__panel">
+      <div class="admin-modal__panel admin-modal__panel--order-detail">
         <button type="button" class="admin-modal__close" data-close-modal aria-label="Close">&times;</button>
         <div id="order-modal-body"></div>
+      </div>
+    </div>
+
+    <div
+      id="admin-record-payment-modal"
+      class="admin-modal admin-modal--record-payment"
+      hidden
+      aria-modal="true"
+      role="dialog"
+      aria-labelledby="admin-record-payment-title"
+    >
+      <div class="admin-modal__backdrop" data-close-record-payment></div>
+      <div class="admin-modal__panel admin-modal__panel--sm">
+        <button type="button" class="admin-modal__close" data-close-record-payment aria-label="Close">&times;</button>
+        <h2 id="admin-record-payment-title" class="admin-modal__title" style="margin: 0 0 0.5rem; font-size: 1.1rem">
+          Record payment
+        </h2>
+        <p class="admin-muted" style="margin: 0 0 0.75rem; font-size: 13px">
+          Confirm in-person payment for a pay-later manual order. This marks the order paid and reduces stock.
+        </p>
+        <div id="admin-record-payment-summary" class="admin-record-payment-summary" style="margin: 0 0 0.75rem; font-size: 13px; line-height: 1.5"></div>
+        <form id="admin-record-payment-form" class="admin-record-payment-form">
+          <input type="hidden" name="orderId" id="admin-record-payment-order-id" value="" />
+          <div style="margin-bottom: 0.75rem">
+            <span style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 0.35rem">Payment method</span>
+            <label class="manual-order-radio" style="display: block; margin-bottom: 0.3rem"
+              ><input type="radio" name="rec_pay_method" value="cash" required checked /> Cash</label
+            >
+            <label class="manual-order-radio" style="display: block; margin-bottom: 0.3rem"
+              ><input type="radio" name="rec_pay_method" value="check" /> Check</label
+            >
+            <label class="manual-order-radio" style="display: block"
+              ><input type="radio" name="rec_pay_method" value="other" /> Other</label
+            >
+          </div>
+          <label class="admin-order-full" style="display: block; font-size: 13px; margin-bottom: 0.75rem">
+            Note (optional)
+            <textarea
+              name="rec_pay_note"
+              id="admin-record-payment-note"
+              rows="2"
+              style="width: 100%; margin-top: 0.25rem; font: inherit; padding: 0.4rem 0.5rem; border: 1px solid var(--admin-border); border-radius: 6px"
+              placeholder="e.g. check #, who paid, partial amount"
+            ></textarea>
+          </label>
+          <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: flex-end; margin-top: 0.5rem">
+            <button type="button" class="admin-btn" data-close-record-payment>Cancel</button>
+            <button type="submit" class="admin-btn admin-btn--primary" id="admin-record-payment-confirm">Confirm payment</button>
+          </div>
+        </form>
+        <p id="admin-record-payment-error" class="admin-error" style="margin: 0.5rem 0 0" role="alert" hidden></p>
       </div>
     </div>
 

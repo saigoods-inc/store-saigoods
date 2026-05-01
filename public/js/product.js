@@ -1,4 +1,10 @@
-import { bundleCardPricePerHtml, formatCurrency, getProduct, storefrontSizesForProduct } from "./catalog.js";
+import {
+  bundleCardPricePerHtml,
+  formatCurrency,
+  formatSizeDisplayLabel,
+  getProduct,
+  storefrontSizesForProduct,
+} from "./catalog.js";
 import { getCart, setProductQuantities } from "./cart-store.js";
 import { formatBundleCardSizeSummaryHtml, perBundleSummaryMap } from "./bundle-size-summary.js";
 import { responsiveRasterImg } from "./image-utils.js";
@@ -351,10 +357,26 @@ function renderBundleCard(b, err, globalOos) {
     String(b.badge || "").toLowerCase() === "popular"
       ? `<span class="bundle-card__badge bundle-card__badge--popular">Most popular🔥</span>`
       : "";
-  const saveCents = Math.max(0, Number(b.saveCents) || 0);
-  const badgeSave = saveCents
-    ? `<span class="bundle-card__badge bundle-card__badge--save">Save ${formatCurrency(saveCents)}</span>`
-    : "";
+  const badgeSave = (() => {
+    const kind = String(b.kind || "").toLowerCase();
+    const units = Math.max(0, Math.floor(Number(b.units) || 0));
+    if (kind !== "case" || units < 5) {
+      return "";
+    }
+    const bundles = Array.isArray(product?.bundles) ? product.bundles : [];
+    const caseOne = bundles.find((x) => String(x?.kind || "").toLowerCase() === "case" && Number(x?.units) === 1);
+    const caseOnePrice = Math.max(0, Math.round(Number(caseOne?.priceCents) || 0));
+    const bundlePrice = Math.max(0, Math.round(Number(b?.priceCents) || 0));
+    if (caseOnePrice < 1 || bundlePrice < 1) {
+      return "";
+    }
+    const baseline = caseOnePrice * units;
+    const savings = Math.max(0, baseline - bundlePrice);
+    if (savings < 1) {
+      return "";
+    }
+    return `<span class="bundle-card__badge bundle-card__badge--save">Save ${formatCurrency(savings)}</span>`;
+  })();
 
   const kind = String(b.kind).toLowerCase();
   const showExpand = qty > 0 && openBundleDropdownId === b.id;
@@ -465,15 +487,15 @@ function renderSizeColumn(title, channel, map, { invalid = false, hint = "", hid
             return `
           <div class="${rowClass}">
             <span class="size-row__label-wrap">
-              <span class="size-row__label">${escapeHtml(size)}</span>
+              <span class="size-row__label">${escapeHtml(formatSizeDisplayLabel(size))}</span>
               ${stockNote}
             </span>
             <div class="qty-control qty-control--round">
-              <button type="button" data-action="size-step" data-channel="${channel}" data-size="${escapeHtml(size)}" data-delta="-1" aria-label="Decrease ${escapeHtml(size)} ${channel} count"${
+              <button type="button" data-action="size-step" data-channel="${channel}" data-size="${escapeHtml(size)}" data-delta="-1" aria-label="Decrease ${escapeHtml(formatSizeDisplayLabel(size))} ${channel} count"${
                 minusDisabled ? " disabled" : ""
               }>−</button>
               <strong>${map[size] || 0}</strong>
-              <button type="button" data-action="size-step" data-channel="${channel}" data-size="${escapeHtml(size)}" data-delta="1" aria-label="Increase ${escapeHtml(size)} ${channel} count"${
+              <button type="button" data-action="size-step" data-channel="${channel}" data-size="${escapeHtml(size)}" data-delta="1" aria-label="Increase ${escapeHtml(formatSizeDisplayLabel(size))} ${channel} count"${
                 plusDisabledForRow ? " disabled" : ""
               }>+</button>
             </div>
@@ -526,7 +548,7 @@ function renderProduct() {
   const canPurchase = !globalOos && layoutOk && inventoryOk;
   const stockOutOnly = !globalOos && layoutOk && !inventoryOk;
   const primaryCtaLabel = globalOos ? "New stock arriving soon" : stockOutOnly ? "Currently Out of Stock" : "Add to cart";
-  const secondaryCtaLabel = globalOos ? "New stock arriving soon" : stockOutOnly ? "Currently Out of Stock" : "Go to checkout";
+  const secondaryCtaLabel = globalOos ? "New stock arriving soon" : stockOutOnly ? "Currently Out of Stock" : "Purchase now";
 
   const err = { showBoxError, showCaseError, boxHint, caseHint };
   const bundleSection =

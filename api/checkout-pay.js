@@ -11,6 +11,7 @@ import { cancelPendingOrderAfterPaymentFailure, createPendingOrder, markOrderPai
 import { sendResendOrderConfirmation } from "../lib/resend-order-confirmation.js";
 import { syncWebsiteOrderToShippo } from "../lib/shippo-order-sync.js";
 import { createCardPayment } from "../lib/square.js";
+import { assertCartItemsHaveValidSupportedSizeAllocation } from "../lib/quote.js";
 import { assertStockAvailableForItems } from "../lib/stock.js";
 import { checkoutFlowErrorJsonFields } from "../lib/checkout-estimate-logic.js";
 
@@ -31,13 +32,14 @@ export default async function handler(req, res) {
     }
 
     const addrCheck = await validateShippingAddressForCheckout(parsed.address, { strictShippo: true });
+    addrCheck.submittedAddress = parsed.address;
     if (!addrCheck.ok) {
       res.status(400).json({
         error: addrCheck.error,
-        ...(addrCheck.addressValidation ? { addressValidation: addrCheck.addressValidation } : {}),
-        ...(addrCheck.fieldErrors && Object.keys(addrCheck.fieldErrors).length
-          ? { fieldErrors: addrCheck.fieldErrors }
-          : {}),
+        ...checkoutFlowErrorJsonFields({
+          addressValidation: addrCheck.addressValidation,
+          fieldErrors: addrCheck.fieldErrors,
+        }),
       });
       return;
     }
@@ -72,6 +74,7 @@ export default async function handler(req, res) {
       hardinDiscount = { code: normalizedCode, applied: true };
     }
 
+    assertCartItemsHaveValidSupportedSizeAllocation(parsed.items);
     await assertStockAvailableForItems(parsed.items);
     const quote = await buildFullCheckoutQuote(parsed.items, mergedAddress, {
       pricingTier,

@@ -31,7 +31,9 @@
         <div>
           <h1>Manual order</h1>
           <p class="admin-muted">
-            Same pricing, tax, and discount rules as website checkout. Save a draft, then email the customer a Square payment link.
+            Fill the order, calculate totals, choose fulfillment and payment flow, then complete one final action.
+            Use <strong>Create order &amp; send payment link</strong> for Square-link orders, or
+            <strong>Create unpaid order</strong> for pay-later orders.
           </p>
         </div>
         <div class="admin-header__actions">
@@ -47,15 +49,12 @@
       <form id="manual-order-form" class="manual-order-form">
         <section class="manual-order-section manual-order-section--drafts">
           <div class="manual-order-section-head">
-            <h2>Saved drafts</h2>
+            <h2>Manual order</h2>
             <button type="button" class="admin-btn admin-btn--small" id="btn-new-order">New order</button>
           </div>
-          <p class="admin-muted" style="margin: 0 0 0.5rem">
-            Open a draft to edit, or delete drafts you no longer need. Only <strong>draft</strong> manual orders appear here.
+          <p class="admin-muted" style="margin: 0">
+            This page now uses direct final actions (no draft step).
           </p>
-          <div id="manual-drafts-list" class="manual-drafts-list">
-            <p class="admin-muted manual-drafts-empty">Loading…</p>
-          </div>
         </section>
 
         <section class="manual-order-section">
@@ -72,33 +71,7 @@
             </label>
             <label>
               Phone
-              <input type="tel" name="cust_phone" required autocomplete="tel" />
-            </label>
-          </div>
-        </section>
-
-        <section class="manual-order-section">
-          <h2>Shipping address</h2>
-          <div class="manual-order-grid">
-            <label class="manual-order-full">
-              Street address
-              <input type="text" name="addr_line1" required autocomplete="address-line1" />
-            </label>
-            <label class="manual-order-full">
-              Apt, suite (optional)
-              <input type="text" name="addr_line2" autocomplete="address-line2" />
-            </label>
-            <label>
-              City
-              <input type="text" name="addr_city" required autocomplete="address-level2" />
-            </label>
-            <label>
-              State
-              <select name="addr_state" id="addr_state" required></select>
-            </label>
-            <label>
-              ZIP
-              <input type="text" name="addr_zip" required inputmode="numeric" autocomplete="postal-code" />
+              <input type="tel" name="cust_phone" autocomplete="tel" />
             </label>
           </div>
         </section>
@@ -109,6 +82,107 @@
             Same flow as the store: pick bundle packs, then assign sizes so totals match. Expand each product as needed. Calculate totals and save draft are blocked (with an error message) until every active line validates.
           </p>
           <div id="manual-products"></div>
+        </section>
+
+        <section class="manual-order-section" id="manual-fulfillment-section">
+          <h2>Fulfillment</h2>
+          <p class="admin-muted" style="margin: 0 0 0.5rem">How the order will reach the customer. Carrier = ship with a label; local = you deliver; pickup = customer comes to the store.</p>
+          <div class="manual-order-radio-group" role="group" aria-label="Fulfillment method">
+            <label class="manual-order-radio">
+              <input type="radio" name="fulfillment_method" value="carrier" checked />
+              <span>Ship with carrier</span>
+            </label>
+            <label class="manual-order-radio">
+              <input type="radio" name="fulfillment_method" value="local_delivery" />
+              <span>Local delivery</span>
+            </label>
+            <label class="manual-order-radio">
+              <input type="radio" name="fulfillment_method" value="pickup" />
+              <span>Pickup</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="manual-order-section" id="manual-shipping-block">
+          <h2>Shipping / delivery address</h2>
+          <p class="admin-muted" id="manual-addr-hint" style="margin: 0 0 0.5rem" hidden>Used for local delivery or tax. You can add details when known.</p>
+          <div class="manual-order-grid" id="manual-addr-grid">
+            <label class="manual-order-full">
+              Street address
+              <input type="text" name="addr_line1" autocomplete="address-line1" />
+              <span class="manual-addr-field__error" id="manual-addr-line1-err" hidden></span>
+            </label>
+            <label class="manual-order-full">
+              Apt, suite (optional)
+              <input type="text" name="addr_line2" autocomplete="address-line2" />
+            </label>
+            <label>
+              City
+              <input type="text" name="addr_city" autocomplete="address-level2" />
+              <span class="manual-addr-field__error" id="manual-addr-city-err" hidden></span>
+            </label>
+            <label>
+              State
+              <select name="addr_state" id="addr_state"></select>
+              <span class="manual-addr-field__error" id="manual-addr-state-err" hidden></span>
+            </label>
+            <label>
+              ZIP
+              <input type="text" name="addr_zip" inputmode="numeric" autocomplete="postal-code" />
+              <span class="manual-addr-field__error" id="manual-addr-zip-err" hidden></span>
+            </label>
+          </div>
+          <div id="manual-address-suggestion" class="manual-address-suggestion" hidden>
+            <p class="manual-address-suggestion__lead">
+              Compare the addresses below. Use the button to copy the suggested line into the form, or edit your
+              entry and recalculate.
+            </p>
+            <div class="manual-address-suggestion__grid">
+              <div class="manual-address-suggestion__col">
+                <strong class="manual-address-suggestion__label">You entered</strong>
+                <pre class="manual-address-suggestion__pre" id="manual-address-submitted-display"></pre>
+              </div>
+              <div class="manual-address-suggestion__col">
+                <strong class="manual-address-suggestion__label">Suggested</strong>
+                <pre class="manual-address-suggestion__pre" id="manual-address-suggested-display"></pre>
+              </div>
+            </div>
+            <button type="button" class="admin-btn" id="manual-address-use-suggested">Use suggested address</button>
+          </div>
+          <div id="manual-carrier-rates-row" class="manual-carrier-rates-row" hidden>
+            <button type="button" class="admin-btn" id="btn-get-shipping-rates">Get shipping rates</button>
+            <p class="admin-muted manual-carrier-rates-row__hint">
+              Loads carrier services, shipping line, and residential preview for this address. Use
+              <strong>Calculate totals</strong> below for a full order quote before you save.
+            </p>
+          </div>
+          <label class="manual-order-full" id="manual-local-note-wrap" style="display: block; margin-top: 0.5rem" hidden>
+            Local delivery note (optional)
+            <textarea name="local_delivery_note" rows="2" placeholder="Gate code, time window, etc."></textarea>
+          </label>
+          <label class="manual-order-full" id="manual-ship-date-wrap" style="display: block; margin-top: 0.5rem">
+            Expected ship date
+            <input type="date" name="expected_ship_date" />
+          </label>
+          <div id="manual-shipping-rate-section" class="manual-shipping-rate-section" hidden>
+            <p class="admin-muted manual-shipping-rate-section__title">Carrier service</p>
+            <div id="manual-shipping-rate-options" role="radiogroup" aria-label="Choose shipping service"></div>
+          </div>
+        </section>
+
+        <section class="manual-order-section" id="manual-payment-mode-section">
+          <h2>Payment</h2>
+          <p class="admin-muted" style="margin: 0 0 0.5rem">Square link emails a checkout page. Pay later keeps the order unpaid for in-person or future payment.</p>
+          <div class="manual-order-radio-group" role="group" aria-label="Payment method">
+            <label class="manual-order-radio">
+              <input type="radio" name="payment_method" value="square_payment_link" checked />
+              <span>Send Square payment link</span>
+            </label>
+            <label class="manual-order-radio">
+              <input type="radio" name="payment_method" value="pay_later" />
+              <span>Pay later / pay when pickup</span>
+            </label>
+          </div>
         </section>
 
         <section class="manual-order-section">
@@ -143,9 +217,10 @@
         </div>
 
         <div class="manual-order-actions manual-order-actions--save">
-          <button type="button" class="admin-btn admin-btn--primary" id="btn-save-draft">Save draft order</button>
-          <button type="button" class="admin-btn admin-btn--primary" id="btn-send-link" disabled>Send payment link email</button>
+          <button type="button" class="admin-btn admin-btn--primary" id="btn-send-link" disabled>Create order &amp; send payment link</button>
+          <button type="button" class="admin-btn admin-btn--primary" id="btn-create-unpaid" hidden>Create unpaid order</button>
         </div>
+        <p id="manual-send-link-helper" class="admin-muted" hidden>Please get fresh shipping rates before sending the invoice.</p>
 
         <div id="manual-result" class="manual-order-result" hidden>
           <h3>Order saved</h3>

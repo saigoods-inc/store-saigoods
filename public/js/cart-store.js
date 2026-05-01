@@ -6,17 +6,13 @@ export function getCart(sizes = FALLBACK_SIZES) {
   return Object.entries(cartMap).map(([slug, raw]) => serialiseCartItemForApi(slug, raw, sizes));
 }
 
-export function getCartCount() {
-  const cartMap = readCartMap();
-
-  return Object.values(cartMap).reduce((sum, raw) => {
-    const entry = normaliseCartEntry(raw, FALLBACK_SIZES);
-    return (
-      sum +
-      getLineCases(entry.quantities) +
-      getLineCases(entry.boxQuantities)
-    );
-  }, 0);
+/**
+ * Header badge: number of distinct products in the cart (one per slug), not case/box/bundle units.
+ * Cart storage, checkout payloads, and pricing are unchanged.
+ */
+export function getCartCount(sizes = FALLBACK_SIZES) {
+  const cartMap = cleanCartMap(readCartMap(), sizes);
+  return Object.keys(cartMap).length;
 }
 
 export function getQuantitiesTotal(quantities) {

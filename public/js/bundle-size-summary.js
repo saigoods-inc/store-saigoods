@@ -97,7 +97,7 @@ export function formatBundleCardSizeSummaryHtml(map, sizes, escapeHtmlFn) {
   for (const size of sizeOrder) {
     const q = Math.floor(Number(map?.[size])) || 0;
     if (q > 0) {
-      segments.push(`${q} ${size}`);
+      segments.push(formatSelectionDisplay({ kind: "size", size, qty: q }));
     }
   }
   if (segments.length === 0) {
@@ -109,4 +109,41 @@ export function formatBundleCardSizeSummaryHtml(map, sizes, escapeHtmlFn) {
         `<span class="bundle-card__size-summary-seg">${esc(seg)}</span>`,
     )
     .join('<span class="bundle-card__size-summary-sep" aria-hidden="true">•</span>');
+}
+
+function toDisplaySizeLabel(size) {
+  const raw = String(size || "").trim().toUpperCase();
+  if (raw === "S") return "small";
+  if (raw === "M") return "medium";
+  if (raw === "L") return "large";
+  if (raw === "XL" || raw === "X LARGE" || raw === "X-LARGE") return "x-large";
+  return String(size || "").trim().toLowerCase();
+}
+
+function pluralize(word, qty) {
+  const n = Math.max(0, Math.floor(Number(qty) || 0));
+  if (word === "box") {
+    return n === 1 ? "box" : "boxes";
+  }
+  return n === 1 ? word : `${word}s`;
+}
+
+/**
+ * Display-only formatter for selected quantity wording.
+ * Keeps backend/cart keys unchanged.
+ * @param {{ kind: "size" | "box" | "case", qty: number, size?: string }} selection
+ */
+export function formatSelectionDisplay(selection) {
+  const n = Math.max(0, Math.floor(Number(selection?.qty) || 0));
+  if (n < 1) {
+    return "";
+  }
+  const kind = String(selection?.kind || "").toLowerCase();
+  if (kind === "size") {
+    return `${n} ${toDisplaySizeLabel(selection?.size)}`;
+  }
+  if (kind === "box" || kind === "case") {
+    return `${n} ${pluralize(kind, n)}`;
+  }
+  return `${n}`;
 }

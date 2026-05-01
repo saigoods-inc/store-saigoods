@@ -32,6 +32,8 @@ create table if not exists public.orders (
   quoted_shipping_mode text,
   quoted_shipping_status text,
   quoted_shipping_amount_cents integer not null default 0,
+  quoted_shipping_base_amount_cents integer not null default 0,
+  quoted_shipping_buffer_cents integer not null default 0,
   quoted_shipping_residential_surcharge_cents integer not null default 0,
   quoted_shipping_total_cents integer not null default 0,
   quoted_shipping_service_code text,
@@ -58,9 +60,11 @@ comment on column public.orders.tax_collected is 'Sales tax collected, cents (TN
 comment on column public.orders.paid_shipping_amount_cents is 'Shipping amount charged to customer at payment finalization; keep shipping_cents mirrored during transition.';
 comment on column public.orders.quoted_shipping_mode is 'Quote shipping mode snapshot (e.g. baked_in, live_ups).';
 comment on column public.orders.quoted_shipping_status is 'Quote shipping status snapshot (e.g. quoted, included_in_merchandise, invalid_address).';
-comment on column public.orders.quoted_shipping_amount_cents is 'Base quoted shipping amount before surcharge, cents.';
+comment on column public.orders.quoted_shipping_amount_cents is 'Customer-facing carrier line in cents (may include buffer; see quoted_shipping_base_amount_cents).';
+comment on column public.orders.quoted_shipping_base_amount_cents is 'Provider-quoted line before buffer, cents.';
+comment on column public.orders.quoted_shipping_buffer_cents is 'Cents added at quote time (e.g. SHIPPING_BUFFER_CENTS).';
 comment on column public.orders.quoted_shipping_residential_surcharge_cents is 'Quoted residential surcharge, cents.';
-comment on column public.orders.quoted_shipping_total_cents is 'Quoted shipping line charged to customer, cents.';
+comment on column public.orders.quoted_shipping_total_cents is 'Quoted shipping + residential surcharge, cents.';
 comment on column public.orders.quoted_shipping_service_code is 'Quoted carrier service code.';
 comment on column public.orders.quoted_shipping_service_label is 'Quoted carrier service display label.';
 comment on column public.orders.quoted_shipping_currency is 'Quoted shipping currency (USD).';

@@ -1,6 +1,6 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
 import {
   clearAdminSessionUser,
+  createSupabaseAdminClient,
   fetchReportJson,
   fetchReportPost,
   fetchSupabasePublicConfig,
@@ -384,72 +384,95 @@ async function bootstrap(session) {
 }
 
 async function init() {
-  let config;
+  let config = null;
   try {
     config = await fetchSupabasePublicConfig();
   } catch (e) {
-    document.getElementById("admin-load-error").textContent =
-      e.message || "Add SUPABASE_URL and SUPABASE_ANON_KEY to the server environment.";
-    document.getElementById("admin-load-error").hidden = false;
+    const le = document.getElementById("admin-load-error");
+    if (le) {
+      le.textContent = e?.message || "Add SUPABASE_URL and SUPABASE_ANON_KEY to the server environment.";
+      le.hidden = false;
+    }
     showLogin();
-    document.getElementById("login-form").style.display = "none";
-    return;
   }
 
-  supabase = createClient(config.supabaseUrl, config.supabaseAnonKey, {
-    auth: { persistSession: true, autoRefreshToken: true },
-  });
+  if (config?.supabaseUrl && config?.supabaseAnonKey) {
+    supabase = createSupabaseAdminClient(config.supabaseUrl, config.supabaseAnonKey);
+  } else {
+    supabase = null;
+  }
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  if (supabase) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
-  if (session?.user) {
-    primeAdminSessionUser(session);
-    showApp();
-    await bootstrap(session);
+    if (session?.user) {
+      primeAdminSessionUser(session);
+      showApp();
+      await bootstrap(session);
+    } else {
+      showLogin();
+    }
+
+    supabase.auth.onAuthStateChange(async (event, sess) => {
+      if (event === "SIGNED_IN" && sess?.user) {
+        if (!shouldBootstrapAdminSignedIn(sess)) {
+          return;
+        }
+        showApp();
+        await bootstrap(sess);
+      }
+      if (event === "SIGNED_OUT") {
+        clearAdminSessionUser();
+        showLogin();
+      }
+    });
   } else {
     showLogin();
   }
-
-  supabase.auth.onAuthStateChange(async (event, sess) => {
-    if (event === "SIGNED_IN" && sess?.user) {
-      if (!shouldBootstrapAdminSignedIn(sess)) {
-        return;
-      }
-      showApp();
-      await bootstrap(sess);
-    }
-    if (event === "SIGNED_OUT") {
-      clearAdminSessionUser();
-      showLogin();
-    }
-  });
 
   document.getElementById("login-form")?.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const errEl = document.getElementById("login-error");
     errEl.hidden = true;
+    if (!supabase) {
+      errEl.textContent =
+        "Server did not return Supabase configuration. Set SUPABASE_URL and SUPABASE_ANON_KEY, restart the server, and refresh.";
+      errEl.hidden = false;
+      return;
+    }
     const fd = new FormData(ev.target);
     const email = String(fd.get("email") || "").trim();
     const password = String(fd.get("password") || "");
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data: signInData, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       errEl.textContent = error.message;
       errEl.hidden = false;
       return;
     }
-    const { data: afterLogin } = await supabase.auth.getSession();
-    primeAdminSessionUser(afterLogin.session);
+    const session = signInData?.session
+      ? signInData.session
+      : (await supabase.auth.getSession()).data?.session ?? null;
+    if (session) {
+      primeAdminSessionUser(session);
+    }
     showApp();
-    await bootstrap(afterLogin.session);
+    await bootstrap(session);
   });
 
   document.getElementById("admin-logout")?.addEventListener("click", async () => {
-    await supabase.auth.signOut();
+    if (supabase) {
+      await supabase.auth.signOut();
+    } else {
+      showLogin();
+    }
   });
 
   document.getElementById("admin-refresh")?.addEventListener("click", async () => {
+    if (!supabase) {
+      return;
+    }
     const { data: s } = await supabase.auth.getSession();
     if (s?.session) {
       await bootstrap(s.session);
@@ -457,6 +480,9 @@ async function init() {
   });
 
   document.getElementById("inv-save-all")?.addEventListener("click", async () => {
+    if (!supabase) {
+      return;
+    }
     const { data: s } = await supabase.auth.getSession();
     if (!s?.session) {
       return;

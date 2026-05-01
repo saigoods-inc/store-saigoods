@@ -8,6 +8,7 @@
     "start": "node server.js",
     "api:dev": "vercel dev",
     "test:resend": "node scripts/test-resend-email.mjs",
+    "test:quote-physical": "node --test lib/quote-physical-allocation.test.js",
     "optimize:images": "node scripts/optimize-images.mjs",
     "bootstrap:inventory": "node scripts/bootstrap-inventory-from-json.mjs"
   },

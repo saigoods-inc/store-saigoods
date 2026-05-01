@@ -1,4 +1,5 @@
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
+import { normalizeFulfillmentMethod } from "../lib/manual-order-fulfillment.js";
 import { getOrderByIdForService, updateOrderShippoShipmentDate } from "../lib/orders.js";
 
 function parseOptionalYmd(input) {
@@ -35,6 +36,22 @@ export default async function handler(req, res) {
     if (!existing) {
       res.status(404).json({ error: "Order not found." });
       return;
+    }
+
+    const src = String(existing.order_source || "");
+    const typ = String(existing.order_type || "");
+    if (typ === "walk_in" || src === "walk_in") {
+      res.status(400).json({ error: "Planned ship date does not apply to walk-in orders." });
+      return;
+    }
+    if (src === "manual") {
+      const fm = normalizeFulfillmentMethod(existing.fulfillment_method);
+      if (fm === "pickup" || fm === "local_delivery") {
+        res
+          .status(400)
+          .json({ error: "Planned ship date applies to carrier (ship) orders, not pickup or local delivery." });
+        return;
+      }
     }
 
     const parsed = parseOptionalYmd(req.body?.shipmentDate);

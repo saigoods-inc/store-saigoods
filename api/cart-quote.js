@@ -1,5 +1,5 @@
 import { enrichCartQuoteApiResponse } from "../lib/cart-api-response.js";
-import { buildQuote } from "../lib/quote.js";
+import { assertCartItemsHaveValidSupportedSizeAllocation, buildQuote } from "../lib/quote.js";
 import { assertStockAvailableForItems } from "../lib/stock.js";
 
 export default async function handler(req, res) {
@@ -10,6 +10,7 @@ export default async function handler(req, res) {
 
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    assertCartItemsHaveValidSupportedSizeAllocation(items);
     await assertStockAvailableForItems(items);
     const quote = buildQuote(items, { omitShippingEstimate: true });
 

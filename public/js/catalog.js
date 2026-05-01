@@ -82,6 +82,15 @@ export function formatCaseLabel(count) {
   return `${count} case${count === 1 ? "" : "s"}`;
 }
 
+export function formatSizeDisplayLabel(size) {
+  const raw = String(size || "").trim().toUpperCase();
+  if (raw === "S") return "Small";
+  if (raw === "M") return "Medium";
+  if (raw === "L") return "Large";
+  if (raw === "XL" || raw === "X LARGE" || raw === "X-LARGE") return "XLarge";
+  return String(size || "").trim();
+}
+
 /**
  * One size row: "Small: 3 cases 2 boxes" (omits zero parts).
  * @returns {string|null}
@@ -99,7 +108,7 @@ export function formatSizeLineText(size, quantities, boxQuantities) {
   if (b > 0) {
     parts.push(`${b} box${b === 1 ? "" : "es"}`);
   }
-  return `${size}: ${parts.join(" ")}`;
+  return `${formatSizeDisplayLabel(size)}: ${parts.join(" ")}`;
 }
 
 /** Cart / quote line: cases and/or boxes. */

@@ -1,5 +1,6 @@
 import { claimDiscountCodeForOrder, normalizeDiscountCode, releaseDiscountCodeForOrder } from "../lib/discount-codes.js";
 import { computeCheckoutEstimate, checkoutFlowErrorJsonFields } from "../lib/checkout-estimate-logic.js";
+import { normalizeFulfillmentMethod } from "../lib/manual-order-fulfillment.js";
 import { computeEconomicsSnapshotForOrder } from "../lib/order-economics.js";
 import { sendManualOrderPaymentLinkEmail } from "../lib/manual-order-payment-email.js";
 import {
@@ -10,6 +11,22 @@ import {
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
 import { createClient } from "@supabase/supabase-js";
 import { createPaymentLink } from "../lib/square.js";
+
+function parseOptionalYmd(input) {
+  if (input === null || input === undefined || input === "") {
+    return { ok: true, value: null };
+  }
+  const s = String(input).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return { ok: false, error: "Expected ship date must be YYYY-MM-DD." };
+  }
+  const [y, mo, d] = s.split("-").map((x) => Number(x));
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) {
+    return { ok: false, error: "Expected ship date is invalid." };
+  }
+  return { ok: true, value: s };
+}
 
 function getServiceClient() {
   const url = process.env.SUPABASE_URL?.trim();
@@ -22,7 +39,7 @@ function getServiceClient() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-async function syncOrderTotalsFromQuote(client, orderId, quote, shippingAddress) {
+async function syncOrderTotalsFromQuote(client, orderId, quote, shippingAddress, shipmentDateYmd = null) {
   const amountCents =
     Math.max(0, Number(quote.subtotalCents) || 0) + Math.max(0, Number(quote.shippingCents) || 0);
   const taxCollected = Math.max(0, Number(quote.taxCents) || 0);
@@ -38,6 +55,10 @@ async function syncOrderTotalsFromQuote(client, orderId, quote, shippingAddress)
       amount: amountCents,
       tax_collected: taxCollected,
       ...buildOrderQuoteSnapshotColumns({ quote, shippingAddress }),
+      shippo_shipment_date:
+        shipmentDateYmd === null || shipmentDateYmd === undefined || String(shipmentDateYmd).trim() === ""
+          ? null
+          : String(shipmentDateYmd).trim(),
       admin_local_discount_override: Boolean(quote.adminLocalDiscountForced),
       updated_at: new Date().toISOString(),
       ...computeEconomicsSnapshotForOrder(quote.items, quote),
@@ -59,6 +80,11 @@ export default async function handler(req, res) {
   try {
     await assertReportsAuthorized(req);
     const orderId = String(req.body?.orderId || "").trim();
+    const parsedShipmentDate = parseOptionalYmd(req.body?.shipmentDate);
+    if (!parsedShipmentDate.ok) {
+      res.status(400).json({ error: parsedShipmentDate.error });
+      return;
+    }
     if (!orderId) {
       res.status(400).json({ error: "orderId is required." });
       return;
@@ -85,6 +111,13 @@ export default async function handler(req, res) {
       return;
     }
 
+    if (String(order.payment_flow || "square_payment_link") === "pay_later") {
+      res.status(400).json({
+        error: "This order is Pay later. Use mark-as-paid when the customer pays (or change payment method to Square link before saving if you need to email a link).",
+      });
+      return;
+    }
+
     if (String(order.status || "") === "paid") {
       res.status(400).json({ error: "This order is already paid." });
       return;
@@ -98,7 +131,13 @@ export default async function handler(req, res) {
 
     const adminAddressHardin =
       order.is_hardin_discount === true && !String(order.discount_code_used || "").trim();
+    const fm = normalizeFulfillmentMethod(order.fulfillment_method);
+    const isCarrier = fm === "carrier";
 
+    const b = req.body || {};
+    const selectedFromBody = String(b?.selectedShippingRateObjectId || "").trim();
+    const selectedFromOrder = String(order.quoted_shipping_provider_quote_id || "").trim();
+    const selectedRateId = selectedFromBody || selectedFromOrder;
     const estimateBody = {
       items: order.items,
       address: shipAddr,
@@ -106,18 +145,50 @@ export default async function handler(req, res) {
       applyEligibleLocalDiscount: adminAddressHardin,
       forceApplyEligibleLocalDiscount:
         adminAddressHardin && order.admin_local_discount_override === true,
-      ...(req.body?.forceStockOverride === true ? { forceStockOverride: true } : {}),
+      fulfillmentMethod: fm,
+      ...(b.forceStockOverride === true ? { forceStockOverride: true } : {}),
+      ...(selectedRateId ? { selectedShippingRateObjectId: selectedRateId } : {}),
+      ...(String(b?.selectedShippingServiceCode || "").trim()
+        ? { selectedShippingServiceCode: String(b.selectedShippingServiceCode).trim() }
+        : {}),
+      ...(String(b?.selectedShippingServiceLabel || "").trim()
+        ? { selectedShippingServiceLabel: String(b.selectedShippingServiceLabel).trim() }
+        : {}),
+      ...(String(b?.selectedShippingProvider || "").trim()
+        ? { selectedShippingProvider: String(b.selectedShippingProvider).trim() }
+        : {}),
+      ...(b?.selectedShippingAmountCents != null && Number.isFinite(Number(b.selectedShippingAmountCents))
+        ? { selectedShippingAmountCents: Math.max(0, Math.round(Number(b.selectedShippingAmountCents))) }
+        : {}),
+      ...(b?.selectedShippingParcelCount != null && Number.isFinite(Number(b.selectedShippingParcelCount))
+        ? { selectedShippingParcelCount: Math.max(0, Math.floor(Number(b.selectedShippingParcelCount))) }
+        : {}),
+      ...(b?.selectedShippingResidentialSurchargeCents != null &&
+      Number.isFinite(Number(b.selectedShippingResidentialSurchargeCents))
+        ? {
+            selectedShippingResidentialSurchargeCents: Math.max(
+              0,
+              Math.round(Number(b.selectedShippingResidentialSurchargeCents)),
+            ),
+          }
+        : {}),
     };
 
     const quote = await computeCheckoutEstimate(estimateBody, {
-      requireCompleteAddress: true,
+      requireCompleteAddress: isCarrier,
       adminLocalDiscount: adminAddressHardin,
-      strictShippo: false,
+      strictShippo: isCarrier,
       allowForceStockOverride: true,
     });
 
     const client = getServiceClient();
-    await syncOrderTotalsFromQuote(client, order.id, quote, shipAddr);
+    await syncOrderTotalsFromQuote(
+      client,
+      order.id,
+      quote,
+      shipAddr,
+      parsedShipmentDate.value != null ? parsedShipmentDate.value : order.shippo_shipment_date || null,
+    );
 
     const normalizedCode = order.discount_code_used
       ? normalizeDiscountCode(String(order.discount_code_used))
@@ -149,6 +220,7 @@ export default async function handler(req, res) {
         checkoutOptions: {
           quoteShipping: true,
           askForShippingAddress: false,
+          shippingAsLineItems: true,
         },
       });
 

@@ -130,19 +130,7 @@ function renderHeader(site, page, searchValue) {
           <img src="/img/nav-logo.svg" alt="${escapeHtml(site.name)} logo" width="44" height="44" decoding="async" />
         </a>
 
-        <form class="search-form" data-global-search>
-          <button class="search-form__button" type="submit" aria-label="Search products">
-            <img src="/img/search-icon.svg" alt="" aria-hidden="true" width="16" height="16" decoding="async" />
-          </button>
-          <input
-            type="search"
-            name="query"
-            value="${escapeHtml(searchValue)}"
-            placeholder="Search for your product here"
-            aria-label="Search for gloves"
-            autocomplete="off"
-          />
-        </form>
+        <p class="site-header-welcome" role="status">🖐️ Welcome to SAI Goods Store</p>
 
         <a class="cart-link" href="/cart.html" aria-label="View cart">
           <img src="/img/cart-icon.svg" alt="" aria-hidden="true" width="22" height="22" decoding="async" />

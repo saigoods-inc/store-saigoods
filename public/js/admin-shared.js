@@ -1,3 +1,27 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.8";
+
+/**
+ * Isolated from other Supabase apps on the same site; keeps session in localStorage under one key.
+ */
+const SAIGOODS_ADMIN_AUTH_STORAGE_KEY = "saigoods-admin-supabase-auth";
+
+/**
+ * Browser client for all staff /admin pages. Uses persistent session (localStorage) and refresh.
+ * @param {string} supabaseUrl
+ * @param {string} supabaseAnonKey
+ * @returns {import("@supabase/supabase-js").SupabaseClient}
+ */
+export function createSupabaseAdminClient(supabaseUrl, supabaseAnonKey) {
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      storageKey: SAIGOODS_ADMIN_AUTH_STORAGE_KEY,
+    },
+  });
+}
+
 /**
  * Supabase GoTrue calls `_recoverAndRefresh()` when the tab becomes visible again and may emit
  * `SIGNED_IN` with the same user — not only on a real login. Track the last user we already
@@ -33,7 +57,8 @@ export async function fetchSupabasePublicConfig() {
   const res = await fetch("/api/supabase-public-config");
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.error || "Could not load configuration.");
+    const msg = [data.hint, data.error].filter(Boolean).join(" — ") || "Could not load configuration.";
+    throw new Error(msg);
   }
   return data;
 }
