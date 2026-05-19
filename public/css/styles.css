@@ -227,6 +227,8 @@ button {
 
 /* Full-width announcement bar (home) — below navbar; when stuck, leaves 3rem inset from viewport top */
 .announcement-bar {
+  /* Hidden for now — remove the next line to show the bar again */
+  display: none;
   position: sticky;
   top: 0.75rem;
   z-index: 21;
@@ -1961,6 +1963,15 @@ button {
   color: #b42318;
 }
 
+/* Softer than error red: address confirmation / Shippo-normalized suggestion (not a hard failure). */
+.checkout-shipping-error.checkout-shipping-error--notice {
+  padding: 0.65rem 0.85rem;
+  border-radius: 6px;
+  background: #fff3cd;
+  color: #664d03;
+  font-style: normal;
+}
+
 .checkout-optional {
   color: var(--muted);
   font-weight: var(--font-weight-thin);
@@ -2183,7 +2194,7 @@ button {
 
 .checkout-success-modal__message {
   margin: 0 0 1.25rem;
-  font-size: var(--fs-body, 1rem);
+  font-size: 0.8rem;
   color: var(--muted, #52525b);
 }
 
@@ -2207,7 +2218,7 @@ button {
 .checkout-success-modal__order-ref,
 .checkout-success-modal__order-id,
 .checkout-success-modal__total {
-  margin: 0 0 0.5rem;
+  margin: 0;
   font-size: var(--fs-body-secondary, 0.9375rem);
   line-height: 1.45;
 }
@@ -2215,7 +2226,8 @@ button {
 .checkout-success-modal__order-ref:last-of-type,
 .checkout-success-modal__order-id:last-of-type,
 .checkout-success-modal__total:last-of-type {
-  margin-bottom: 0.25rem;
+  padding-bottom: 0.8rem;
+  border-bottom: 1px solid #e4e4e4;
 }
 
 .checkout-success-modal__order-id code {
@@ -2248,7 +2260,7 @@ button {
 
 .checkout-success-modal__product-name {
   font-weight: var(--font-weight-semibold, 600);
-  font-size: var(--fs-body, 1rem);
+  font-size: 0.85rem;
 }
 
 .checkout-success-modal__product-meta {

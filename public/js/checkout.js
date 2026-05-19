@@ -12,6 +12,19 @@ const CHECKOUT_DISCOUNT_ERROR_PREFIXES = [
   "This discount code has already been used.",
 ];
 
+/** Shown above the shipping form when the carrier verified a deliverable normalized address. */
+const CHECKOUT_ADDRESS_NOTICE_COPY =
+  "Please confirm your shipping address. We found a deliverable version of your address below.";
+
+function isAddressMismatchOrSuggestionPayload(data) {
+  const av = data?.addressValidation && typeof data.addressValidation === "object" ? data.addressValidation : null;
+  const code = String(av?.code || "").trim().toLowerCase();
+  return (
+    code === "address_mismatch" ||
+    Boolean(data?.addressSuggestion && typeof data.addressSuggestion === "object")
+  );
+}
+
 function isCheckoutDiscountApiError(message) {
   const m = String(message || "").trim();
   if (!m) {
@@ -626,6 +639,7 @@ function clearShippingSectionError() {
   }
   el.hidden = true;
   el.textContent = "";
+  el.classList.remove("checkout-shipping-error--notice");
 }
 
 const ADDRESS_FIELD_ERR_IDS = {
@@ -717,7 +731,11 @@ function applyCheckoutShippingAddressErrors(data) {
     (typeof data?.message === "string" && data.message.trim()) ||
     "";
   if (banner) {
-    showShippingSectionError(banner);
+    if (isAddressMismatchOrSuggestionPayload(data)) {
+      showShippingSectionError(CHECKOUT_ADDRESS_NOTICE_COPY, { tone: "notice" });
+    } else {
+      showShippingSectionError(banner);
+    }
   }
 }
 
@@ -865,13 +883,19 @@ function showDiscountSectionWarning(message) {
   }
 }
 
-function showShippingSectionError(message) {
+/**
+ * @param {string} message
+ * @param {{ tone?: "error" | "notice" }} [options] notice = soft confirmation (address mismatch / suggestion).
+ */
+function showShippingSectionError(message, options = {}) {
   const el = document.getElementById("checkout-shipping-error");
   if (!el) {
     return;
   }
   el.textContent = message;
   el.hidden = false;
+  const notice = options.tone === "notice";
+  el.classList.toggle("checkout-shipping-error--notice", notice);
 }
 
 /**
@@ -950,6 +974,8 @@ async function runEstimate(options = {}) {
   }
 
   let checkoutEstimateApiErrorHandled = false;
+  /** True only when this estimate response is an address mismatch with a usable `addressSuggestion` (HTTP 400). */
+  let pendingAddressSuggestionFromResponse = false;
   let epochAtFetch = checkoutQuoteEpoch;
   try {
     estimateLoading = true;
@@ -983,6 +1009,19 @@ async function runEstimate(options = {}) {
       const showedBanner = Boolean(shipErrEl && !shipErrEl.hidden);
       const showedInline = Boolean(root.querySelector(".checkout-field-error:not([hidden])"));
       checkoutEstimateApiErrorHandled = showedInline || showedBanner;
+
+      const mismatchSuggestion =
+        data?.addressSuggestion && typeof data.addressSuggestion === "object";
+      if (mismatchSuggestion) {
+        pendingAddressSuggestionFromResponse = true;
+        latestEstimate = { addressSuggestion: data.addressSuggestion };
+        latestQuotedAddressSnapshot =
+          data?.submittedAddress && typeof data.submittedAddress === "object"
+            ? data.submittedAddress
+            : requestAddressSnapshot;
+        showAddressSuggestionIfAny(data);
+      }
+
       throw new Error(data.error || "Could not calculate totals.");
     }
 
@@ -1043,7 +1082,11 @@ async function runEstimate(options = {}) {
     if (requireAddress && isCheckoutDiscountApiError(msg)) {
       showDiscountSectionWarning(msg);
     } else if (!checkoutEstimateApiErrorHandled) {
-      showShippingSectionError(msg);
+      if (pendingAddressSuggestionFromResponse) {
+        showShippingSectionError(CHECKOUT_ADDRESS_NOTICE_COPY, { tone: "notice" });
+      } else {
+        showShippingSectionError(msg);
+      }
     }
     sumShip.textContent = "—";
     sumTax.textContent = "—";
@@ -1057,9 +1100,11 @@ async function runEstimate(options = {}) {
     if (resFootErr) {
       resFootErr.hidden = true;
     }
-    hideAddressSuggestion();
-    latestEstimate = null;
-    latestQuotedAddressSnapshot = null;
+    if (!pendingAddressSuggestionFromResponse) {
+      hideAddressSuggestion();
+      latestEstimate = null;
+      latestQuotedAddressSnapshot = null;
+    }
     estimateStale = true;
     syncPayButtonForAddressSuggestion();
   } finally {

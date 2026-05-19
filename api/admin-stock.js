@@ -5,6 +5,9 @@ import {
   buildInventoryEditorGrid,
   readInventorySnapshot,
 } from "../lib/stock.js";
+import { buildIncomingInventoryPayloadForAdminStock } from "../lib/incoming-inventory-batches.js";
+import { buildSalesChannelCommitmentsPayloadForAdminStock } from "../lib/sales-channel-commitments.js";
+import { buildStockOverrideHistoryForAdminStock } from "../lib/inventory-service.js";
 import { loadStore } from "../lib/store.js";
 
 export default async function handler(req, res) {
@@ -24,6 +27,9 @@ export default async function handler(req, res) {
         storefrontGlobalOutOfStock: Boolean(site?.storefrontGlobalOutOfStock),
         overview: await buildInventoryDashboardOverview(),
         editor: await buildInventoryEditorGrid(),
+        salesChannelCommitments: await buildSalesChannelCommitmentsPayloadForAdminStock(),
+        incomingInventory: await buildIncomingInventoryPayloadForAdminStock(),
+        stockOverrideHistory: await buildStockOverrideHistoryForAdminStock(25),
       });
       return;
     }

@@ -71,6 +71,11 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
+/** Cleans up listeners from the previous {@link renderAdminNav} call. */
+let adminNavInteractionAbort = null;
+
+const ADMIN_NAV_MOBILE_MQ = "(max-width: 47.9375rem)";
+
 /**
  * @param {"summary" | "orders" | "tax" | "nexus" | "discounts" | "manual-order" | "walk-in-order" | "inventory"} activeId
  */
@@ -87,14 +92,87 @@ export function renderAdminNav(activeId) {
     ["tax", "/admin/tax.html", "Sales tax (TN)"],
     ["nexus", "/admin/nexus.html", "Nexus by state"],
   ];
-  el.innerHTML = `<nav class="admin-nav" aria-label="Staff section">${links
+  const linkHtml = links
     .map(
       ([id, href, label]) =>
-        `<a class="admin-nav__link ${id === activeId ? "is-active" : ""}" href="${href}">${escapeHtml(
-          label,
-        )}</a>`,
+        `<a class="admin-nav__link ${id === activeId ? "is-active" : ""}" href="${href}">${escapeHtml(label)}</a>`,
     )
-    .join("")}</nav>`;
+    .join("");
+  const activeEntry = links.find(([id]) => id === activeId);
+  const activeLabel = activeEntry ? activeEntry[2] : "Staff";
+
+  if (adminNavInteractionAbort) {
+    adminNavInteractionAbort.abort();
+    adminNavInteractionAbort = null;
+  }
+  adminNavInteractionAbort = new AbortController();
+  const { signal } = adminNavInteractionAbort;
+
+  el.innerHTML = `<div class="admin-nav-wrap">
+<button type="button" class="admin-nav__toggle admin-btn admin-btn--small" id="admin-nav-toggle" aria-expanded="false" aria-controls="admin-nav-menu">
+<span class="admin-nav__toggle-text"><span class="admin-nav__toggle-title">Admin menu</span><span class="admin-nav__toggle-sep" aria-hidden="true"> — </span><span class="admin-nav__toggle-current">${escapeHtml(activeLabel)}</span></span>
+<span class="admin-nav__toggle-icon" aria-hidden="true">☰</span>
+</button>
+<div id="admin-nav-menu" class="admin-nav-menu">
+<nav class="admin-nav" aria-label="Staff section">${linkHtml}</nav>
+</div>
+</div>`;
+
+  const btn = el.querySelector("#admin-nav-toggle");
+  const menu = el.querySelector("#admin-nav-menu");
+  if (!btn || !menu) {
+    return;
+  }
+
+  const mq = window.matchMedia(ADMIN_NAV_MOBILE_MQ);
+
+  const syncMenuVisibility = () => {
+    if (mq.matches) {
+      btn.hidden = false;
+      const open = btn.getAttribute("aria-expanded") === "true";
+      if (open) {
+        menu.removeAttribute("hidden");
+      } else {
+        menu.setAttribute("hidden", "");
+      }
+    } else {
+      menu.removeAttribute("hidden");
+      btn.setAttribute("aria-expanded", "true");
+      btn.hidden = true;
+    }
+  };
+
+  btn.addEventListener(
+    "click",
+    () => {
+      if (!mq.matches) {
+        return;
+      }
+      const nextOpen = btn.getAttribute("aria-expanded") !== "true";
+      btn.setAttribute("aria-expanded", nextOpen ? "true" : "false");
+      syncMenuVisibility();
+    },
+    { signal },
+  );
+
+  mq.addEventListener("change", syncMenuVisibility, { signal });
+
+  document.addEventListener(
+    "keydown",
+    (ev) => {
+      if (ev.key !== "Escape" || !mq.matches) {
+        return;
+      }
+      if (btn.getAttribute("aria-expanded") === "true") {
+        btn.setAttribute("aria-expanded", "false");
+        syncMenuVisibility();
+      }
+    },
+    { signal },
+  );
+
+  btn.setAttribute("aria-expanded", "false");
+  syncMenuVisibility();
 }
 
 export function formatUsdCents(cents) {

@@ -28,7 +28,7 @@
 
     <div id="admin-app" class="admin-app" hidden>
       <header class="admin-header">
-        <div>
+        <div class="admin-header__main">
           <h1>Hardin County discount codes</h1>
           <p class="admin-muted">One-time codes · unused codes can be shared with eligible Hardin County, TN customers.</p>
         </div>
@@ -41,28 +41,35 @@
       <div id="admin-nav"></div>
 
       <div class="admin-toolbar admin-toolbar--wrap">
-        <button type="button" id="admin-refresh" class="admin-btn">Refresh</button>
-        <label class="admin-filter">
-          <span>Status</span>
+        <div class="admin-filter-field">
+          <label class="admin-filter-field__label" for="filter-code-status">Status</label>
           <select id="filter-code-status">
             <option value="all">All</option>
             <option value="unused">Unused</option>
             <option value="used">Used</option>
           </select>
-        </label>
+        </div>
         <label class="admin-filter admin-filter--grow">
           <span>Search code</span>
           <input type="search" id="filter-code-search" placeholder="Contains…" autocomplete="off" />
         </label>
-        <label class="admin-filter">
-          <span>Sort</span>
+        <div class="admin-filter-field">
+          <label class="admin-filter-field__label" for="filter-code-sort">Sort</label>
           <select id="filter-code-sort">
             <option value="newest">Newest first</option>
             <option value="oldest">Oldest first</option>
             <option value="code_az">Code A–Z</option>
             <option value="code_za">Code Z–A</option>
           </select>
-        </label>
+        </div>
+        <button type="button" id="admin-refresh" class="admin-icon-btn admin-refresh-btn" aria-label="Refresh" title="Refresh">
+          <svg class="admin-refresh-icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              fill="currentColor"
+              d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
+            />
+          </svg>
+        </button>
       </div>
 
       <p id="admin-load-error" class="admin-error" role="alert" hidden></p>

@@ -28,12 +28,10 @@
 
     <div id="admin-app" class="admin-app admin-app--inventory" hidden>
       <header class="admin-header">
-        <div>
+        <div class="admin-header__main">
           <h1>Inventory</h1>
           <p class="admin-muted">
-            Sold and to-be-shipped totals come from paid orders in Supabase (shipped vs not shipped).
-            Remaining is physical on-hand from inventory (cases and loose boxes per size). Edit counts
-            below, then use <strong>Save all changes</strong> at the bottom of the page to update stock on the server.
+            The Inventory Dashboard provides a clear overview of current stock, incoming inventory, open orders, external channel commitments, and estimated available-to-sell quantities.
           </p>
         </div>
         <div class="admin-header__actions">
@@ -46,7 +44,14 @@
 
       <main class="inv-layout-main">
       <div class="admin-toolbar admin-toolbar--wrap">
-        <button type="button" id="admin-refresh" class="admin-btn">Refresh</button>
+        <button type="button" id="admin-refresh" class="admin-icon-btn admin-refresh-btn" aria-label="Refresh" title="Refresh">
+          <svg class="admin-refresh-icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              fill="currentColor"
+              d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
+            />
+          </svg>
+        </button>
       </div>
 
       <p id="admin-load-error" class="admin-error" role="alert" hidden></p>
@@ -54,64 +59,693 @@
 
       <p id="inv-global-oos-banner" class="inv-global-oos-banner" role="status" hidden></p>
 
-      <section class="inv-summary" style="margin-top: 1rem" aria-label="Inventory summary">
-        <div class="inv-summary__grid">
-          <div class="inv-summary__card">
-            <div class="inv-summary__label">Total Sold</div>
-            <div class="inv-summary__value inv-summary__value--figures" id="inv-sum-sold">0 Cases 0 Boxes sold</div>
+      <section class="inv-summary inv-kpi-dashboard" style="margin-top: 1rem" aria-label="Inventory KPIs">
+        <div class="inv-summary__grid inv-kpi-dashboard__grid">
+          <div class="inv-summary__card inv-summary__card--physical">
+            <div class="inv-summary__label">Total Physical Stock</div>
+            <div class="inv-summary__value inv-summary__value--figures" id="inv-kpi-physical">
+              <span class="inv-summary__figures-row">0 Cases</span><span class="inv-summary__figures-row">0 Boxes</span>
+            </div>
+            <button type="button" id="inv-open-stock-editor" class="admin-btn admin-btn--small inv-kpi-physical__update-btn">
+              Update stock
+            </button>
           </div>
           <div class="inv-summary__card">
-            <div class="inv-summary__label">Total Remaining</div>
-            <div class="inv-summary__value inv-summary__value--figures" id="inv-sum-remaining">0 Cases 0 Boxes left</div>
+            <div class="inv-summary__label">Open Orders To Be Shipped</div>
+            <div class="inv-summary__value inv-summary__value--figures" id="inv-kpi-orders-ship">
+              <span class="inv-summary__figures-row">0 Cases</span><span class="inv-summary__figures-row">0 Boxes</span>
+            </div>
           </div>
           <div class="inv-summary__card">
-            <div class="inv-summary__label">To Be Shipped</div>
-            <div class="inv-summary__value inv-summary__value--figures" id="inv-sum-to-ship">0 Cases 0 Boxes</div>
+            <div class="inv-summary__label">Amazon FBM To Be Shipped</div>
+            <div class="inv-summary__value inv-summary__value--figures" id="inv-kpi-amazon-ship">
+              <span class="inv-summary__figures-row">0 Cases</span><span class="inv-summary__figures-row">0 Boxes</span>
+            </div>
           </div>
           <div class="inv-summary__card">
-            <div class="inv-summary__label">Active variants / stock lines</div>
-            <div class="inv-summary__value inv-summary__value--figures" id="inv-sum-variants">0 / 0</div>
+            <div class="inv-summary__label">Incoming Stock</div>
+            <div class="inv-summary__value inv-summary__value--figures" id="inv-kpi-incoming">
+              <span class="inv-summary__figures-row">0 Cases</span><span class="inv-summary__figures-row">0 Boxes</span>
+            </div>
+          </div>
+          <div class="inv-summary__card">
+            <div class="inv-summary__label">Estimated Available to Sell</div>
+            <div class="inv-summary__value inv-summary__value--figures" id="inv-kpi-available">
+              <span class="inv-summary__figures-row">0 Cases</span><span class="inv-summary__figures-row">0 Boxes</span>
+            </div>
+          </div>
+          <div class="inv-summary__card">
+            <div class="inv-summary__label">Low / Empty Variants</div>
+            <div class="inv-summary__value inv-summary__value--figures" id="inv-kpi-low-empty">
+              <span class="inv-summary__figures-row">0 low</span><span class="inv-summary__figures-row">0 empty</span>
+            </div>
           </div>
         </div>
         <p id="inv-order-metrics-note" class="admin-muted inv-overview-note" hidden></p>
       </section>
 
-      <section class="inv-stock-readonly" style="margin-top: 1.5rem" aria-label="Current stock snapshot">
-        <h2 style="margin: 0 0 0.35rem; font-size: 1.1rem">Current stock</h2>
-        <p class="admin-muted" style="margin: 0 0 0.65rem; max-width: 52rem">
-          Read-only view of physical on-hand by product and size (matches the editor below).
+      <section class="inv-health" style="margin-top: 1.5rem" aria-label="Inventory health">
+        <h2 class="inv-section-title">Inventory health</h2>
+        <p class="admin-muted inv-section-lead">
+          Track stock health by product variant, including physical stock, reserved stock, available quantity, and status.
         </p>
-        <div class="admin-table-wrap">
-          <table class="admin-table inv-stock-readonly-table" id="inv-stock-readonly-table">
+        <div class="admin-table-wrap inv-health-table-wrap">
+          <table class="admin-table inv-health-table" id="inv-health-table">
             <thead>
               <tr>
                 <th scope="col">Product</th>
                 <th scope="col">Size</th>
-                <th scope="col" class="inv-stock-readonly-qty-head">In Stock</th>
-                <th scope="col" class="inv-stock-readonly-total-head">Total</th>
+                <th scope="col" class="inv-health-num">Physical stock</th>
+                <th scope="col" class="inv-health-num">Stock Reserved</th>
+                <th scope="col" class="inv-health-num">Available</th>
+                <th scope="col">Status</th>
               </tr>
             </thead>
-            <tbody id="inv-stock-readonly-tbody"></tbody>
+            <tbody id="inv-health-tbody"></tbody>
           </table>
         </div>
       </section>
 
-      <section class="inv-editor" style="margin-top: 1.5rem" aria-label="Update on-hand stock">
-        <h2 style="margin: 0 0 0.5rem; font-size: 1.1rem">Manual stock (Cases &amp; Boxes)</h2>
-        <p class="admin-muted" style="margin: 0 0 0.75rem; max-width: 52rem">
-          Products are grouped by catalog name; each size row is physical on-hand (reservations still
-          apply at checkout). Only case and box counts are editable here.
+      <aside class="inv-logic-note" aria-label="How inventory is calculated">
+        <ul class="inv-logic-note__list">
+          <li>Physical Stock: Inventory currently on hand.</li>
+          <li>Incoming Stock: Expected quantities from inbound batches, not yet counted as physical stock.</li>
+          <li>Open Orders To Be Shipped: Paid but unshipped store/admin orders.</li>
+          <li>Amazon FBM To Be Shipped: External channel commitments.</li>
+          <li>
+            Estimated Available to Sell: Physical Stock minus open store/admin orders and Amazon FBM commitments. Incoming
+            Stock is not included.
+          </li>
+        </ul>
+      </aside>
+
+      <section class="inv-incoming" aria-label="Incoming inventory">
+        <h2 class="inv-section-title">Incoming inventory</h2>
+        <p class="admin-muted inv-section-lead">
+          Track incoming shipments before they become physical stock. Review existing batches first, or create a new shipment
+          record when production confirms one is on the way.
         </p>
-        <div class="admin-table-wrap inv-editor-wrap" id="inv-editor-wrap">
-          <div id="inv-editor-groups" class="inv-editor-groups" role="region" aria-label="Stock by product"></div>
+        <p id="inv-incoming-feedback" class="inv-commit-feedback admin-muted" role="status" aria-live="polite" hidden></p>
+
+        <details class="inv-incoming-create-details">
+          <summary class="inv-incoming-create-summary">+ Create incoming shipment record</summary>
+          <div class="inv-incoming-create-panel">
+            <div class="inv-order-builder inv-incoming-builder">
+          <div class="inv-order-builder-order inv-order-builder-grid">
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Batch name</span>
+              <input id="inv-inc-batch-name" type="text" autocomplete="off" required placeholder="e.g. Container May 2026" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Container number</span>
+              <input id="inv-inc-container" type="text" autocomplete="off" placeholder="Optional" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">PO number</span>
+              <input id="inv-inc-po" type="text" autocomplete="off" placeholder="Optional" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Supplier</span>
+              <input id="inv-inc-supplier" type="text" autocomplete="off" placeholder="Optional" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">ETA date</span>
+              <input id="inv-inc-eta" type="date" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Status</span>
+              <select id="inv-inc-status" aria-label="Batch status">
+                <option value="planned" selected>Planned</option>
+                <option value="in_transit">In transit</option>
+              </select>
+            </label>
+            <label class="inv-commit-field inv-commit-field--grow">
+              <span class="inv-commit-field__label">Notes</span>
+              <input id="inv-inc-notes" type="text" autocomplete="off" placeholder="Optional" />
+            </label>
+          </div>
+
+          <p class="inv-order-builder-lines-label admin-muted">Expected stock lines</p>
+          <div class="inv-order-line-add inv-order-builder-grid">
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Product</span>
+              <select id="inv-inc-line-product" aria-label="Incoming line product">
+                <option value="">Select product…</option>
+              </select>
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Size</span>
+              <select id="inv-inc-line-size" aria-label="Incoming line size" disabled>
+                <option value="">Select size…</option>
+              </select>
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Expected cases</span>
+              <input id="inv-inc-line-cases" type="number" inputmode="numeric" min="0" step="1" value="0" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Expected boxes</span>
+              <input id="inv-inc-line-boxes" type="number" inputmode="numeric" min="0" step="1" value="0" />
+            </label>
+            <div class="inv-commit-field inv-commit-field--line-add-btn">
+              <span class="inv-commit-field__label inv-commit-field__label--placeholder" aria-hidden="true">&nbsp;</span>
+              <button type="button" id="inv-inc-add-line" class="admin-btn">Add line</button>
+            </div>
+          </div>
+
+          <div class="admin-table-wrap inv-pending-lines-wrap">
+            <table class="admin-table inv-pending-lines-table">
+              <thead>
+                <tr>
+                  <th scope="col">Product</th>
+                  <th scope="col">Size</th>
+                  <th scope="col" class="inv-commitments-num">Expected quantity</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody id="inv-inc-pending-tbody"></tbody>
+            </table>
+          </div>
+          <div class="inv-order-save-row">
+            <button type="button" id="inv-inc-save-batch" class="admin-btn admin-btn--primary">Save incoming batch</button>
+          </div>
+            </div>
+          </div>
+        </details>
+
+        <div class="inv-incoming-batches-block">
+          <div class="inv-incoming-batches-filter-panel">
+            <div class="inv-incoming-batches-toolbar">
+              <div class="admin-filter-field inv-incoming-batch-filter-field">
+                <select id="inv-incoming-batch-filter" aria-label="Filter batches by status">
+                  <option value="upcoming">Upcoming (0)</option>
+                  <option value="all">All (0)</option>
+                  <option value="on_hold">On hold (0)</option>
+                  <option value="arrived">Arrived (0)</option>
+                  <option value="received">Received (0)</option>
+                  <option value="cancelled">Cancelled (0)</option>
+                </select>
+              </div>
+            </div>
+            <div id="inv-incoming-batches-list" class="inv-incoming-batches-list"></div>
+          </div>
+        </div>
+
+        <dialog id="inv-incoming-batch-details-dialog" class="inv-commit-edit-dialog inv-incoming-batch-details-dialog" aria-labelledby="inv-inc-details-heading">
+          <div class="inv-commit-edit-dialog__inner">
+            <div class="inv-incoming-details-header">
+              <h3 id="inv-inc-details-heading" class="inv-commit-edit-dialog__title inv-incoming-details-title">—</h3>
+              <span id="inv-inc-details-badge" class="inv-status-badge" aria-label="Status"></span>
+            </div>
+            <div class="inv-incoming-details-meta admin-muted">
+              <p id="inv-inc-details-meta-primary" class="inv-incoming-details-meta-line"></p>
+              <p id="inv-inc-details-meta-timing" class="inv-incoming-details-meta-line"></p>
+              <p id="inv-inc-details-total" class="inv-incoming-details-meta-line"></p>
+              <p id="inv-inc-details-received" class="inv-incoming-details-received" hidden></p>
+              <div
+                id="inv-inc-details-notes-wrap"
+                class="inv-incoming-details-notes"
+                hidden
+                role="region"
+                aria-label="Batch notes"
+              ></div>
+            </div>
+            <div class="admin-table-wrap inv-incoming-details-table-wrap">
+              <table class="admin-table inv-incoming-lines-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Product</th>
+                    <th scope="col">Size</th>
+                    <th scope="col" class="inv-commitments-num">Expected</th>
+                    <th scope="col" class="inv-commitments-num">Received</th>
+                  </tr>
+                </thead>
+                <tbody id="inv-inc-details-lines-tbody"></tbody>
+              </table>
+            </div>
+            <div class="inv-commit-edit-dialog__actions">
+              <button type="button" id="inv-inc-details-close" class="admin-btn admin-btn--primary">Close</button>
+            </div>
+          </div>
+        </dialog>
+      </section>
+
+      <dialog
+        id="inv-incoming-edit-warning-dialog"
+        class="inv-commit-edit-dialog inv-incoming-edit-warning-dialog"
+        aria-labelledby="inv-incoming-edit-warning-heading"
+        aria-describedby="inv-incoming-edit-warning-copy"
+      >
+        <div class="inv-commit-edit-dialog__inner">
+          <h3 id="inv-incoming-edit-warning-heading" class="inv-commit-edit-dialog__title">Edit shipment record?</h3>
+          <p id="inv-incoming-edit-warning-copy" class="admin-muted inv-incoming-flow-dialog__lead">
+            Editing this record can change shipment details, expected stock lines, notes, or cancellation status. Make sure any
+            changes match the physical shipment and team records.
+          </p>
+          <div class="inv-commit-edit-dialog__actions">
+            <button type="button" id="inv-inc-edit-warning-cancel" class="admin-btn">Cancel</button>
+            <button type="button" id="inv-inc-edit-warning-proceed" class="admin-btn admin-btn--primary">Proceed</button>
+          </div>
+        </div>
+      </dialog>
+
+      <dialog
+        id="inv-incoming-release-hold-warning-dialog"
+        class="inv-commit-edit-dialog inv-incoming-release-hold-warning-dialog"
+        aria-labelledby="inv-incoming-release-hold-warning-heading"
+        aria-describedby="inv-incoming-release-hold-warning-copy"
+      >
+        <div class="inv-commit-edit-dialog__inner">
+          <h3 id="inv-incoming-release-hold-warning-heading" class="inv-commit-edit-dialog__title">
+            Release shipment from hold?
+          </h3>
+          <p id="inv-incoming-release-hold-warning-copy" class="admin-muted inv-incoming-flow-dialog__lead">
+            This will move the shipment back to Arrived status, making it eligible for approval and receiving. Only continue if
+            the issue has been reviewed and resolved.
+          </p>
+          <div class="inv-commit-edit-dialog__actions">
+            <button type="button" id="inv-inc-release-hold-warning-cancel" class="admin-btn">Cancel</button>
+            <button type="button" id="inv-inc-release-hold-warning-proceed" class="admin-btn admin-btn--primary">Proceed</button>
+          </div>
+        </div>
+      </dialog>
+
+      <dialog
+        id="inv-incoming-edit-batch-dialog"
+        class="inv-commit-edit-dialog inv-incoming-edit-batch-dialog"
+        aria-labelledby="inv-incoming-edit-batch-heading"
+      >
+        <div class="inv-commit-edit-dialog__inner">
+          <h3 id="inv-incoming-edit-batch-heading" class="inv-commit-edit-dialog__title">Edit incoming batch</h3>
+          <input type="hidden" id="inv-inc-edit-batch-id" value="" />
+          <div class="inv-commit-edit-grid">
+            <label class="inv-commit-field inv-commit-field--grow">
+              <span class="inv-commit-field__label">Batch name</span>
+              <input id="inv-inc-edit-name" type="text" autocomplete="off" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Container number</span>
+              <input id="inv-inc-edit-container" type="text" autocomplete="off" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">PO number</span>
+              <input id="inv-inc-edit-po" type="text" autocomplete="off" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Supplier</span>
+              <input id="inv-inc-edit-supplier" type="text" autocomplete="off" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">ETA date</span>
+              <input id="inv-inc-edit-eta" type="date" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Arrival date</span>
+              <input id="inv-inc-edit-arrival" type="date" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Status</span>
+              <select id="inv-inc-edit-status" aria-label="Edit batch status">
+                <option value="planned">Planned</option>
+                <option value="in_transit">In transit</option>
+                <option value="arrived">Arrived</option>
+                <option value="on_hold">On hold</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </label>
+            <label class="inv-commit-field inv-commit-field--grow">
+              <span class="inv-commit-field__label">Notes</span>
+              <input id="inv-inc-edit-notes" type="text" autocomplete="off" />
+            </label>
+          </div>
+          <h4 class="inv-commitments-subheading inv-inc-edit-batch-lines-heading">Expected stock lines</h4>
+          <div class="admin-table-wrap inv-inc-edit-batch-lines-wrap">
+            <table class="admin-table inv-inc-edit-batch-lines-table">
+              <thead>
+                <tr>
+                  <th scope="col">Product</th>
+                  <th scope="col">Size</th>
+                  <th scope="col" class="inv-commitments-num">Expected</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody id="inv-inc-edit-batch-lines-tbody"></tbody>
+            </table>
+          </div>
+          <div id="inv-inc-edit-batch-planned-delete-wrap" class="inv-inc-edit-batch-planned-delete-wrap" hidden>
+            <button
+              type="button"
+              id="inv-inc-edit-batch-delete-btn"
+              class="admin-btn admin-btn--small inv-inc-edit-batch-delete-btn"
+              data-incoming-action="delete-batch"
+              data-batch-id=""
+            >
+              Delete entire batch…
+            </button>
+          </div>
+          <p class="admin-muted inv-commit-edit-dialog__hint">
+            Use this dialog to update shipment details, expected lines, notes, or cancel the batch. Received quantities are set only
+            by the Approve &amp; receive stock flow.
+          </p>
+          <div class="inv-commit-edit-dialog__actions">
+            <button type="button" id="inv-inc-edit-batch-save" class="admin-btn admin-btn--primary">Save</button>
+          </div>
+        </div>
+      </dialog>
+
+      <dialog id="inv-incoming-edit-line-dialog" class="inv-commit-edit-dialog" aria-labelledby="inv-incoming-edit-line-heading">
+        <div class="inv-commit-edit-dialog__inner">
+          <h3 id="inv-incoming-edit-line-heading" class="inv-commit-edit-dialog__title">Edit expected line</h3>
+          <input type="hidden" id="inv-inc-edit-line-id" value="" />
+          <div class="inv-commit-edit-grid">
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Product</span>
+              <select id="inv-inc-edit-line-product" aria-label="Edit line product"></select>
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Size</span>
+              <select id="inv-inc-edit-line-size" aria-label="Edit line size"></select>
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Expected cases</span>
+              <input id="inv-inc-edit-line-exp-cases" type="number" inputmode="numeric" min="0" step="1" value="0" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Expected boxes</span>
+              <input id="inv-inc-edit-line-exp-boxes" type="number" inputmode="numeric" min="0" step="1" value="0" />
+            </label>
+          </div>
+          <div class="inv-commit-edit-dialog__actions">
+            <button type="button" id="inv-inc-edit-line-save" class="admin-btn admin-btn--primary">Save</button>
+            <button type="button" id="inv-inc-edit-line-cancel" class="admin-btn">Cancel</button>
+          </div>
+        </div>
+      </dialog>
+
+      <dialog id="inv-incoming-receive-dialog" class="inv-commit-edit-dialog inv-incoming-receive-dialog" aria-labelledby="inv-incoming-receive-heading">
+        <div class="inv-commit-edit-dialog__inner">
+          <h3 id="inv-incoming-receive-heading" class="inv-commit-edit-dialog__title">Approve &amp; receive stock</h3>
+          <p class="inv-incoming-receive-warning admin-muted">
+            Review the expected quantities against the physical shipment before approving. Once approved, these quantities will be
+            added to physical stock. This action cannot be repeated.
+          </p>
+          <input type="hidden" id="inv-inc-receive-batch-id" value="" />
+          <label class="inv-commit-field inv-commit-field--grow">
+            <span class="inv-commit-field__label">Receive note (optional)</span>
+            <textarea
+              id="inv-inc-receive-note"
+              rows="3"
+              autocomplete="off"
+              placeholder="Optional note for inventory movements"
+            ></textarea>
+          </label>
+          <div class="admin-table-wrap inv-incoming-receive-table-wrap">
+            <table class="admin-table inv-incoming-receive-table">
+              <thead>
+                <tr>
+                  <th scope="col">Product</th>
+                  <th scope="col">Size</th>
+                  <th scope="col" class="inv-commitments-num">Expected cases</th>
+                  <th scope="col" class="inv-commitments-num">Expected boxes</th>
+                  <th scope="col" class="inv-commitments-num">Received cases</th>
+                  <th scope="col" class="inv-commitments-num">Received boxes</th>
+                </tr>
+              </thead>
+              <tbody id="inv-inc-receive-tbody"></tbody>
+            </table>
+          </div>
+          <div class="inv-commit-edit-dialog__actions">
+            <button type="button" id="inv-inc-receive-confirm" class="admin-btn admin-btn--primary">Approve &amp; receive</button>
+            <button type="button" id="inv-inc-receive-cancel" class="admin-btn">Cancel</button>
+          </div>
+        </div>
+      </dialog>
+
+      <dialog id="inv-incoming-arrival-review-dialog" class="inv-commit-edit-dialog inv-incoming-flow-dialog inv-incoming-arrival-review-dialog" aria-labelledby="inv-incoming-arrival-review-heading">
+        <div class="inv-commit-edit-dialog__inner">
+          <h3 id="inv-incoming-arrival-review-heading" class="inv-commit-edit-dialog__title">Arrival review</h3>
+          <p class="admin-muted inv-incoming-flow-dialog__lead">
+            Confirm the actual arrival date and count the physical shipment against the expected stock. This does not add inventory
+            to physical stock.
+          </p>
+          <input type="hidden" id="inv-inc-arrival-review-batch-id" value="" />
+          <label class="inv-commit-field inv-commit-field--grow">
+            <span class="inv-commit-field__label">Actual arrival date</span>
+            <input id="inv-inc-arrival-review-date" type="date" required />
+          </label>
+          <div class="admin-table-wrap inv-incoming-arrival-review-table-wrap">
+            <table class="admin-table inv-incoming-arrival-review-table">
+              <thead>
+                <tr>
+                  <th scope="col">Product</th>
+                  <th scope="col">Size</th>
+                  <th scope="col" class="inv-commitments-num">Expected</th>
+                  <th scope="col" class="inv-commitments-num">Actual counted cases</th>
+                  <th scope="col" class="inv-commitments-num">Actual counted boxes</th>
+                  <th scope="col">Result</th>
+                </tr>
+              </thead>
+              <tbody id="inv-inc-arrival-review-tbody"></tbody>
+            </table>
+          </div>
+          <div id="inv-inc-arrival-review-mismatch-wrap" class="inv-incoming-arrival-review-mismatch" hidden>
+            <p class="inv-incoming-arrival-review-mismatch__warn">
+              Counted quantities do not match expected for one or more lines. You cannot mark arrived until this is resolved, or
+              place the shipment on hold with an issue note.
+            </p>
+            <label class="inv-commit-field inv-commit-field--grow">
+              <span class="inv-commit-field__label">Issue note (required to place on hold)</span>
+              <textarea id="inv-inc-arrival-review-issue" rows="4" placeholder="Describe the discrepancy…"></textarea>
+            </label>
+          </div>
+          <div class="inv-commit-edit-dialog__actions">
+            <button type="button" id="inv-inc-arrival-review-confirm" class="admin-btn admin-btn--primary">Confirm arrived</button>
+            <button type="button" id="inv-inc-arrival-review-hold" class="admin-btn inv-incoming-action--hold" disabled>
+              Place on hold with issue note
+            </button>
+            <button type="button" id="inv-inc-arrival-review-cancel" class="admin-btn">Cancel</button>
+          </div>
+        </div>
+      </dialog>
+
+      <dialog id="inv-incoming-place-hold-dialog" class="inv-commit-edit-dialog inv-incoming-flow-dialog" aria-labelledby="inv-incoming-place-hold-heading">
+        <div class="inv-commit-edit-dialog__inner">
+          <h3 id="inv-incoming-place-hold-heading" class="inv-commit-edit-dialog__title">Place shipment on hold</h3>
+          <p class="admin-muted inv-incoming-flow-dialog__lead">
+            Use this when the physical shipment does not match the expected record or needs COO review. Stock will not be added to
+            physical inventory while this batch is on hold.
+          </p>
+          <input type="hidden" id="inv-inc-place-hold-batch-id" value="" />
+          <label class="inv-commit-field inv-commit-field--grow">
+            <span class="inv-commit-field__label">Issue note (required)</span>
+            <textarea id="inv-inc-place-hold-issue" rows="5" required placeholder="Describe the discrepancy or issue…"></textarea>
+          </label>
+          <div class="inv-commit-edit-dialog__actions">
+            <button type="button" id="inv-inc-place-hold-save" class="admin-btn inv-incoming-action--hold">Place on hold</button>
+            <button type="button" id="inv-inc-place-hold-cancel" class="admin-btn">Cancel</button>
+          </div>
+        </div>
+      </dialog>
+
+      <section class="inv-commitments" aria-label="Sales channel commitments">
+        <h2 class="inv-section-title">Sales channel commitments</h2>
+        <p class="admin-muted inv-section-lead">
+          Track products sold on external platforms like Amazon FBM or Walmart before they are shipped, so inventory availability stays accurate across all sales channels.
+        </p>
+        <p id="inv-commit-feedback" class="inv-commit-feedback admin-muted" role="status" aria-live="polite" hidden></p>
+
+        <details class="inv-commit-create-details">
+          <summary class="inv-commit-create-summary">+ Add external order</summary>
+          <div class="inv-commit-create-panel">
+            <div class="inv-order-builder">
+          <div class="inv-order-builder-order inv-order-builder-grid">
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Channel</span>
+              <select id="inv-order-channel" aria-label="Order channel">
+                <option value="amazon_fbm" selected>Amazon FBM</option>
+                <option value="wholesale" disabled>Wholesale (soon)</option>
+                <option value="manual_external" disabled>Manual external (soon)</option>
+              </select>
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">External order ID</span>
+              <input id="inv-order-external-id" type="text" autocomplete="off" placeholder="e.g. Amazon order ID" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Sold date</span>
+              <input id="inv-order-sold-at" type="date" />
+            </label>
+            <label class="inv-commit-field inv-commit-field--grow">
+              <span class="inv-commit-field__label">Notes (order)</span>
+              <input id="inv-order-notes" type="text" autocomplete="off" placeholder="Optional, applies to all lines" />
+            </label>
+          </div>
+
+          <p class="inv-order-builder-lines-label admin-muted">Line items</p>
+          <div class="inv-order-line-add inv-order-builder-grid">
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Product</span>
+              <select id="inv-order-line-product" aria-label="Line product">
+                <option value="">Select product…</option>
+              </select>
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Size</span>
+              <select id="inv-order-line-size" aria-label="Line size" disabled>
+                <option value="">Select size…</option>
+              </select>
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Cases</span>
+              <input id="inv-order-line-cases" type="number" inputmode="numeric" min="0" step="1" value="0" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Boxes</span>
+              <input id="inv-order-line-boxes" type="number" inputmode="numeric" min="0" step="1" value="0" />
+            </label>
+            <div class="inv-commit-field inv-commit-field--line-add-btn">
+              <span class="inv-commit-field__label inv-commit-field__label--placeholder" aria-hidden="true">&nbsp;</span>
+              <button type="button" id="inv-order-add-line" class="admin-btn">Add line</button>
+            </div>
+          </div>
+
+          <div class="admin-table-wrap inv-pending-lines-wrap">
+            <table class="admin-table inv-pending-lines-table">
+              <thead>
+                <tr>
+                  <th scope="col">Product</th>
+                  <th scope="col">Size</th>
+                  <th scope="col" class="inv-commitments-num">Quantity</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody id="inv-pending-lines-tbody"></tbody>
+            </table>
+          </div>
+          <div class="inv-order-save-row">
+            <button type="button" id="inv-order-save-commitments" class="admin-btn admin-btn--primary">
+              Save order commitments
+            </button>
+          </div>
+            </div>
+          </div>
+        </details>
+
+        <div class="admin-table-wrap inv-commitments-table-wrap">
+          <table class="admin-table inv-commitments-table" id="inv-commitments-table">
+            <thead>
+              <tr>
+                <th scope="col">Product</th>
+                <th scope="col">Size</th>
+                <th scope="col" class="inv-commitments-num">Quantity</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="inv-commitments-tbody"></tbody>
+          </table>
         </div>
       </section>
-      </main>
 
-      <footer class="admin-toolbar admin-toolbar--wrap inv-save-toolbar" aria-label="Save inventory changes">
-        <button type="button" id="inv-save-all" class="admin-btn admin-btn--primary">Save all changes</button>
-        <span id="inv-save-status" class="admin-muted" role="status" aria-live="polite"></span>
-      </footer>
+      <dialog id="inv-commit-edit-dialog" class="inv-commit-edit-dialog" aria-labelledby="inv-commit-edit-heading">
+        <div class="inv-commit-edit-dialog__inner">
+          <h3 id="inv-commit-edit-heading" class="inv-commit-edit-dialog__title">Edit commitment line</h3>
+          <p class="admin-muted inv-commit-edit-dialog__hint">Status is unchanged here — use Mark shipped or Cancel.</p>
+          <input type="hidden" id="inv-edit-commit-id" value="" />
+          <div class="inv-commit-edit-grid">
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Channel</span>
+              <select id="inv-edit-channel" aria-label="Edit channel">
+                <option value="amazon_fbm">Amazon FBM</option>
+                <option value="wholesale">Wholesale</option>
+                <option value="manual_external">Manual external</option>
+              </select>
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">External order ID</span>
+              <input id="inv-edit-external-id" type="text" autocomplete="off" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Product</span>
+              <select id="inv-edit-product" aria-label="Edit product"></select>
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Size</span>
+              <select id="inv-edit-size" aria-label="Edit size"></select>
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Cases</span>
+              <input id="inv-edit-cases" type="number" inputmode="numeric" min="0" step="1" value="0" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Boxes</span>
+              <input id="inv-edit-boxes" type="number" inputmode="numeric" min="0" step="1" value="0" />
+            </label>
+            <label class="inv-commit-field">
+              <span class="inv-commit-field__label">Sold date</span>
+              <input id="inv-edit-sold-at" type="date" />
+            </label>
+            <label class="inv-commit-field inv-commit-field--grow">
+              <span class="inv-commit-field__label">Notes</span>
+              <input id="inv-edit-notes" type="text" autocomplete="off" />
+            </label>
+          </div>
+          <div class="inv-commit-edit-dialog__actions">
+            <button type="button" id="inv-commit-edit-save" class="admin-btn admin-btn--primary">Save</button>
+            <button type="button" id="inv-commit-edit-cancel" class="admin-btn">Cancel</button>
+          </div>
+        </div>
+      </dialog>
+
+      <dialog
+        id="inv-stock-override-warning-dialog"
+        class="inv-commit-edit-dialog inv-stock-override-warning-dialog"
+        aria-labelledby="inv-stock-override-warning-heading"
+        aria-describedby="inv-stock-override-warning-copy"
+      >
+        <div class="inv-commit-edit-dialog__inner">
+          <h3 id="inv-stock-override-warning-heading" class="inv-commit-edit-dialog__title">Override physical stock?</h3>
+          <p id="inv-stock-override-warning-copy" class="admin-muted inv-incoming-flow-dialog__lead">
+            You are about to manually update the physical inventory on hand. This will change Total Physical Stock and may
+            affect Estimated Available to Sell. Continue only after verifying the actual warehouse count.
+          </p>
+          <div class="inv-commit-edit-dialog__actions">
+            <button type="button" id="inv-stock-override-warning-cancel" class="admin-btn">Cancel</button>
+            <button type="button" id="inv-stock-override-warning-continue" class="admin-btn admin-btn--primary">Continue</button>
+          </div>
+        </div>
+      </dialog>
+
+      <dialog
+        id="inv-stock-editor-dialog"
+        class="inv-commit-edit-dialog inv-stock-editor-dialog"
+        aria-labelledby="inv-stock-editor-heading"
+        aria-describedby="inv-stock-editor-lead"
+      >
+        <div class="inv-commit-edit-dialog__inner inv-stock-editor-dialog__inner">
+          <h3 id="inv-stock-editor-heading" class="inv-commit-edit-dialog__title">Update physical stock</h3>
+          <p id="inv-stock-editor-lead" class="admin-muted inv-commit-edit-dialog__hint">
+            Edit only the actual stock currently on hand. Incoming batches, open orders, and external sales commitments are
+            handled separately.
+          </p>
+          <div class="inv-stock-editor-dialog__body">
+            <div class="admin-table-wrap inv-editor-wrap" id="inv-editor-wrap">
+              <div id="inv-editor-groups" class="inv-editor-groups" role="region" aria-label="Stock by product"></div>
+            </div>
+            <section class="inv-stock-override-history" aria-labelledby="inv-stock-override-history-heading">
+              <h4 id="inv-stock-override-history-heading" class="inv-stock-override-history__title">Recent stock overrides</h4>
+              <div id="inv-stock-override-history" class="inv-stock-override-history__body" role="region" aria-live="polite"></div>
+            </section>
+          </div>
+          <div class="inv-stock-editor-dialog__footer">
+            <span id="inv-save-status" class="admin-muted inv-stock-editor-dialog__status" role="status" aria-live="polite"></span>
+            <div class="inv-stock-editor-dialog__actions">
+              <button type="button" id="inv-stock-editor-cancel" class="admin-btn">Cancel</button>
+              <button type="button" id="inv-save-all" class="admin-btn admin-btn--primary">Save stock override</button>
+            </div>
+          </div>
+        </div>
+      </dialog>
+      </main>
     </div>
 
     <script type="module" src="/js/admin-inventory.js"></script>

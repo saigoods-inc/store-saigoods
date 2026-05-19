@@ -1901,6 +1901,7 @@ function bindModalShippoActions() {
       const w = document.getElementById("admin-from-override-wrap");
       if (w) {
         w.hidden = !w.hidden;
+        tFrom.setAttribute("aria-expanded", w.hidden ? "false" : "true");
       }
       return;
     }
@@ -2267,6 +2268,72 @@ function bindModalShippoActions() {
         wrap.hidden = !wrap.hidden;
         toggleShipEdit.setAttribute("aria-expanded", wrap.hidden ? "false" : "true");
       }
+      return;
+    }
+
+    const saveShippingBtn = e.target.closest("[data-save-shipping-address]");
+    if (saveShippingBtn) {
+      e.preventDefault();
+      const orderId = saveShippingBtn.getAttribute("data-save-shipping-address");
+      if (!orderId || !supabase) {
+        return;
+      }
+      const form = document.getElementById("admin-shipping-edit-form");
+      if (!form) {
+        return;
+      }
+      if (!form.reportValidity()) {
+        return;
+      }
+      const fd = new FormData(form);
+      const shippingAddress = {
+        line1: String(fd.get("line1") || "").trim(),
+        line2: String(fd.get("line2") || "").trim(),
+        city: String(fd.get("city") || "").trim(),
+        state: String(fd.get("state") || "").trim().toUpperCase(),
+        postalCode: String(fd.get("postalCode") || "").trim(),
+        country: String(fd.get("country") || "").trim().toUpperCase(),
+      };
+      const shippingContact = {
+        name: String(fd.get("name") || "").trim(),
+        email: String(fd.get("email") || "").trim(),
+        phone: String(fd.get("phone") || "").trim(),
+      };
+      void (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          alert("Sign in again.");
+          return;
+        }
+        saveShippingBtn.disabled = true;
+        const beforeText = saveShippingBtn.textContent;
+        saveShippingBtn.textContent = "Saving…";
+        try {
+          const data = await fetchReportPost("/api/admin-order-update-shipping-address", session.access_token, {
+            orderId,
+            shippingAddress,
+            shippingContact,
+          });
+          await loadOrders();
+          if (data.order) {
+            const idx = ordersCache.findIndex((r) => String(r.id) === String(orderId));
+            if (idx >= 0) {
+              ordersCache[idx] = data.order;
+            }
+          }
+          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
+          if (refreshed) {
+            openModal(refreshed, { shippingSaved: true, skipShippoAutoRefresh: true });
+          }
+        } catch (err) {
+          alert(err.message || "Could not update shipping address.");
+        } finally {
+          saveShippingBtn.disabled = false;
+          saveShippingBtn.textContent = beforeText || "Save recipient";
+        }
+      })();
       return;
     }
 
@@ -2724,69 +2791,6 @@ function bindOrdersTableEvents() {
       })();
       return;
     }
-
-    const saveShippingBtn = e.target.closest("[data-save-shipping-address]");
-    if (saveShippingBtn) {
-      e.preventDefault();
-      const orderId = saveShippingBtn.getAttribute("data-save-shipping-address");
-      if (!orderId || !supabase) {
-        return;
-      }
-      const form = document.getElementById("admin-shipping-edit-form");
-      if (!form) {
-        return;
-      }
-      const fd = new FormData(form);
-      const shippingAddress = {
-        line1: String(fd.get("line1") || "").trim(),
-        line2: String(fd.get("line2") || "").trim(),
-        city: String(fd.get("city") || "").trim(),
-        state: String(fd.get("state") || "").trim().toUpperCase(),
-        postalCode: String(fd.get("postalCode") || "").trim(),
-        country: String(fd.get("country") || "").trim().toUpperCase(),
-      };
-      const shippingContact = {
-        name: String(fd.get("name") || "").trim(),
-        email: String(fd.get("email") || "").trim(),
-        phone: String(fd.get("phone") || "").trim(),
-      };
-      void (async () => {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (!session?.access_token) {
-          alert("Sign in again.");
-          return;
-        }
-        saveShippingBtn.disabled = true;
-        const beforeText = saveShippingBtn.textContent;
-        saveShippingBtn.textContent = "Saving…";
-        try {
-          const data = await fetchReportPost("/api/admin-order-update-shipping-address", session.access_token, {
-            orderId,
-            shippingAddress,
-            shippingContact,
-          });
-          await loadOrders();
-          if (data.order) {
-            const idx = ordersCache.findIndex((r) => String(r.id) === String(orderId));
-            if (idx >= 0) {
-              ordersCache[idx] = data.order;
-            }
-          }
-          const refreshed = ordersCache.find((r) => String(r.id) === String(orderId));
-          if (refreshed) {
-            openModal(refreshed, { shippingSaved: true, skipShippoAutoRefresh: true });
-          }
-        } catch (err) {
-          alert(err.message || "Could not update shipping address.");
-        } finally {
-          saveShippingBtn.disabled = false;
-          saveShippingBtn.textContent = beforeText || "Save shipping address";
-        }
-      })();
-      return;
-    }
   });
 }
 
@@ -3119,14 +3123,14 @@ function renderTable() {
             ${manualTag}
             ${walkInTag}
             ${hardinTag}
+            <div class="admin-order-created">Created: ${escapeHtml(formatDate(row.created_at))}</div>
           </td>
           <td>${escapeHtml(row.customer_name || "—")}<br /><span class="admin-muted">${escapeHtml(row.customer_email || "")}</span></td>
           <td><span class="${badgeClass(paymentBadgeKey(row))}">${escapeHtml(
             formatPaymentColumnLabel(row),
-          )}</span>${buildManualOrderLifecycleTableHtml(row)}${buildManualPaymentLinkMetaTableHtml(row)}</td>
+          )}</span></td>
           <td class="admin-shippo-agent-cell">${shippoCell}</td>
           <td class="admin-next-action-cell">${nextActionHtml}</td>
-          <td>${escapeHtml(formatDate(row.created_at))}</td>
           <td class="admin-row-actions-btns">
             ${
               isManualPayLaterDraftUnpaid(row)
@@ -3324,7 +3328,7 @@ async function hydrateOrderModalAuxiliary(row, gen) {
 
     const shipEl = document.getElementById("admin-modal-ship-from-body");
     if (shipEl) {
-      shipEl.innerHTML = `<pre class="admin-address-card" style="margin:0;padding:0.5rem;background:#fafafa;border-radius:6px;white-space:pre-wrap;font-family:inherit">${escapeHtml(sf.formatted)}</pre>`;
+      shipEl.innerHTML = `<pre class="admin-address-card__display-inner">${escapeHtml(sf.formatted)}</pre>`;
     }
 
     const labelEl = document.getElementById("admin-ext-label-doc-status");
@@ -3664,12 +3668,19 @@ async function openModal(row, options = {}) {
           </div>
           <div class="admin-order-detail-sub">
             <h4 class="admin-order-detail-sub__title">Ship to address (editable)</h4>
-        <div class="admin-address-row">
-          <pre class="admin-address-card admin-address-row__body" style="margin:0;padding:0.5rem;background:#fafafa;border-radius:6px;font-family:inherit;font-size:13px;white-space:pre-wrap;min-width:0">${shipToReadonlyEscaped}</pre>
+        <div class="admin-address-row admin-address-row--ship-to">
+          <div class="admin-address-card admin-address-row__body">
+            <pre class="admin-address-card__display">${shipToReadonlyEscaped}</pre>
+            ${
+              canEditAddresses
+                ? `<button type="button" class="admin-icon-btn admin-address-edit-btn" data-toggle-shipping-edit aria-expanded="false" aria-label="Edit ship-to" title="Edit ship-to"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
+                : ""
+            }
+          </div>
           ${
             canEditAddresses
-              ? `<button type="button" class="admin-icon-btn" data-toggle-shipping-edit aria-expanded="false" aria-label="Edit ship-to" title="Edit ship-to"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
-              : `<span class="admin-muted" style="font-size:11px;align-self:flex-start">Locked</span>`
+              ? ""
+              : `<span class="admin-muted admin-address-row__locked-note">Locked</span>`
           }
         </div>
         <div id="admin-shipping-edit-wrap" class="admin-shipping-edit-wrap" hidden>
@@ -3691,12 +3702,19 @@ async function openModal(row, options = {}) {
           </div>
           <div class="admin-order-detail-sub">
             <h4 class="admin-order-detail-sub__title">Ship from address (editable)</h4>
-        <div class="admin-address-row">
-          <div class="admin-address-row__body" id="admin-modal-ship-from-body">${shipFromHtml}</div>
+        <div class="admin-address-row admin-address-row--ship-from">
+          <div class="admin-address-card admin-address-row__body">
+            <div id="admin-modal-ship-from-body" class="admin-address-card__display">${shipFromHtml}</div>
+            ${
+              canEditAddresses
+                ? `<button type="button" class="admin-icon-btn admin-address-edit-btn" data-toggle-from-override aria-expanded="false" aria-label="Edit ship-from" title="Edit ship-from"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
+                : ""
+            }
+          </div>
           ${
             canEditAddresses
-              ? `<button type="button" class="admin-icon-btn" data-toggle-from-override aria-label="Edit ship-from" title="Edit ship-from"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
-              : `<span class="admin-muted" style="font-size:11px;align-self:flex-start">Locked</span>`
+              ? ""
+              : `<span class="admin-muted admin-address-row__locked-note">Locked</span>`
           }
         </div>
         <div id="admin-from-override-wrap" class="admin-shipping-edit-wrap" hidden>

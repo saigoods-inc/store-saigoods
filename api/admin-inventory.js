@@ -5,6 +5,21 @@ import {
   readInventoryDashboardPayload,
   receiveIncomingShipmentStock,
 } from "../lib/stock.js";
+import {
+  createIncomingInventoryBatch,
+  createIncomingInventoryBatchLine,
+  deleteIncomingInventoryBatch,
+  deleteIncomingInventoryBatchLine,
+  receiveIncomingInventoryBatch,
+  updateIncomingInventoryBatch,
+  updateIncomingInventoryBatchLine,
+} from "../lib/incoming-inventory-batches.js";
+import {
+  createSalesChannelCommitment,
+  deleteSalesChannelCommitment,
+  updateSalesChannelCommitment,
+  updateSalesChannelCommitmentStatus,
+} from "../lib/sales-channel-commitments.js";
 
 function normaliseChannel(raw) {
   const c = String(raw || "").toLowerCase();
@@ -41,6 +56,8 @@ export default async function handler(req, res) {
       const next = await applyAdminStockPatches(patches, {
         adminUser,
         reason: body.reason || "Admin inventory form",
+        source: body.source || null,
+        overrideNote: body.overrideNote || null,
       });
       res.status(200).json({ ok: true, stock: next, dashboard: await readInventoryDashboardPayload() });
       return;
@@ -138,9 +155,87 @@ export default async function handler(req, res) {
       return;
     }
 
+    if (action === "channel_commitment_create") {
+      const commitment = body.commitment && typeof body.commitment === "object" ? body.commitment : body;
+      const row = await createSalesChannelCommitment(commitment, actor);
+      res.status(200).json({ ok: true, commitment: row });
+      return;
+    }
+
+    if (action === "channel_commitment_update") {
+      const commitment = body.commitment && typeof body.commitment === "object" ? body.commitment : {};
+      const row = await updateSalesChannelCommitment(body.id, commitment, actor);
+      res.status(200).json({ ok: true, commitment: row });
+      return;
+    }
+
+    if (action === "channel_commitment_update_status") {
+      const id = body.id;
+      const status = body.status;
+      const row = await updateSalesChannelCommitmentStatus(id, status, actor);
+      res.status(200).json({ ok: true, commitment: row });
+      return;
+    }
+
+    if (action === "channel_commitment_delete") {
+      await deleteSalesChannelCommitment(body.id);
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    if (action === "incoming_batch_create") {
+      const batchInput = body.batch && typeof body.batch === "object" ? body.batch : {};
+      const batch = await createIncomingInventoryBatch(batchInput, actor);
+      res.status(200).json({ ok: true, batch });
+      return;
+    }
+
+    if (action === "incoming_batch_update") {
+      const batchInput = body.batch && typeof body.batch === "object" ? body.batch : {};
+      const batch = await updateIncomingInventoryBatch(body.id, batchInput, actor);
+      res.status(200).json({ ok: true, batch });
+      return;
+    }
+
+    if (action === "incoming_batch_delete") {
+      await deleteIncomingInventoryBatch(body.id);
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    if (action === "incoming_batch_line_create") {
+      const lineInput = body.line && typeof body.line === "object" ? body.line : {};
+      const line = await createIncomingInventoryBatchLine(body.batch_id, lineInput);
+      res.status(200).json({ ok: true, line });
+      return;
+    }
+
+    if (action === "incoming_batch_line_update") {
+      const lineInput = body.line && typeof body.line === "object" ? body.line : {};
+      const line = await updateIncomingInventoryBatchLine(body.id, lineInput);
+      res.status(200).json({ ok: true, line });
+      return;
+    }
+
+    if (action === "incoming_batch_line_delete") {
+      await deleteIncomingInventoryBatchLine(body.id);
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    if (action === "incoming_batch_receive") {
+      const batch = await receiveIncomingInventoryBatch(body.id, {
+        lines: body.lines,
+        note: body.note,
+        reason: body.reason,
+      }, actor);
+      res.status(200).json({ ok: true, batch });
+      return;
+    }
+
     res.status(400).json({
       error:
-        "Unknown action. Use: stock_patch | manual_adjust | mark_damaged | toggle_track | set_threshold | create_shipment | receive_shipment",
+        "Unknown action. Use: stock_patch | manual_adjust | mark_damaged | toggle_track | set_threshold | create_shipment | receive_shipment | channel_commitment_create | channel_commitment_update | channel_commitment_update_status | channel_commitment_delete | incoming_batch_create | incoming_batch_update | incoming_batch_delete | incoming_batch_line_create | incoming_batch_line_update | incoming_batch_line_delete | incoming_batch_receive",
     });
   } catch (error) {
     console.error(error);
