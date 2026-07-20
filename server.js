@@ -4,9 +4,7 @@ import { access, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { fetchTaxSummaryTnRows } from "./lib/orders.js";
 import { mergeInventoryIntoProduct } from "./lib/stock.js";
-import { assertReportsAuthorized } from "./lib/reports-auth.js";
 import adminDiscountCodesHandler from "./api/admin-discount-codes.js";
 import adminStockHandler from "./api/admin-stock.js";
 import adminInventoryHandler from "./api/admin-inventory.js";
@@ -51,6 +49,7 @@ import productsHandler from "./api/products.js";
 import shippoWebhookHandler from "./api/webhooks/shippo.js";
 import squareConfigHandler from "./api/square-config.js";
 import supabasePublicConfigHandler from "./api/supabase-public-config.js";
+import taxSummaryHandler from "./api/tax-summary.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -143,23 +142,12 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    if (pathname === "/api/tax-summary" && req.method === "GET") {
-      try {
-        await assertReportsAuthorized(req);
-        const summary = await fetchTaxSummaryTnRows();
-        return sendJson(res, 200, {
-          generated_at: new Date().toISOString(),
-          currency: "USD",
-          amounts_in: "cents",
-          note: "Tennessee (TN) paid orders only; months are UTC.",
-          summary,
-        });
-      } catch (error) {
-        console.error(error);
-        return sendJson(res, error.statusCode || 500, {
-          error: error.message || "Could not load tax summary.",
-        });
-      }
+    if (pathname === "/api/tax-summary") {
+      await taxSummaryHandler(
+        { method: req.method, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
     }
 
     if (pathname === "/api/checkout-estimate" && req.method === "POST") {
