@@ -4,9 +4,7 @@ import { access, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { enrichCartQuoteApiResponse } from "./lib/cart-api-response.js";
 import { fetchNexusSummaryRows, fetchTaxSummaryTnRows } from "./lib/orders.js";
-import { buildQuote } from "./lib/quote.js";
 import {
   buildSupabasePublicConfig503Body,
   resolveSupabasePublicConfigFromEnv,
@@ -49,6 +47,7 @@ import adminWalkInOrderEstimateHandler from "./api/admin-walk-in-order-estimate.
 import adminWalkInOrderMarkPaidHandler from "./api/admin-walk-in-order-mark-paid.js";
 import adminWalkInOrderQuickPayHandler from "./api/admin-walk-in-order-quick-pay.js";
 import adminWalkInOrderUpdateDraftHandler from "./api/admin-walk-in-order-update-draft.js";
+import cartQuoteHandler from "./api/cart-quote.js";
 import checkoutHandler from "./api/checkout.js";
 import checkoutEstimateHandler from "./api/checkout-estimate.js";
 import checkoutPayHandler from "./api/checkout-pay.js";
@@ -121,8 +120,8 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/api/cart/quote" && req.method === "POST") {
       const body = await readJsonBody(req);
-      const quote = buildQuote(body.items, { omitShippingEstimate: true });
-      return sendJson(res, 200, enrichCartQuoteApiResponse(quote));
+      await cartQuoteHandler({ method: "POST", body }, adaptExpressStyleResponse(res));
+      return;
     }
 
     if (pathname === "/api/square-config" && req.method === "GET") {
