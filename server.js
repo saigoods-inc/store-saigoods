@@ -49,6 +49,7 @@ import adminWalkInOrderEstimateHandler from "./api/admin-walk-in-order-estimate.
 import adminWalkInOrderMarkPaidHandler from "./api/admin-walk-in-order-mark-paid.js";
 import adminWalkInOrderQuickPayHandler from "./api/admin-walk-in-order-quick-pay.js";
 import adminWalkInOrderUpdateDraftHandler from "./api/admin-walk-in-order-update-draft.js";
+import checkoutHandler from "./api/checkout.js";
 import checkoutEstimateHandler from "./api/checkout-estimate.js";
 import checkoutPayHandler from "./api/checkout-pay.js";
 import shippoWebhookHandler from "./api/webhooks/shippo.js";
@@ -62,10 +63,6 @@ function readStoreData() {
   return JSON.parse(readFileSync(storeJsonPath, "utf8"));
 }
 
-const storeData = readStoreData();
-
-const productMap = new Map(storeData.products.map((product) => [product.slug, product]));
-const knownSizes = storeData.site.sizes;
 const port = Number(process.env.PORT || 3000);
 const publicDir = path.join(__dirname, "public");
 const imageDir = path.join(__dirname, "public", "img");
@@ -532,28 +529,11 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/api/checkout" && req.method === "POST") {
       const body = await readJsonBody(req);
-      const quote = buildQuote(body.items, { omitShippingEstimate: true });
-
-      if (!quote.items.length) {
-        return sendJson(res, 400, { error: "Your cart is empty." });
-      }
-
-      if (!process.env.STRIPE_SECRET_KEY) {
-        return sendJson(res, 503, {
-          error:
-            "Stripe is not configured yet. Add STRIPE_SECRET_KEY and PUBLIC_BASE_URL to your .env file to enable live checkout.",
-          stripeReady: false,
-          quote,
-        });
-      }
-
-      const session = await createCheckoutSession(quote, req);
-      return sendJson(res, 200, {
-        checkoutUrl: session.url,
-        sessionId: session.id,
-        quote,
-        stripeReady: true,
-      });
+      await checkoutHandler(
+        { method: "POST", body },
+        adaptExpressStyleResponse(res),
+      );
+      return;
     }
 
     if (pathname === "/api/admin-summary" && req.method === "GET") {
@@ -774,73 +754,4 @@ async function readJsonBodyWithLimit(req, maxBytes) {
     error.statusCode = 400;
     throw error;
   }
-}
-
-function getBaseUrl(req) {
-  const configuredBaseUrl = process.env.PUBLIC_BASE_URL;
-
-  if (configuredBaseUrl) {
-    return configuredBaseUrl.replace(/\/$/, "");
-  }
-
-  const host = req.headers.host || `localhost:${port}`;
-  const forwardedProto = req.headers["x-forwarded-proto"];
-  const protocol = forwardedProto || (host.includes("localhost") ? "http" : "https");
-
-  return `${protocol}://${host}`;
-}
-
-async function createCheckoutSession(quote, req) {
-  const stripeEndpoint = "https://api.stripe.com/v1/checkout/sessions";
-  const baseUrl = getBaseUrl(req);
-  const params = new URLSearchParams();
-
-  params.set("mode", "payment");
-  params.set("success_url", `${baseUrl}/cart.html?checkout=success&session_id={CHECKOUT_SESSION_ID}`);
-  params.set("cancel_url", `${baseUrl}/cart.html?checkout=cancelled`);
-  params.set("payment_method_types[0]", "card");
-  params.set("billing_address_collection", "required");
-  params.set("shipping_address_collection[allowed_countries][0]", "US");
-  params.set("phone_number_collection[enabled]", "true");
-  params.set("submit_type", "pay");
-  params.set("metadata[store]", "saigoods");
-  params.set("metadata[total_cases]", String(quote.totalCases));
-
-  let lineIndex = 0;
-
-  for (const item of quote.items) {
-    const product = productMap.get(item.slug);
-    const selectedSizes = Object.entries(item.quantities).filter(([, quantity]) => quantity > 0);
-
-    for (const [size, quantity] of selectedSizes) {
-      params.set(`line_items[${lineIndex}][price_data][currency]`, "usd");
-      params.set(`line_items[${lineIndex}][price_data][product_data][name]`, `${item.name} (${size})`);
-      params.set(
-        `line_items[${lineIndex}][price_data][product_data][description]`,
-        `${product.shortName} gloves, ${size} size, priced per case.`,
-      );
-      params.set(`line_items[${lineIndex}][price_data][unit_amount]`, String(item.priceCents));
-      params.set(`line_items[${lineIndex}][quantity]`, String(quantity));
-      lineIndex += 1;
-    }
-  }
-
-  const response = await fetch(stripeEndpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: params,
-  });
-
-  const session = await response.json();
-
-  if (!response.ok || !session.url) {
-    const error = new Error(session.error?.message || "Stripe checkout could not be created.");
-    error.statusCode = response.status || 500;
-    throw error;
-  }
-
-  return session;
 }

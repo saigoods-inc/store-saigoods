@@ -825,7 +825,7 @@ button {
   background: #e8e8e8;
 }
 
-/* Product detail secondary CTA (Checkout with Stripe) */
+/* Product detail secondary checkout CTA */
 .product-actions .button--secondary {
   background: var(--bg);
   color: #515151;
