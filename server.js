@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fetchNexusSummaryRows, fetchTaxSummaryTnRows } from "./lib/orders.js";
-import { mergeInventoryIntoProduct, mergeInventoryIntoStore } from "./lib/stock.js";
+import { mergeInventoryIntoProduct } from "./lib/stock.js";
 import { assertReportsAuthorized } from "./lib/reports-auth.js";
 import adminDiscountCodesHandler from "./api/admin-discount-codes.js";
 import adminStockHandler from "./api/admin-stock.js";
@@ -46,6 +46,7 @@ import cartQuoteHandler from "./api/cart-quote.js";
 import checkoutHandler from "./api/checkout.js";
 import checkoutEstimateHandler from "./api/checkout-estimate.js";
 import checkoutPayHandler from "./api/checkout-pay.js";
+import productsHandler from "./api/products.js";
 import shippoWebhookHandler from "./api/webhooks/shippo.js";
 import squareConfigHandler from "./api/square-config.js";
 import supabasePublicConfigHandler from "./api/supabase-public-config.js";
@@ -65,13 +66,19 @@ const imageDir = path.join(__dirname, "public", "img");
 
 function adaptExpressStyleResponse(res) {
   let statusCode = 200;
+  /** @type {Record<string, string>} */
+  const extraHeaders = {};
   return {
     status(c) {
       statusCode = c;
       return this;
     },
+    setHeader(name, value) {
+      extraHeaders[String(name)] = String(value);
+      return this;
+    },
     json(body) {
-      sendJson(res, statusCode, body);
+      sendJson(res, statusCode, body, extraHeaders);
     },
   };
 }
@@ -96,11 +103,9 @@ const server = createServer(async (req, res) => {
     const requestUrl = new URL(req.url, `http://${req.headers.host || `localhost:${port}`}`);
     const { pathname } = requestUrl;
 
-    if (pathname === "/api/products" && req.method === "GET") {
-      // Always read from disk so site metadata (phone, address, etc.) updates without restarting Node.
-      return sendJson(res, 200, await mergeInventoryIntoStore(readStoreData()), {
-        "Cache-Control": "no-store",
-      });
+    if (pathname === "/api/products") {
+      await productsHandler({ method: req.method }, adaptExpressStyleResponse(res));
+      return;
     }
 
     if (pathname.startsWith("/api/products/") && req.method === "GET") {
