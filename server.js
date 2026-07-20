@@ -5,10 +5,6 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fetchNexusSummaryRows, fetchTaxSummaryTnRows } from "./lib/orders.js";
-import {
-  buildSupabasePublicConfig503Body,
-  resolveSupabasePublicConfigFromEnv,
-} from "./lib/supabase-public-config-env.js";
 import { isCheckoutAddressValidationEnabled } from "./lib/address-validation.js";
 import { mergeInventoryIntoProduct, mergeInventoryIntoStore } from "./lib/stock.js";
 import { assertReportsAuthorized } from "./lib/reports-auth.js";
@@ -52,6 +48,7 @@ import checkoutHandler from "./api/checkout.js";
 import checkoutEstimateHandler from "./api/checkout-estimate.js";
 import checkoutPayHandler from "./api/checkout-pay.js";
 import shippoWebhookHandler from "./api/webhooks/shippo.js";
+import supabasePublicConfigHandler from "./api/supabase-public-config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -543,16 +540,16 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    if (req.method !== "GET" && req.method !== "HEAD") {
-      return sendJson(res, 405, { error: "Method not allowed." });
+    if (pathname === "/api/supabase-public-config") {
+      await supabasePublicConfigHandler(
+        { method: req.method },
+        adaptExpressStyleResponse(res),
+      );
+      return;
     }
 
-    if (pathname === "/api/supabase-public-config") {
-      const { supabaseUrl, supabaseAnonKey } = resolveSupabasePublicConfigFromEnv();
-      if (!supabaseUrl || !supabaseAnonKey) {
-        return sendJson(res, 503, buildSupabasePublicConfig503Body());
-      }
-      return sendJson(res, 200, { supabaseUrl, supabaseAnonKey });
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      return sendJson(res, 405, { error: "Method not allowed." });
     }
 
     if (pathname === "/admin/orders" || pathname === "/admin/orders/" || pathname === "/admin/orders.html") {
