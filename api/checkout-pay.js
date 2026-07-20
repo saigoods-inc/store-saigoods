@@ -15,6 +15,30 @@ import { assertCartItemsHaveValidSupportedSizeAllocation } from "../lib/quote.js
 import { assertStockAvailableForItems } from "../lib/stock.js";
 import { checkoutFlowErrorJsonFields } from "../lib/checkout-estimate-logic.js";
 
+/**
+ * Deterministic rejection when the authoritative final quote says checkout cannot proceed.
+ * Safe shipping mode/quoteStatus only (estimate conventions); no secrets or raw provider dumps.
+ */
+export const CHECKOUT_PAY_NOT_READY_BODY = {
+  error: "Checkout cannot proceed because the shipping quote is not ready.",
+  canCheckout: false,
+};
+
+/** Build the fail-closed JSON body, optionally attaching safe shipping status from the quote. */
+export function buildCheckoutPayNotReadyBody(quote) {
+  const shipping = quote?.shipping && typeof quote.shipping === "object" ? quote.shipping : null;
+  if (!shipping) {
+    return { ...CHECKOUT_PAY_NOT_READY_BODY };
+  }
+  return {
+    ...CHECKOUT_PAY_NOT_READY_BODY,
+    shipping: {
+      mode: shipping.mode ?? null,
+      quoteStatus: shipping.quoteStatus ?? null,
+    },
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed." });
@@ -82,6 +106,15 @@ export default async function handler(req, res) {
       flow: "checkout",
       addressValidationResult: addrCheck,
     });
+
+    // Fail closed: allow payment only when the authoritative final quote explicitly says ready.
+    // Strict === true rejects false, undefined, null, and any non-boolean truthy value.
+    // 503: quote capability unavailable (same family as payment-link live-shipping gate / Square unconfigured).
+    if (quote.canCheckout !== true) {
+      res.status(503).json(buildCheckoutPayNotReadyBody(quote));
+      return;
+    }
+
     const customer = {
       name: parsed.name,
       email: parsed.email,
