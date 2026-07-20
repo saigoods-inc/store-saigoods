@@ -5,7 +5,6 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fetchNexusSummaryRows, fetchTaxSummaryTnRows } from "./lib/orders.js";
-import { isCheckoutAddressValidationEnabled } from "./lib/address-validation.js";
 import { mergeInventoryIntoProduct, mergeInventoryIntoStore } from "./lib/stock.js";
 import { assertReportsAuthorized } from "./lib/reports-auth.js";
 import adminDiscountCodesHandler from "./api/admin-discount-codes.js";
@@ -48,6 +47,7 @@ import checkoutHandler from "./api/checkout.js";
 import checkoutEstimateHandler from "./api/checkout-estimate.js";
 import checkoutPayHandler from "./api/checkout-pay.js";
 import shippoWebhookHandler from "./api/webhooks/shippo.js";
+import squareConfigHandler from "./api/square-config.js";
 import supabasePublicConfigHandler from "./api/supabase-public-config.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -121,35 +121,12 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    if (pathname === "/api/square-config" && req.method === "GET") {
-      const squareApplicationId = process.env.SQUARE_APPLICATION_ID?.trim() || null;
-      const squareLocationId = process.env.SQUARE_LOCATION_ID?.trim() || null;
-      const squareEnvironment =
-        (process.env.SQUARE_ENVIRONMENT || "production").toLowerCase() === "sandbox" ? "sandbox" : "production";
-
-      const checkoutAddressValidationEnabled = isCheckoutAddressValidationEnabled();
-      const isProduction = process.env.NODE_ENV === "production";
-      const checkoutShowAddressValidationDisabledBanner =
-        !checkoutAddressValidationEnabled && !isProduction;
-
-      if (!squareApplicationId || !squareLocationId) {
-        return sendJson(res, 503, {
-          error: "Embedded checkout is not configured.",
-          squareApplicationId: null,
-          squareLocationId: null,
-          squareEnvironment,
-          checkoutAddressValidationEnabled,
-          checkoutShowAddressValidationDisabledBanner,
-        });
-      }
-
-      return sendJson(res, 200, {
-        squareApplicationId,
-        squareLocationId,
-        squareEnvironment,
-        checkoutAddressValidationEnabled,
-        checkoutShowAddressValidationDisabledBanner,
-      });
+    if (pathname === "/api/square-config") {
+      await squareConfigHandler(
+        { method: req.method },
+        adaptExpressStyleResponse(res),
+      );
+      return;
     }
 
     if (pathname === "/api/nexus-summary" && req.method === "GET") {
