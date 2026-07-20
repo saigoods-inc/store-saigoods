@@ -4,7 +4,7 @@ import { access, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { fetchNexusSummaryRows, fetchTaxSummaryTnRows } from "./lib/orders.js";
+import { fetchTaxSummaryTnRows } from "./lib/orders.js";
 import { mergeInventoryIntoProduct } from "./lib/stock.js";
 import { assertReportsAuthorized } from "./lib/reports-auth.js";
 import adminDiscountCodesHandler from "./api/admin-discount-codes.js";
@@ -46,6 +46,7 @@ import cartQuoteHandler from "./api/cart-quote.js";
 import checkoutHandler from "./api/checkout.js";
 import checkoutEstimateHandler from "./api/checkout-estimate.js";
 import checkoutPayHandler from "./api/checkout-pay.js";
+import nexusSummaryHandler from "./api/nexus-summary.js";
 import productsHandler from "./api/products.js";
 import shippoWebhookHandler from "./api/webhooks/shippo.js";
 import squareConfigHandler from "./api/square-config.js";
@@ -134,22 +135,12 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    if (pathname === "/api/nexus-summary" && req.method === "GET") {
-      try {
-        await assertReportsAuthorized(req);
-        const summary = await fetchNexusSummaryRows();
-        return sendJson(res, 200, {
-          generated_at: new Date().toISOString(),
-          currency: "USD",
-          amounts_in: "cents",
-          summary,
-        });
-      } catch (error) {
-        console.error(error);
-        return sendJson(res, error.statusCode || 500, {
-          error: error.message || "Could not load nexus summary.",
-        });
-      }
+    if (pathname === "/api/nexus-summary") {
+      await nexusSummaryHandler(
+        { method: req.method, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
     }
 
     if (pathname === "/api/tax-summary" && req.method === "GET") {
