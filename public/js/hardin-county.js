@@ -1,8 +1,6 @@
 /**
- * Hardin County, TN delivery check (server-side). Uses USPS-style 5-digit ZIP allowlist.
- * Extend `HARDIN_COUNTY_ZIPS` if county data is unavailable.
- *
- * This allowlist is also the source of truth for the local delivery service area.
+ * Browser copy of lib/hardin-county.js local-delivery / Hardin ZIP allowlist.
+ * Keep in sync with server `DEFAULT_HARDIN_COUNTY_ZIPS` / HARDIN_COUNTY_ZIPS env.
  */
 
 export const DEFAULT_HARDIN_COUNTY_ZIPS = [
@@ -19,22 +17,7 @@ export const DEFAULT_HARDIN_COUNTY_ZIPS = [
 export const LOCAL_DELIVERY_AREA_ERROR =
   "Local delivery is only available for the approved local service area. Use Ship with carrier for this address.";
 
-function hardinZipSet() {
-  const raw = process.env.HARDIN_COUNTY_ZIPS?.trim();
-  if (!raw) {
-    return new Set(DEFAULT_HARDIN_COUNTY_ZIPS);
-  }
-  const parts = raw.split(/[\s,]+/).map((s) => s.replace(/\D/g, "").slice(0, 5)).filter((z) => z.length === 5);
-  return new Set(parts.length ? parts : DEFAULT_HARDIN_COUNTY_ZIPS);
-}
-
-let cachedSet = null;
-function zipSet() {
-  if (!cachedSet) {
-    cachedSet = hardinZipSet();
-  }
-  return cachedSet;
-}
+const ZIP_SET = new Set(DEFAULT_HARDIN_COUNTY_ZIPS);
 
 /**
  * @param {{ state?: string, postalCode?: string }} addr
@@ -44,20 +27,16 @@ export function isHardinCountyTnDelivery(addr) {
   const state = String(a.state || "")
     .trim()
     .toUpperCase();
-  if (state !== "TN") {
-    return false;
-  }
+  if (state !== "TN") return false;
   const z = String(a.postalCode || "")
     .replace(/\D/g, "")
     .slice(0, 5);
-  if (z.length !== 5) {
-    return false;
-  }
-  return zipSet().has(z);
+  if (z.length !== 5) return false;
+  return ZIP_SET.has(z);
 }
 
 /**
- * Local delivery service-area check — same Hardin County TN ZIP allowlist.
+ * Local delivery service area — same Hardin County TN ZIP allowlist.
  * @param {{ state?: string, postalCode?: string }} addr
  */
 export function isLocalDeliveryServiceArea(addr) {

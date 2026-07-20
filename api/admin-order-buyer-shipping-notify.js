@@ -1,5 +1,6 @@
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
 import { sendAdminShippingNotifyEmail } from "../lib/admin-shipping-notify-email.js";
+import { resolveBuyerShippingNotifyForOrder } from "../lib/admin-shipping-notify-resolve.js";
 import { getOrderByIdForService, markAdminBuyerShippingNotifySent } from "../lib/orders.js";
 
 export default async function handler(req, res) {
@@ -19,21 +20,39 @@ export default async function handler(req, res) {
       res.status(404).json({ error: "Order not found." });
       return;
     }
-    const labelOk =
-      Boolean(String(order.shippo_label_url || "").trim()) &&
-      String(order.shippo_transaction_status || "").toUpperCase() === "SUCCESS";
-    if (!labelOk) {
-      res.status(400).json({ error: "Purchase a label before notifying the buyer." });
+    if (String(order.order_status || "") === "cancelled") {
+      res.status(400).json({ error: "Cancelled orders cannot receive shipping notifications." });
+      return;
+    }
+    if (!String(order.customer_email || "").trim()) {
+      res.status(400).json({ error: "Order has no customer email." });
       return;
     }
 
-    const result = await sendAdminShippingNotifyEmail(order);
+    const fulfillment = await resolveBuyerShippingNotifyForOrder(order);
+    if (!fulfillment.ok) {
+      const msg =
+        fulfillment.error ||
+        "A complete label or tracking record is required before sending a buyer notification.";
+      res.status(400).json({ error: msg });
+      return;
+    }
+    if (!fulfillment.trackings?.length) {
+      res.status(400).json({
+        error: "Tracking number is required before sending a buyer notification.",
+      });
+      return;
+    }
+
+    const result = await sendAdminShippingNotifyEmail(order, fulfillment);
     if (!result.sent) {
       res.status(503).json({
         error:
           result.reason === "missing_customer_email"
             ? "Order has no customer email."
-            : "Email is not configured (set RESEND_API_KEY and RESEND_FROM) or sending failed.",
+            : result.reason === "missing_tracking"
+              ? "Tracking number is required before sending a buyer notification."
+              : "Email is not configured (set RESEND_API_KEY and RESEND_FROM) or sending failed.",
         reason: result.reason,
         order,
       });

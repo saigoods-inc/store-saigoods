@@ -1,6 +1,6 @@
 import { formatShippingAddressForOrder } from "../lib/checkout-totals.js";
 import { computeCheckoutEstimate, checkoutFlowErrorJsonFields } from "../lib/checkout-estimate-logic.js";
-import { isHardinCountyTnDelivery } from "../lib/hardin-county.js";
+import { isHardinCountyTnDelivery, validateLocalDeliveryServiceArea } from "../lib/hardin-county.js";
 import {
   PICKUP_ADDRESS_FOR_ORDER,
   buildLocalOrCarrierAddressForQuote,
@@ -81,15 +81,24 @@ function parseCreateBody(body) {
   } else if (fulfillmentMethod === "pickup") {
     address = { ...PICKUP_ADDRESS_FOR_ORDER };
   } else {
-    address = addr && typeof addr === "object" && hasAnyAddressFields(addr)
-      ? buildLocalOrCarrierAddressForQuote(addr)
-      : buildLocalOrCarrierAddressForQuote({
-          line1: "Local delivery (address to be confirmed)",
-          city: "Savannah",
-          state: "TN",
-          postalCode: "38372",
-          country: "US",
-        });
+    // local_delivery — approved Hardin/local service area only (no Savannah fallback for blank address).
+    if (!addr || typeof addr !== "object" || !hasAnyAddressFields(addr)) {
+      return { error: "Local delivery requires a delivery address in the approved local service area." };
+    }
+    const state = String(addr.state || "").trim();
+    const zip = String(addr.postalCode || "").replace(/\D/g, "").slice(0, 5);
+    if (!state || zip.length !== 5) {
+      return { error: "Local delivery requires state and ZIP in the approved local service area." };
+    }
+    address = buildLocalOrCarrierAddressForQuote(addr);
+    const area = validateLocalDeliveryServiceArea(address);
+    if (!area.ok) {
+      return { error: area.error };
+    }
+  }
+
+  if (fulfillmentMethod === "carrier" && paymentFlow === "pay_later") {
+    return { error: "Pay later is only available for pickup or local delivery." };
   }
 
   const localDeliveryNote =

@@ -624,6 +624,62 @@ const server = createServer(async (req, res) => {
       return serveFile(res, path.join(publicDir, "admin", "inventory.html"), req.method);
     }
 
+    if (
+      pathname === "/admin-v2/summary" ||
+      pathname === "/admin-v2/summary/" ||
+      pathname === "/admin-v2/summary.html"
+    ) {
+      return serveFile(res, path.join(publicDir, "admin-v2", "summary.html"), req.method);
+    }
+
+    if (pathname === "/admin-v2/tax" || pathname === "/admin-v2/tax/" || pathname === "/admin-v2/tax.html") {
+      return serveFile(res, path.join(publicDir, "admin-v2", "tax.html"), req.method);
+    }
+
+    if (pathname === "/admin-v2/nexus" || pathname === "/admin-v2/nexus/" || pathname === "/admin-v2/nexus.html") {
+      return serveFile(res, path.join(publicDir, "admin-v2", "nexus.html"), req.method);
+    }
+
+    if (
+      pathname === "/admin-v2/discount-codes" ||
+      pathname === "/admin-v2/discount-codes/" ||
+      pathname === "/admin-v2/discount-codes.html"
+    ) {
+      return serveFile(res, path.join(publicDir, "admin-v2", "discount-codes.html"), req.method);
+    }
+
+    if (
+      pathname === "/admin-v2/inventory" ||
+      pathname === "/admin-v2/inventory/" ||
+      pathname === "/admin-v2/inventory.html"
+    ) {
+      return serveFile(res, path.join(publicDir, "admin-v2", "inventory.html"), req.method);
+    }
+
+    if (
+      pathname === "/admin-v2/orders" ||
+      pathname === "/admin-v2/orders/" ||
+      pathname === "/admin-v2/orders.html"
+    ) {
+      return serveFile(res, path.join(publicDir, "admin-v2", "orders.html"), req.method);
+    }
+
+    if (
+      pathname === "/admin-v2/manual-order" ||
+      pathname === "/admin-v2/manual-order/" ||
+      pathname === "/admin-v2/manual-order.html"
+    ) {
+      return serveFile(res, path.join(publicDir, "admin-v2", "manual-order.html"), req.method);
+    }
+
+    if (
+      pathname === "/admin-v2/walk-in-order" ||
+      pathname === "/admin-v2/walk-in-order/" ||
+      pathname === "/admin-v2/walk-in-order.html"
+    ) {
+      return serveFile(res, path.join(publicDir, "admin-v2", "walk-in-order.html"), req.method);
+    }
+
     if (pathname === "/" || pathname === "/index.html") {
       return serveFile(res, path.join(publicDir, "index.html"), req.method);
     }
