@@ -28,10 +28,12 @@ const LEGACY_ADMIN_ROUTES = [
 ];
 
 const UNRELEASED_V2_HREFS = [
-  "/admin-v2/orders",
   "/admin-v2/manual-order",
   "/admin-v2/walk-in-order",
 ];
+
+const RELEASED_ORDERS_ROUTE = "/admin-v2/orders";
+
 
 const PRIVATE_SECRET_MARKERS = [
   "INTERNAL_REPORTS_SECRET",
@@ -143,7 +145,7 @@ test("Phase 10A approved admin-v2 HTML shells exist with expected assets", () =>
     assert.match(html, /\/css\/v2\/tokens\.css/);
     assert.match(html, /\/css\/v2\/admin-v2\.css/);
     assert.match(html, new RegExp(page.script.replace(/\./g, "\\.")));
-    assert.doesNotMatch(html, /\/admin-v2\/(orders|manual-order|walk-in-order)/);
+    assert.doesNotMatch(html, /\/admin-v2\/(manual-order|walk-in-order)/);
   }
   assert.equal(existsSync(path.join(__dirname, "public/css/v2/tokens.css")), true);
   assert.equal(existsSync(path.join(__dirname, "public/css/v2/admin-v2.css")), true);
@@ -152,8 +154,8 @@ test("Phase 10A approved admin-v2 HTML shells exist with expected assets", () =>
 });
 
 test("Phase 10A does not restore unreleased admin-v2 page files", () => {
-  // Inventory is released in Phase 10B-1; Orders / Manual / Walk-in remain unreleased.
-  for (const name of ["orders", "manual-order", "walk-in-order"]) {
+  // Inventory is Phase 10B-1; Orders read-only is Phase 10B-2A; Manual / Walk-in remain unreleased.
+  for (const name of ["manual-order", "walk-in-order"]) {
     assert.equal(existsSync(path.join(__dirname, "public/admin-v2", `${name}.html`)), false);
     assert.equal(existsSync(path.join(__dirname, "public/js/v2", `admin-${name}.js`)), false);
   }
@@ -181,6 +183,8 @@ test("vercel.json adds four admin-v2 rewrites without removing legacy admin rewr
   assert.equal(bySource.get("/admin-v2/tax"), "/admin-v2/tax.html");
   assert.equal(bySource.get("/admin-v2/nexus"), "/admin-v2/nexus.html");
   assert.equal(bySource.get("/admin-v2/discount-codes"), "/admin-v2/discount-codes.html");
+  assert.equal(bySource.get(RELEASED_ORDERS_ROUTE), "/admin-v2/orders.html");
+  assert.equal(bySource.get("/admin-v2/orders/"), "/admin-v2/orders.html");
 
   for (const href of UNRELEASED_V2_HREFS) {
     assert.equal(bySource.has(href), false, `unexpected rewrite for unreleased ${href}`);
@@ -197,6 +201,9 @@ test("server.js serves four approved admin-v2 pages and keeps legacy admin route
       new RegExp(`admin-v2",\\s*"${page.htmlFile.replace(".", "\\.")}"`),
     );
   }
+
+  assert.match(serverSource, /\/admin-v2\/orders/);
+  assert.match(serverSource, /admin-v2",\s*"orders\.html"/);
 
   for (const href of UNRELEASED_V2_HREFS) {
     assert.doesNotMatch(serverSource, new RegExp(href.replace(/\//g, "\\/")));
@@ -218,6 +225,8 @@ test("admin-v2 navigation exposes only approved routes", () => {
   for (const page of APPROVED_V2_PAGES) {
     assert.match(ui, new RegExp(`href:\\s*"${page.route}"`));
   }
+  assert.match(ui, new RegExp(`href:\\s*"${RELEASED_ORDERS_ROUTE}"`));
+  assert.match(ui, /id:\s*"orders"/);
   for (const href of UNRELEASED_V2_HREFS) {
     assert.doesNotMatch(ui, new RegExp(href.replace(/\//g, "\\/")));
   }
@@ -313,8 +322,16 @@ test("local server resolves approved admin-v2 routes to HTML shells", async () =
     assert.match(legacySummary.body, /<!doctype html>/i);
     assert.match(legacySummary.body, /admin-page|Staff login|Summary/i);
 
-    // Unreleased v2 pages are not routed.
-    const missing = await httpGet(`${base}/admin-v2/orders`);
-    assert.equal(missing.statusCode, 404);
+    // Orders read-only is released in Phase 10B-2A.
+    const orders = await httpGet(`${base}${RELEASED_ORDERS_ROUTE}`);
+    assert.equal(orders.statusCode, 200);
+    assert.match(orders.body, /admin-orders\.js/);
+    assert.match(orders.body, /sg-login/);
+
+    // Manual / Walk-in remain unreleased.
+    for (const href of UNRELEASED_V2_HREFS) {
+      const missing = await httpGet(`${base}${href}`);
+      assert.equal(missing.statusCode, 404, href);
+    }
   });
 });

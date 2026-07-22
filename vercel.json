@@ -18,7 +18,9 @@
     { "source": "/admin-v2/discount-codes", "destination": "/admin-v2/discount-codes.html" },
     { "source": "/admin-v2/discount-codes/", "destination": "/admin-v2/discount-codes.html" },
     { "source": "/admin-v2/inventory", "destination": "/admin-v2/inventory.html" },
-    { "source": "/admin-v2/inventory/", "destination": "/admin-v2/inventory.html" }
+    { "source": "/admin-v2/inventory/", "destination": "/admin-v2/inventory.html" },
+    { "source": "/admin-v2/orders", "destination": "/admin-v2/orders.html" },
+    { "source": "/admin-v2/orders/", "destination": "/admin-v2/orders.html" }
   ],
   "functions": {
     "api/**/*.js": {

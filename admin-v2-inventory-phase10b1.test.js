@@ -15,7 +15,7 @@ const PHASE10A_ROUTES = [
   { route: "/admin-v2/discount-codes", script: "/js/v2/admin-discount-codes.js" },
 ];
 
-const UNRELEASED_V2_HREFS = ["/admin-v2/orders", "/admin-v2/manual-order", "/admin-v2/walk-in-order"];
+const UNRELEASED_V2_HREFS = ["/admin-v2/manual-order", "/admin-v2/walk-in-order"];
 
 const PRIVATE_SECRET_MARKERS = [
   "INTERNAL_REPORTS_SECRET",
@@ -588,7 +588,12 @@ test("Phase 10B-1 local server serves inventory and coexistence routes", async (
       assert.match(res.body, new RegExp(page.script.replace(/\./g, "\\.")));
     }
 
-    const missing = await httpGet(`${base}/admin-v2/orders`);
-    assert.equal(missing.statusCode, 404);
+    // Orders is released in 10B-2A; Manual/Walk-in stay 404 (checked via UNRELEASED_V2_HREFS below when present).
+    const ordersRes = await httpGet(`${base}/admin-v2/orders`);
+    assert.equal(ordersRes.statusCode, 200);
+    for (const href of UNRELEASED_V2_HREFS) {
+      const missing = await httpGet(`${base}${href}`);
+      assert.equal(missing.statusCode, 404, href);
+    }
   });
 });

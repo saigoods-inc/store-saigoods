@@ -293,7 +293,7 @@ function renderRecentOrders(summary) {
     emptyHtml: emptyState({ title: "No recent orders", text: "Paid orders in this range will appear here." }),
   });
 
-  const action = `<a class="sg-linkbtn" href="/admin/orders.html">View in legacy admin ${icon("arrow-up-right", 12)}</a>`;
+  const action = `<a class="sg-linkbtn" href="/admin-v2/orders">View all ${icon("arrow-up-right", 12)}</a>`;
   return card({ title: "Recent Orders", actionHtml: action, bodyHtml: table });
 }
 

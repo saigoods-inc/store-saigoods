@@ -593,6 +593,14 @@ const server = createServer(async (req, res) => {
       return serveFile(res, path.join(publicDir, "admin-v2", "inventory.html"), req.method);
     }
 
+    if (
+      pathname === "/admin-v2/orders" ||
+      pathname === "/admin-v2/orders/" ||
+      pathname === "/admin-v2/orders.html"
+    ) {
+      return serveFile(res, path.join(publicDir, "admin-v2", "orders.html"), req.method);
+    }
+
     if (pathname === "/" || pathname === "/index.html") {
       return serveFile(res, path.join(publicDir, "index.html"), req.method);
     }
