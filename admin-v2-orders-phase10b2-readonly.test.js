@@ -524,6 +524,11 @@ function harnessHasLabelRecord(row, labelsByOrderId = new Map()) {
   return labels.some((l) => String(l.status || "") === "purchased");
 }
 
+/** Same signal as admin-orders.js / computeFulfillmentWorkflow / shippingSummary. */
+function harnessIsPickupOrLocalNoCarrier(row) {
+  return row?.shippo_label_required === false;
+}
+
 function harnessBuildStepperSteps(row, labelsByOrderId = new Map()) {
   const cancelled = isOrderCancelled(row);
   const paid = isPaymentPaid(row);
@@ -534,6 +539,15 @@ function harnessBuildStepperSteps(row, labelsByOrderId = new Map()) {
       { label: "Order created", state: "done" },
       { label: "Payment received", state: paid ? "done" : cancelled ? "skip" : "active" },
       { label: "Completed", state: shipped ? "done" : paid && !cancelled ? "active" : "pending" },
+    ];
+  } else if (harnessIsPickupOrLocalNoCarrier(row)) {
+    steps = [
+      { label: "Order created", state: "done" },
+      { label: "Payment received", state: paid ? "done" : cancelled ? "skip" : "active" },
+      {
+        label: "Handed off / delivered",
+        state: shipped ? "done" : paid && !cancelled ? "active" : "pending",
+      },
     ];
   } else {
     const labelDone = harnessHasLabelRecord(row, labelsByOrderId);
@@ -553,6 +567,9 @@ function harnessBuildStepperSteps(row, labelsByOrderId = new Map()) {
 function harnessOrderDrawerMainSectionKeys(row) {
   if (isWalkInOrder(row)) {
     return ["overview", "items", "customer", "docs", "payment"];
+  }
+  if (harnessIsPickupOrLocalNoCarrier(row)) {
+    return ["overview", "items", "customer", "shipTo", "docs", "payment"];
   }
   if (isOrderShipped(row)) {
     return [
@@ -852,6 +869,159 @@ test("Phase 10B-2A non-walk-in stepper retains Label recorded step", () => {
     ["Order created", "Payment received", "Label recorded", "Shipped"],
   );
   assert.equal(isManualOrder(web), false);
+});
+
+test("Phase 10B-2A pickup/local stepper omits Label recorded and uses Handed off / delivered", () => {
+  const source = read("public/js/v2/admin-orders.js");
+  assert.match(source, /shippo_label_required === false/);
+  assert.match(source, /label: "Handed off \/ delivered"/);
+  assert.match(source, /isPickupOrLocalNoCarrier/);
+
+  const unpaid = {
+    id: 101,
+    order_source: "manual",
+    fulfillment_method: "pickup",
+    shippo_label_required: false,
+    status: "pending",
+    order_status: "awaiting_payment",
+  };
+  const paidOpen = {
+    id: 102,
+    order_source: "manual",
+    fulfillment_method: "local_delivery",
+    shippo_label_required: false,
+    status: "paid",
+    order_status: "ready_for_local_delivery",
+  };
+  const completed = {
+    id: 103,
+    order_source: "manual",
+    fulfillment_method: "pickup",
+    shippo_label_required: false,
+    status: "paid",
+    order_status: "shipped",
+    admin_handoff_at: "2026-07-01T00:00:00Z",
+  };
+  const cancelled = {
+    id: 104,
+    order_source: "manual",
+    fulfillment_method: "pickup",
+    shippo_label_required: false,
+    status: "pending",
+    order_status: "cancelled",
+  };
+
+  for (const row of [unpaid, paidOpen, completed, cancelled]) {
+    const steps = harnessBuildStepperSteps(row);
+    assert.deepEqual(
+      steps.map((s) => s.label),
+      ["Order created", "Payment received", "Handed off / delivered"],
+    );
+    assert.equal(steps.some((s) => s.label === "Label recorded"), false);
+  }
+
+  assert.equal(harnessBuildStepperSteps(unpaid)[1].state, "active");
+  assert.equal(harnessBuildStepperSteps(unpaid)[2].state, "pending");
+  assert.equal(harnessBuildStepperSteps(paidOpen)[1].state, "done");
+  assert.equal(harnessBuildStepperSteps(paidOpen)[2].state, "active");
+  assert.equal(harnessBuildStepperSteps(completed)[2].state, "done");
+  assert.equal(harnessBuildStepperSteps(cancelled)[1].state, "skip");
+  assert.equal(harnessBuildStepperSteps(cancelled)[2].state, "skip");
+});
+
+test("Phase 10B-2A pickup/local drawer omits carrier-only sections", () => {
+  const source = read("public/js/v2/admin-orders.js");
+  assert.match(source, /isPickupOrLocalNoCarrier\(row\)/);
+  assert.match(source, /Skip ship-from when the drawer has no ship-from target/);
+
+  const carrierOnly = [
+    "shipFrom",
+    "plannedDate",
+    "readiness",
+    "workflow",
+    "availableRates",
+    "shipping",
+    "externalLabel",
+  ];
+
+  const pickupUnshipped = {
+    id: 201,
+    order_source: "manual",
+    fulfillment_method: "pickup",
+    shippo_label_required: false,
+    status: "paid",
+    order_status: "ready_for_pickup",
+  };
+  const localShipped = {
+    id: 202,
+    order_source: "manual",
+    fulfillment_method: "local_delivery",
+    shippo_label_required: false,
+    status: "paid",
+    order_status: "shipped",
+    admin_handoff_at: "2026-07-01T00:00:00Z",
+  };
+
+  for (const row of [pickupUnshipped, localShipped]) {
+    const keys = harnessOrderDrawerMainSectionKeys(row);
+    assert.deepEqual(keys, ["overview", "items", "customer", "shipTo", "docs", "payment"]);
+    for (const k of carrierOnly) {
+      assert.equal(keys.includes(k), false, k);
+    }
+  }
+
+  // Carrier contracts unchanged.
+  const carrierUnshipped = {
+    id: 301,
+    order_source: "web",
+    status: "paid",
+    order_status: "ready_to_ship",
+  };
+  const carrierShipped = {
+    id: 302,
+    order_source: "web",
+    status: "paid",
+    order_status: "shipped",
+    admin_handoff_at: "2026-07-01T00:00:00Z",
+    admin_external_carrier: "UPS",
+  };
+  assert.deepEqual(harnessOrderDrawerMainSectionKeys(carrierUnshipped), [
+    "overview",
+    "items",
+    "customer",
+    "shipTo",
+    "shipFrom",
+    "plannedDate",
+    "readiness",
+    "workflow",
+    "availableRates",
+    "shipping",
+    "externalLabel",
+    "docs",
+    "payment",
+  ]);
+  assert.deepEqual(harnessOrderDrawerMainSectionKeys(carrierShipped), [
+    "overview",
+    "items",
+    "customer",
+    "shipTo",
+    "shipping",
+    "externalLabel",
+    "docs",
+    "workflow",
+    "readiness",
+    "payment",
+  ]);
+
+  // Walk-in unchanged.
+  const walkIn = { order_type: "walk_in", order_source: "walk_in", status: "paid", order_status: "paid" };
+  assert.deepEqual(harnessOrderDrawerMainSectionKeys(walkIn), [
+    "overview",
+    "items",
+    "customer",
+    "docs",
+    "payment",
+  ]);
 });
 
 test("Phase 10B-2A Paid · Not Shipped KPI is factual and label-agnostic", () => {
