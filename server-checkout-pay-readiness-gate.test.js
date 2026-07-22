@@ -475,15 +475,18 @@ test("buildFullCheckoutQuote canCheckout is always a strict boolean true|false",
   });
 });
 
-test("strict readiness allow condition rejects false, absent, null, and non-boolean truthy", () => {
+test("strict readiness allow condition rejects false, absent, null, 0, and non-boolean truthy", () => {
   // Mirrors Production: if (quote.canCheckout !== true) reject.
+  // Behavioral handler coverage for these values lives in server-checkout-estimate-pay-parity.test.js.
   const wouldReject = (canCheckout) => canCheckout !== true;
   assert.equal(wouldReject(false), true);
   assert.equal(wouldReject(undefined), true);
   assert.equal(wouldReject(null), true);
+  assert.equal(wouldReject(0), true);
   assert.equal(wouldReject(1), true);
   assert.equal(wouldReject("true"), true);
   assert.equal(wouldReject({}), true);
+  assert.equal(wouldReject({ ok: true }), true);
   assert.equal(wouldReject(true), false);
 
   assert.deepEqual(
