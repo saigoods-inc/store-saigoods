@@ -8,7 +8,11 @@
     { "source": "/admin/discount-codes", "destination": "/admin/discount-codes.html" },
     { "source": "/admin/manual-order", "destination": "/admin/manual-order.html" },
     { "source": "/admin/walk-in-order", "destination": "/admin/walk-in-order.html" },
-    { "source": "/admin/inventory", "destination": "/admin/inventory.html" }
+    { "source": "/admin/inventory", "destination": "/admin/inventory.html" },
+    { "source": "/admin-v2/summary", "destination": "/admin-v2/summary.html" },
+    { "source": "/admin-v2/tax", "destination": "/admin-v2/tax.html" },
+    { "source": "/admin-v2/nexus", "destination": "/admin-v2/nexus.html" },
+    { "source": "/admin-v2/discount-codes", "destination": "/admin-v2/discount-codes.html" }
   ],
   "functions": {
     "api/**/*.js": {
