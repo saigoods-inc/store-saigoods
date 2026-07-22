@@ -376,8 +376,40 @@ export function toast(message, variant = "default") {
 /*
  * Shared right-side drawer. Lazily creates its own overlay + panel on <body>
  * (separate from the mobile-sidebar overlay). Pages call openDrawer()/closeDrawer().
+ *
+ * Closed state uses hidden + aria-hidden + inert so the dialog leaves the
+ * accessibility/focus tree. Open moves focus to Close; close restores the
+ * opener when it is still connected. No full focus trap (Tab cycle) yet.
  */
 let _drawerEls = null;
+let _drawerOpener = null;
+
+function setDrawerClosed(aside, overlay) {
+  aside.hidden = true;
+  aside.setAttribute("aria-hidden", "true");
+  aside.inert = true;
+  overlay.hidden = true;
+  overlay.setAttribute("aria-hidden", "true");
+}
+
+function setDrawerOpen(aside, overlay) {
+  aside.hidden = false;
+  aside.removeAttribute("aria-hidden");
+  aside.inert = false;
+  overlay.hidden = false;
+  overlay.removeAttribute("aria-hidden");
+}
+
+function restoreDrawerOpener(opener) {
+  if (!opener || typeof opener.focus !== "function") return;
+  if (opener.isConnected === false) return;
+  if (opener.disabled) return;
+  try {
+    opener.focus();
+  } catch {
+    /* opener may not be focusable anymore */
+  }
+}
 
 function ensureDrawer() {
   if (_drawerEls) return _drawerEls;
@@ -390,6 +422,7 @@ function ensureDrawer() {
   aside.id = "sg-drawer";
   aside.setAttribute("role", "dialog");
   aside.setAttribute("aria-modal", "true");
+  setDrawerClosed(aside, overlay);
 
   document.body.appendChild(overlay);
   document.body.appendChild(aside);
@@ -408,6 +441,10 @@ function ensureDrawer() {
  */
 export function openDrawer(opts = {}) {
   const { overlay, aside } = ensureDrawer();
+  const wasOpen = aside.classList.contains("is-open");
+  if (!wasOpen) {
+    _drawerOpener = typeof document !== "undefined" ? document.activeElement : null;
+  }
   aside.setAttribute("aria-label", opts.title || "Details");
   aside.innerHTML = `<div class="sg-drawer__header">
       <h2 class="sg-card__title">${escapeHtml(opts.title || "")}</h2>
@@ -419,12 +456,21 @@ export function openDrawer(opts = {}) {
     <div class="sg-drawer__body">${opts.bodyHtml || ""}</div>`;
   const closeBtn = aside.querySelector("#sg-drawer-close");
   if (closeBtn) closeBtn.addEventListener("click", closeDrawer);
+  setDrawerOpen(aside, overlay);
   overlay.classList.add("is-open");
   aside.classList.add("is-open");
+  if (closeBtn && typeof closeBtn.focus === "function") closeBtn.focus();
 }
 
 export function closeDrawer() {
   if (!_drawerEls) return;
-  _drawerEls.overlay.classList.remove("is-open");
-  _drawerEls.aside.classList.remove("is-open");
+  const { overlay, aside } = _drawerEls;
+  const wasOpen = aside.classList.contains("is-open");
+  overlay.classList.remove("is-open");
+  aside.classList.remove("is-open");
+  setDrawerClosed(aside, overlay);
+  if (!wasOpen) return;
+  const opener = _drawerOpener;
+  _drawerOpener = null;
+  restoreDrawerOpener(opener);
 }

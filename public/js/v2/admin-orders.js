@@ -120,8 +120,19 @@ export function countPaidNotShippedOrders(orders) {
 }
 
 /**
+ * Same carrier-vs-pickup/local signal as computeFulfillmentWorkflow + shippingSummary.
+ * Explicit false only — null/undefined remains legacy carrier.
+ * @param {object} row
+ */
+function isPickupOrLocalNoCarrier(row) {
+  return row?.shippo_label_required === false;
+}
+
+/**
  * Stepper step descriptors for list/detail (read-only display).
  * Walk-in: Order created → Payment received → Completed (no Label recorded).
+ * Pickup/local (shippo_label_required === false): … → Handed off / delivered (no Label recorded).
+ * Carrier: … → Label recorded → Shipped.
  * @param {object} row
  * @returns {Array<{ label: string, state: string }>}
  */
@@ -137,6 +148,15 @@ export function buildStepperSteps(row) {
       { label: "Order created", state: "done" },
       { label: "Payment received", state: paid ? "done" : cancelled ? "skip" : "active" },
       { label: "Completed", state: shipped ? "done" : paid && !cancelled ? "active" : "pending" },
+    ];
+  } else if (isPickupOrLocalNoCarrier(row)) {
+    steps = [
+      { label: "Order created", state: "done" },
+      { label: "Payment received", state: paid ? "done" : cancelled ? "skip" : "active" },
+      {
+        label: "Handed off / delivered",
+        state: shipped ? "done" : paid && !cancelled ? "active" : "pending",
+      },
     ];
   } else {
     const labelDone = hasLabelRecord(row);
@@ -156,13 +176,16 @@ export function buildStepperSteps(row) {
 
 /**
  * Main-column section keys for the order drawer (read-only layout contract).
- * Non-walk-in shipped and unshipped both include externalLabel.
+ * Pickup/local omits carrier-label sections. Carrier shipped/unshipped retain externalLabel.
  * @param {object} row
  * @returns {string[]}
  */
 export function orderDrawerMainSectionKeys(row) {
   if (isWalkInOrder(row)) {
     return ["overview", "items", "customer", "docs", "payment"];
+  }
+  if (isPickupOrLocalNoCarrier(row)) {
+    return ["overview", "items", "customer", "shipTo", "docs", "payment"];
   }
   if (isOrderShipped(row)) {
     return [
@@ -1552,18 +1575,21 @@ async function hydrateDrawerHelpers(row, gen) {
     return;
   }
 
-  fetchReadOnlyOrderPost("/api/admin-order-ship-from-display", token, { orderId })
-    .then((sf) => {
-      if (gen !== drawerGen) return;
-      const el = document.getElementById("sg-od-shipfrom");
-      const formatted = String(sf?.formatted || "");
-      if (el) el.innerHTML = `<address class="sg-address">${escapeHtml(formatted).replace(/\n/g, "<br />") || "—"}</address>`;
-    })
-    .catch(() => {
-      if (gen !== drawerGen) return;
-      const el = document.getElementById("sg-od-shipfrom");
-      if (el) el.innerHTML = `<div class="sg-inline-warn">${icon("alert-triangle", 14)}<span>Could not load warehouse address.</span></div>`;
-    });
+  // Skip ship-from when the drawer has no ship-from target (walk-in / pickup-local).
+  if (sfEl) {
+    fetchReadOnlyOrderPost("/api/admin-order-ship-from-display", token, { orderId })
+      .then((sf) => {
+        if (gen !== drawerGen) return;
+        const el = document.getElementById("sg-od-shipfrom");
+        const formatted = String(sf?.formatted || "");
+        if (el) el.innerHTML = `<address class="sg-address">${escapeHtml(formatted).replace(/\n/g, "<br />") || "—"}</address>`;
+      })
+      .catch(() => {
+        if (gen !== drawerGen) return;
+        const el = document.getElementById("sg-od-shipfrom");
+        if (el) el.innerHTML = `<div class="sg-inline-warn">${icon("alert-triangle", 14)}<span>Could not load warehouse address.</span></div>`;
+      });
+  }
 
   fetchReadOnlyOrderPost("/api/admin-order-fulfillment-doc-links", token, { orderId })
     .then((dl) => {
