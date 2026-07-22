@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Inventory — SAI Goods (admin v2)</title>
+    <link rel="stylesheet" href="/css/v2/tokens.css" />
+    <link rel="stylesheet" href="/css/v2/admin-v2.css" />
+  </head>
+  <body class="sg-body">
+    <!-- Login view (shown until a Supabase session exists) -->
+    <div id="sg-login" class="sg-login sg-hide">
+      <div class="sg-login__box">
+        <h1>Staff login</h1>
+        <p>Sign in with your Supabase account to view inventory.</p>
+        <form id="login-form">
+          <label class="sg-field">
+            Email
+            <input type="email" name="email" autocomplete="username" required />
+          </label>
+          <label class="sg-field">
+            Password
+            <input type="password" name="password" autocomplete="current-password" required />
+          </label>
+          <p id="login-error" class="sg-error" role="alert" hidden></p>
+          <button type="submit" class="sg-btn sg-btn--primary sg-btn--block">Sign in</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- App root (shell + page injected by the controller) -->
+    <div id="sg-root" class="sg-hide"></div>
+
+    <script type="module" src="/js/v2/admin-inventory.js"></script>
+  </body>
+</html>

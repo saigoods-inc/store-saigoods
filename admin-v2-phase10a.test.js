@@ -29,7 +29,6 @@ const LEGACY_ADMIN_ROUTES = [
 
 const UNRELEASED_V2_HREFS = [
   "/admin-v2/orders",
-  "/admin-v2/inventory",
   "/admin-v2/manual-order",
   "/admin-v2/walk-in-order",
 ];
@@ -144,7 +143,7 @@ test("Phase 10A approved admin-v2 HTML shells exist with expected assets", () =>
     assert.match(html, /\/css\/v2\/tokens\.css/);
     assert.match(html, /\/css\/v2\/admin-v2\.css/);
     assert.match(html, new RegExp(page.script.replace(/\./g, "\\.")));
-    assert.doesNotMatch(html, /\/admin-v2\/(orders|inventory|manual-order|walk-in-order)/);
+    assert.doesNotMatch(html, /\/admin-v2\/(orders|manual-order|walk-in-order)/);
   }
   assert.equal(existsSync(path.join(__dirname, "public/css/v2/tokens.css")), true);
   assert.equal(existsSync(path.join(__dirname, "public/css/v2/admin-v2.css")), true);
@@ -153,7 +152,8 @@ test("Phase 10A approved admin-v2 HTML shells exist with expected assets", () =>
 });
 
 test("Phase 10A does not restore unreleased admin-v2 page files", () => {
-  for (const name of ["orders", "inventory", "manual-order", "walk-in-order"]) {
+  // Inventory is released in Phase 10B-1; Orders / Manual / Walk-in remain unreleased.
+  for (const name of ["orders", "manual-order", "walk-in-order"]) {
     assert.equal(existsSync(path.join(__dirname, "public/admin-v2", `${name}.html`)), false);
     assert.equal(existsSync(path.join(__dirname, "public/js/v2", `admin-${name}.js`)), false);
   }

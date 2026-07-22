@@ -341,10 +341,10 @@ function renderInventoryHealth(alerts) {
         .join("")}</ul>`
     : `<p class="sg-muted" style="margin-top:16px">All tracked variants are in stock.</p>`;
 
-  const reviewBtn = `<div style="margin-top:16px"><a class="sg-btn sg-btn--primary sg-btn--block" href="/admin/inventory.html">${icon(
+  const reviewBtn = `<div style="margin-top:16px"><a class="sg-btn sg-btn--primary sg-btn--block" href="/admin-v2/inventory">${icon(
     "package",
     14,
-  )}<span>Review inventory in legacy admin</span></a></div>`;
+  )}<span>Review inventory</span></a></div>`;
 
   return card({ title: "Inventory Health", bodyHtml: tiles + list + reviewBtn });
 }
