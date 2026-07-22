@@ -48,6 +48,10 @@ create table if not exists public.orders (
   total_cents integer not null default 0,
   provider text not null default 'square',
   payment_id text,
+  vendor_paid_notification_claimed_at timestamptz,
+  vendor_paid_notification_sent_at timestamptz,
+  vendor_paid_notification_resend_id text,
+  vendor_paid_notification_error text,
   state text,
   amount integer not null default 0,
   tax_collected integer not null default 0,
@@ -73,6 +77,14 @@ comment on column public.orders.quoted_shipping_provider_quote_id is 'Provider q
 comment on column public.orders.quoted_taxable_shipping_cents is 'Quoted shipping amount that is taxable, cents.';
 comment on column public.orders.quoted_parcel_summary_json is 'Quoted parcel planning snapshot used for shipping quote.';
 comment on column public.orders.quoted_address_snapshot_json is 'Quoted ship-to snapshot (input + normalized/validated shape).';
+comment on column public.orders.vendor_paid_notification_claimed_at is
+  'When a Square webhook worker claimed the right to send the vendor paid-order email; cleared after send or release. Stale claims may be reclaimed.';
+comment on column public.orders.vendor_paid_notification_sent_at is
+  'When the vendor paid-order notification was successfully sent via Resend; null until first successful send.';
+comment on column public.orders.vendor_paid_notification_resend_id is
+  'Resend email id returned after a successful vendor paid-order notification send.';
+comment on column public.orders.vendor_paid_notification_error is
+  'Safe, length-limited summary of the last vendor notification failure after a released claim; not secrets or raw provider payloads.';
 comment on column public.orders.state is 'Shipping destination state, 2-letter US.';
 comment on column public.orders.updated_at is 'Last row update (draft saves, payment link, etc.).';
 
