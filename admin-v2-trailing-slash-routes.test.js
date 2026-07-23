@@ -11,13 +11,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RELEASED_V2_ROUTES = [
   { canonical: "/admin-v2/summary", trailing: "/admin-v2/summary/", html: "/admin-v2/summary.html" },
   { canonical: "/admin-v2/orders", trailing: "/admin-v2/orders/", html: "/admin-v2/orders.html" },
+  { canonical: "/admin-v2/manual-order", trailing: "/admin-v2/manual-order/", html: "/admin-v2/manual-order.html" },
   { canonical: "/admin-v2/inventory", trailing: "/admin-v2/inventory/", html: "/admin-v2/inventory.html" },
   { canonical: "/admin-v2/discount-codes", trailing: "/admin-v2/discount-codes/", html: "/admin-v2/discount-codes.html" },
   { canonical: "/admin-v2/tax", trailing: "/admin-v2/tax/", html: "/admin-v2/tax.html" },
   { canonical: "/admin-v2/nexus", trailing: "/admin-v2/nexus/", html: "/admin-v2/nexus.html" },
 ];
 
-const UNRELEASED_TRAILING = ["/admin-v2/manual-order/", "/admin-v2/walk-in-order/"];
+const UNRELEASED_TRAILING = ["/admin-v2/walk-in-order/"];
 
 const LEGACY_REWRITES = [
   "/admin/orders",

@@ -82,10 +82,11 @@ export function icon(name, size = 16, cls = "") {
 
 /* ---------------------------------------------------------------- sidebar */
 
-/* Phase 10A + 10B-1 + 10B-2A: Orders read-only released; Manual / Walk-in remain unreleased. */
+/* Phase 10A + 10B-1 + 10B-2A + 10B-2B: Manual Order payment-link-only released; Walk-in remains unreleased. */
 export const ADMIN_V2_NAV = [
   { id: "summary", label: "Summary", href: "/admin-v2/summary", iconName: "layout-dashboard" },
   { id: "orders", label: "Orders", href: "/admin-v2/orders", iconName: "shopping-cart" },
+  { id: "manual-order", label: "Manual Order", href: "/admin-v2/manual-order", iconName: "clipboard-list" },
   { id: "inventory", label: "Inventory", href: "/admin-v2/inventory", iconName: "package" },
   { id: "discounts", label: "Discount codes", href: "/admin-v2/discount-codes", iconName: "tag" },
   { id: "tax", label: "Sales tax (TN)", href: "/admin-v2/tax", iconName: "receipt" },

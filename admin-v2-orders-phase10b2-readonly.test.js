@@ -27,7 +27,7 @@ const RELEASED_V2_ROUTES = [
   "/admin-v2/nexus",
 ];
 
-const UNRELEASED_V2_HREFS = ["/admin-v2/manual-order", "/admin-v2/walk-in-order"];
+const UNRELEASED_V2_HREFS = ["/admin-v2/walk-in-order"];
 
 const PRIVATE_SECRET_MARKERS = [
   "INTERNAL_REPORTS_SECRET",
@@ -205,7 +205,7 @@ test("Phase 10B-2A Orders HTML and controller exist with expected assets", () =>
   assert.match(html, /\/js\/v2\/admin-orders\.js/);
   assert.match(html, /sg-login/);
   assert.match(html, /sg-root/);
-  assert.doesNotMatch(html, /\/admin-v2\/(manual-order|walk-in-order)/);
+  assert.doesNotMatch(html, /\/admin-v2\/walk-in-order/);
 
   assert.equal(existsSync(path.join(__dirname, "public/css/v2/tokens.css")), true);
   assert.equal(existsSync(path.join(__dirname, "public/css/v2/admin-v2.css")), true);
@@ -275,7 +275,7 @@ test("Phase 10B-2A server.js and vercel.json expose Orders trailing-slash routes
   }
 });
 
-test("Phase 10B-2A local server serves Orders routes and keeps Manual/Walk-in absent", async () => {
+test("Phase 10B-2A local server serves Orders routes and keeps Walk-in absent", async () => {
   await withLocalServer(async (base) => {
     for (const pathName of ["/admin-v2/orders", "/admin-v2/orders/", "/admin-v2/orders.html"]) {
       const res = await httpGet(`${base}${pathName}`);
@@ -306,10 +306,12 @@ test("Phase 10B-2A local server serves Orders routes and keeps Manual/Walk-in ab
 
 /* ------------------------------------------------------------------ C. navigation */
 
-test("Phase 10B-2A navigation includes Orders only among formerly-unreleased pages", () => {
+test("Phase 10B-2A navigation includes Orders and keeps Walk-in unreleased", () => {
   const ui = read("public/js/v2/ui.js");
   assert.match(ui, /id:\s*"orders"/);
   assert.match(ui, /href:\s*"\/admin-v2\/orders"/);
+  assert.match(ui, /id:\s*"manual-order"/);
+  assert.match(ui, /href:\s*"\/admin-v2\/manual-order"/);
   assert.match(ui, /href:\s*"\/admin-v2\/summary"/);
   assert.match(ui, /href:\s*"\/admin-v2\/inventory"/);
   assert.match(ui, /href:\s*"\/admin-v2\/discount-codes"/);

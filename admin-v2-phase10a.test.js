@@ -28,11 +28,11 @@ const LEGACY_ADMIN_ROUTES = [
 ];
 
 const UNRELEASED_V2_HREFS = [
-  "/admin-v2/manual-order",
   "/admin-v2/walk-in-order",
 ];
 
 const RELEASED_ORDERS_ROUTE = "/admin-v2/orders";
+const RELEASED_MANUAL_ORDER_ROUTE = "/admin-v2/manual-order";
 
 
 const PRIVATE_SECRET_MARKERS = [
@@ -145,7 +145,7 @@ test("Phase 10A approved admin-v2 HTML shells exist with expected assets", () =>
     assert.match(html, /\/css\/v2\/tokens\.css/);
     assert.match(html, /\/css\/v2\/admin-v2\.css/);
     assert.match(html, new RegExp(page.script.replace(/\./g, "\\.")));
-    assert.doesNotMatch(html, /\/admin-v2\/(manual-order|walk-in-order)/);
+    assert.doesNotMatch(html, /\/admin-v2\/walk-in-order/);
   }
   assert.equal(existsSync(path.join(__dirname, "public/css/v2/tokens.css")), true);
   assert.equal(existsSync(path.join(__dirname, "public/css/v2/admin-v2.css")), true);
@@ -154,12 +154,10 @@ test("Phase 10A approved admin-v2 HTML shells exist with expected assets", () =>
 });
 
 test("Phase 10A does not restore unreleased admin-v2 page files", () => {
-  // Inventory is Phase 10B-1; Orders read-only is Phase 10B-2A; Manual / Walk-in remain unreleased.
-  for (const name of ["manual-order", "walk-in-order"]) {
-    assert.equal(existsSync(path.join(__dirname, "public/admin-v2", `${name}.html`)), false);
-    assert.equal(existsSync(path.join(__dirname, "public/js/v2", `admin-${name}.js`)), false);
-  }
-  assert.equal(existsSync(path.join(__dirname, "public/js/hardin-county.js")), false);
+  // Inventory is Phase 10B-1; Orders read-only is Phase 10B-2A; Manual Order is Phase 10B-2B;
+  // Walk-in remains unreleased.
+  assert.equal(existsSync(path.join(__dirname, "public/admin-v2", "walk-in-order.html")), false);
+  assert.equal(existsSync(path.join(__dirname, "public/js/v2", "admin-walk-in-order.js")), false);
 });
 
 test("vercel.json adds four admin-v2 rewrites without removing legacy admin rewrites", () => {
@@ -185,9 +183,12 @@ test("vercel.json adds four admin-v2 rewrites without removing legacy admin rewr
   assert.equal(bySource.get("/admin-v2/discount-codes"), "/admin-v2/discount-codes.html");
   assert.equal(bySource.get(RELEASED_ORDERS_ROUTE), "/admin-v2/orders.html");
   assert.equal(bySource.get("/admin-v2/orders/"), "/admin-v2/orders.html");
+  assert.equal(bySource.get(RELEASED_MANUAL_ORDER_ROUTE), "/admin-v2/manual-order.html");
+  assert.equal(bySource.get("/admin-v2/manual-order/"), "/admin-v2/manual-order.html");
 
   for (const href of UNRELEASED_V2_HREFS) {
     assert.equal(bySource.has(href), false, `unexpected rewrite for unreleased ${href}`);
+    assert.equal(bySource.has(`${href}/`), false, `unexpected trailing rewrite for unreleased ${href}`);
   }
 });
 
@@ -204,6 +205,8 @@ test("server.js serves four approved admin-v2 pages and keeps legacy admin route
 
   assert.match(serverSource, /\/admin-v2\/orders/);
   assert.match(serverSource, /admin-v2",\s*"orders\.html"/);
+  assert.match(serverSource, /\/admin-v2\/manual-order/);
+  assert.match(serverSource, /admin-v2",\s*"manual-order\.html"/);
 
   for (const href of UNRELEASED_V2_HREFS) {
     assert.doesNotMatch(serverSource, new RegExp(href.replace(/\//g, "\\/")));
@@ -227,6 +230,8 @@ test("admin-v2 navigation exposes only approved routes", () => {
   }
   assert.match(ui, new RegExp(`href:\\s*"${RELEASED_ORDERS_ROUTE}"`));
   assert.match(ui, /id:\s*"orders"/);
+  assert.match(ui, new RegExp(`href:\\s*"${RELEASED_MANUAL_ORDER_ROUTE}"`));
+  assert.match(ui, /id:\s*"manual-order"/);
   for (const href of UNRELEASED_V2_HREFS) {
     assert.doesNotMatch(ui, new RegExp(href.replace(/\//g, "\\/")));
   }
@@ -328,7 +333,13 @@ test("local server resolves approved admin-v2 routes to HTML shells", async () =
     assert.match(orders.body, /admin-orders\.js/);
     assert.match(orders.body, /sg-login/);
 
-    // Manual / Walk-in remain unreleased.
+    // Manual Order payment-link-only is released in Phase 10B-2B.
+    const manual = await httpGet(`${base}${RELEASED_MANUAL_ORDER_ROUTE}`);
+    assert.equal(manual.statusCode, 200);
+    assert.match(manual.body, /admin-manual-order\.js/);
+    assert.match(manual.body, /sg-login/);
+
+    // Walk-in remains unreleased.
     for (const href of UNRELEASED_V2_HREFS) {
       const missing = await httpGet(`${base}${href}`);
       assert.equal(missing.statusCode, 404, href);

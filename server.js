@@ -601,6 +601,14 @@ const server = createServer(async (req, res) => {
       return serveFile(res, path.join(publicDir, "admin-v2", "orders.html"), req.method);
     }
 
+    if (
+      pathname === "/admin-v2/manual-order" ||
+      pathname === "/admin-v2/manual-order/" ||
+      pathname === "/admin-v2/manual-order.html"
+    ) {
+      return serveFile(res, path.join(publicDir, "admin-v2", "manual-order.html"), req.method);
+    }
+
     if (pathname === "/" || pathname === "/index.html") {
       return serveFile(res, path.join(publicDir, "index.html"), req.method);
     }
