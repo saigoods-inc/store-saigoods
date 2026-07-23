@@ -15,7 +15,7 @@ const PHASE10A_ROUTES = [
   { route: "/admin-v2/discount-codes", script: "/js/v2/admin-discount-codes.js" },
 ];
 
-const UNRELEASED_V2_HREFS = ["/admin-v2/manual-order", "/admin-v2/walk-in-order"];
+const UNRELEASED_V2_HREFS = ["/admin-v2/walk-in-order"];
 
 const PRIVATE_SECRET_MARKERS = [
   "INTERNAL_REPORTS_SECRET",

@@ -20,7 +20,9 @@
     { "source": "/admin-v2/inventory", "destination": "/admin-v2/inventory.html" },
     { "source": "/admin-v2/inventory/", "destination": "/admin-v2/inventory.html" },
     { "source": "/admin-v2/orders", "destination": "/admin-v2/orders.html" },
-    { "source": "/admin-v2/orders/", "destination": "/admin-v2/orders.html" }
+    { "source": "/admin-v2/orders/", "destination": "/admin-v2/orders.html" },
+    { "source": "/admin-v2/manual-order", "destination": "/admin-v2/manual-order.html" },
+    { "source": "/admin-v2/manual-order/", "destination": "/admin-v2/manual-order.html" }
   ],
   "functions": {
     "api/**/*.js": {

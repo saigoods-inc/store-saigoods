@@ -71,6 +71,279 @@ async function syncOrderTotalsFromQuote(client, orderId, quote, shippingAddress,
   }
 }
 
+/**
+ * Gate checks that must run before any Square / email work.
+ * @param {object} order
+ * @returns {{ ok: true } | { ok: false, status: number, body: object }}
+ */
+export function assertManualOrderEligibleForPaymentLink(order) {
+  if (!order) {
+    return { ok: false, status: 404, body: { error: "Order not found." } };
+  }
+  if (String(order.order_source || "web") !== "manual") {
+    return {
+      ok: false,
+      status: 400,
+      body: { error: "Only manual orders can receive a payment link from this action." },
+    };
+  }
+  const st = String(order.order_status || "");
+  if (st === "payment_link_sent") {
+    return {
+      ok: false,
+      status: 400,
+      body: { error: "A payment link email was already sent for this order." },
+    };
+  }
+  if (st !== "draft") {
+    return { ok: false, status: 400, body: { error: "Order must be a draft to send a payment link." } };
+  }
+  if (String(order.payment_flow || "square_payment_link") === "pay_later") {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        error:
+          "This order is Pay later. Use mark-as-paid when the customer pays (or change payment method to Square link before saving if you need to email a link).",
+      },
+    };
+  }
+  if (String(order.status || "") === "paid") {
+    return { ok: false, status: 400, body: { error: "This order is already paid." } };
+  }
+  const shipAddr = order.shipping_address;
+  if (!shipAddr || typeof shipAddr !== "object") {
+    return {
+      ok: false,
+      status: 400,
+      body: { error: "Order is missing shipping_address; recreate the draft." },
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Definite no-link Square failures (safe to release a discount claim):
+ * - `err.definitiveNoLinkCreated === true`, or
+ * - HTTP 400 / 401 / 403 / 404 / 422 (client/validation rejections that cannot
+ *   represent timeout, rate limiting, idempotency conflict, or unknown completion).
+ *
+ * Ambiguous (retain claim; no persist; no email):
+ * - network / missing status
+ * - 408, 409, 429
+ * - any 5xx
+ * - any other status not listed as definite
+ *
+ * @param {unknown} err
+ * @returns {{ kind: "definite_no_link" | "uncertain", status: number }}
+ */
+export function classifySquareCreatePaymentLinkError(err) {
+  if (err && err.definitiveNoLinkCreated === true) {
+    const marked = Number(err.statusCode ?? err.status);
+    return {
+      kind: "definite_no_link",
+      status: Number.isFinite(marked) && marked >= 400 ? marked : 400,
+    };
+  }
+  const status = Number(err?.statusCode ?? err?.status);
+  if (!Number.isFinite(status) || status <= 0) {
+    return { kind: "uncertain", status: 502 };
+  }
+  if (status === 400 || status === 401 || status === 403 || status === 404 || status === 422) {
+    return { kind: "definite_no_link", status };
+  }
+  return { kind: "uncertain", status: status >= 400 ? status : 502 };
+}
+
+/**
+ * Production Square → persist → email sequence for Manual Order payment links.
+ * Discount claims are released only on definite evidence that Square created no link.
+ *
+ * @param {{
+ *   claimed: boolean,
+ *   orderId: string,
+ *   createPaymentLinkFn?: Function,
+ *   persistPaymentLinkFn?: Function,
+ *   sendEmailFn?: Function,
+ *   releaseDiscountFn?: Function,
+ *   logErrorFn?: Function,
+ *   createPaymentLinkArgs: object,
+ *   sendEmailArgs: object,
+ * }} opts
+ * @returns {Promise<{ status: number, body: object }>}
+ */
+export async function deliverManualOrderPaymentLink(opts) {
+  const createPaymentLinkFn = opts.createPaymentLinkFn || createPaymentLink;
+  const persistPaymentLinkFn = opts.persistPaymentLinkFn || updateOrderPaymentLinkSent;
+  const sendEmailFn = opts.sendEmailFn || sendManualOrderPaymentLinkEmail;
+  const releaseDiscountFn = opts.releaseDiscountFn || releaseDiscountCodeForOrder;
+  const logErrorFn = opts.logErrorFn || ((err) => console.error(err));
+  const claimed = opts.claimed === true;
+  const orderId = String(opts.orderId || "").trim();
+
+  let squareLinkCreated = false;
+  let persisted = false;
+  let checkoutUrl = "";
+
+  try {
+    let created;
+    try {
+      created = await createPaymentLinkFn(opts.createPaymentLinkArgs);
+    } catch (squareErr) {
+      logErrorFn(squareErr);
+      const classification = classifySquareCreatePaymentLinkError(squareErr);
+      if (classification.kind === "definite_no_link") {
+        if (claimed) {
+          try {
+            await releaseDiscountFn(orderId);
+          } catch (releaseErr) {
+            logErrorFn(releaseErr);
+          }
+        }
+        return {
+          status: classification.status,
+          body: {
+            ok: false,
+            emailed: false,
+            error:
+              "Payment link could not be created. The draft remains available to check or correct in Legacy admin.",
+          },
+        };
+      }
+      // Ambiguous: retain claim; do not persist; do not email; do not expose provider details.
+      return {
+        status: classification.status >= 500 ? classification.status : 502,
+        body: {
+          ok: false,
+          squareOutcomeUncertain: true,
+          squareLinkCreated: false,
+          emailed: false,
+          error:
+            "Payment link outcome is uncertain. Do not retry from Admin v2 without checking Square and Legacy admin.",
+          warning:
+            "Square may have created a payment link. Do not retry before checking Square and Legacy admin.",
+        },
+      };
+    }
+
+    // Any non-throwing Square create is treated as a created link — never release the claim afterward.
+    squareLinkCreated = true;
+    checkoutUrl = String(created?.checkoutUrl || "").trim();
+    if (!checkoutUrl) {
+      return {
+        status: 500,
+        body: {
+          ok: false,
+          error:
+            "Square payment link was created but no checkout URL was returned. Do not retry from Admin v2 without checking Legacy admin.",
+          squareLinkCreated: true,
+          checkoutUrl: "",
+          emailed: false,
+          warning:
+            "Square may have created a payment link that was not returned. Check Legacy admin before taking further action.",
+        },
+      };
+    }
+
+    try {
+      await persistPaymentLinkFn(orderId, checkoutUrl);
+      persisted = true;
+    } catch (persistErr) {
+      logErrorFn(persistErr);
+      // Keep discount claim — Square already created a potentially payable link.
+      return {
+        status: 500,
+        body: {
+          ok: false,
+          error:
+            "Square payment link was created but could not be saved on the order. Do not retry from Admin v2 without checking Legacy admin.",
+          squareLinkCreated: true,
+          checkoutUrl,
+          emailed: false,
+          warning:
+            "Square may have created a payment link that was not persisted. Check Legacy admin before taking further action.",
+        },
+      };
+    }
+
+    let emailed = false;
+    try {
+      emailed = (await sendEmailFn({ ...opts.sendEmailArgs, checkoutUrl })) === true;
+    } catch (emailErr) {
+      logErrorFn(emailErr);
+      // Persisted payment_link_sent — keep claim; never mint another link.
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          checkoutUrl,
+          emailed: false,
+          warning:
+            "Payment link was created and saved, but the email could not be sent. Configure RESEND_API_KEY and RESEND_FROM, or share the link manually. Do not create another link for this order.",
+        },
+      };
+    }
+
+    if (!emailed) {
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          checkoutUrl,
+          emailed: false,
+          warning:
+            "Payment link was created and saved, but the email could not be sent. Configure RESEND_API_KEY and RESEND_FROM, or share the link manually. Do not create another link for this order.",
+        },
+      };
+    }
+
+    return { status: 200, body: { ok: true, checkoutUrl, emailed: true } };
+  } catch (err) {
+    // Unexpected errors after Square success: never release; never expose provider details.
+    if (squareLinkCreated && persisted) {
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          checkoutUrl,
+          emailed: false,
+          warning:
+            "Payment link was created and saved, but the email could not be sent. Configure RESEND_API_KEY and RESEND_FROM, or share the link manually. Do not create another link for this order.",
+        },
+      };
+    }
+    if (squareLinkCreated && !persisted) {
+      return {
+        status: 500,
+        body: {
+          ok: false,
+          error:
+            "Square payment link was created but could not be saved on the order. Do not retry from Admin v2 without checking Legacy admin.",
+          squareLinkCreated: true,
+          checkoutUrl,
+          emailed: false,
+          warning:
+            "Square may have created a payment link that was not persisted. Check Legacy admin before taking further action.",
+        },
+      };
+    }
+    logErrorFn(err);
+    return {
+      status: 500,
+      body: {
+        ok: false,
+        squareOutcomeUncertain: true,
+        squareLinkCreated: false,
+        emailed: false,
+        error:
+          "Payment link outcome is uncertain. Do not retry from Admin v2 without checking Square and Legacy admin.",
+        warning:
+          "Square may have created a payment link. Do not retry before checking Square and Legacy admin.",
+      },
+    };
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed." });
@@ -91,44 +364,13 @@ export default async function handler(req, res) {
     }
 
     const order = await getOrderByIdForService(orderId);
-    if (!order) {
-      res.status(404).json({ error: "Order not found." });
-      return;
-    }
-
-    if (String(order.order_source || "web") !== "manual") {
-      res.status(400).json({ error: "Only manual orders can receive a payment link from this action." });
-      return;
-    }
-
-    const st = String(order.order_status || "");
-    if (st === "payment_link_sent") {
-      res.status(400).json({ error: "A payment link email was already sent for this order." });
-      return;
-    }
-    if (st !== "draft") {
-      res.status(400).json({ error: "Order must be a draft to send a payment link." });
-      return;
-    }
-
-    if (String(order.payment_flow || "square_payment_link") === "pay_later") {
-      res.status(400).json({
-        error: "This order is Pay later. Use mark-as-paid when the customer pays (or change payment method to Square link before saving if you need to email a link).",
-      });
-      return;
-    }
-
-    if (String(order.status || "") === "paid") {
-      res.status(400).json({ error: "This order is already paid." });
+    const gate = assertManualOrderEligibleForPaymentLink(order);
+    if (!gate.ok) {
+      res.status(gate.status).json(gate.body);
       return;
     }
 
     const shipAddr = order.shipping_address;
-    if (!shipAddr || typeof shipAddr !== "object") {
-      res.status(400).json({ error: "Order is missing shipping_address; recreate the draft." });
-      return;
-    }
-
     const adminAddressHardin =
       order.is_hardin_discount === true && !String(order.discount_code_used || "").trim();
     const fm = normalizeFulfillmentMethod(order.fulfillment_method);
@@ -195,7 +437,7 @@ export default async function handler(req, res) {
       : null;
     let claimed = false;
 
-    if (st === "draft" && order.is_hardin_discount && normalizedCode) {
+    if (String(order.order_status || "") === "draft" && order.is_hardin_discount && normalizedCode) {
       claimed = await claimDiscountCodeForOrder(normalizedCode, order.id);
       if (!claimed) {
         res.status(409).json({
@@ -212,8 +454,10 @@ export default async function handler(req, res) {
       name: order.customer_name,
     };
 
-    try {
-      const { checkoutUrl } = await createPaymentLink({
+    const result = await deliverManualOrderPaymentLink({
+      claimed,
+      orderId: String(order.id),
+      createPaymentLinkArgs: {
         quote,
         customer,
         orderId: String(order.id),
@@ -222,41 +466,18 @@ export default async function handler(req, res) {
           askForShippingAddress: false,
           shippingAsLineItems: true,
         },
-      });
-
-      const emailed = await sendManualOrderPaymentLinkEmail({
+      },
+      sendEmailArgs: {
         customerEmail: order.customer_email,
         customerName: order.customer_name,
         orderRef: order.order_ref,
         totalFormatted: quote.totalFormatted,
-        checkoutUrl,
         quote,
         shippingAddress: shipAddr,
-      });
+      },
+    });
 
-      if (!emailed) {
-        if (claimed) {
-          await releaseDiscountCodeForOrder(order.id);
-        }
-        res.status(200).json({
-          ok: true,
-          checkoutUrl,
-          emailed: false,
-          warning:
-            "Payment link was created but the email could not be sent. Configure RESEND_API_KEY and RESEND_FROM, or share the link manually.",
-        });
-        return;
-      }
-
-      await updateOrderPaymentLinkSent(order.id, checkoutUrl);
-
-      res.status(200).json({ ok: true, checkoutUrl, emailed: true });
-    } catch (err) {
-      if (claimed) {
-        await releaseDiscountCodeForOrder(order.id);
-      }
-      throw err;
-    }
+    res.status(result.status).json(result.body);
   } catch (error) {
     console.error(error);
     res.status(error.statusCode || 500).json({
