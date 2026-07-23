@@ -45,6 +45,8 @@ const bundleLabelBySlugId = new Map();
 let siteSizes = ["S", "M", "L", "XL"];
 /** Bumped each time a drawer opens; guards stale async helper responses. */
 let drawerGen = 0;
+/** Monotonic generation so overlapping list loads discard stale responses. */
+let ordersLoadGen = 0;
 
 const LEGACY_ORDERS_HREF = "/admin/orders.html";
 const READ_ONLY_NOTICE =
@@ -515,7 +517,7 @@ function toolbarHtml() {
     { value: "walk_in_paid", label: "Walk-in · paid" },
     { value: "payment_link_sent", label: "Payment link sent" },
     { value: "need_label_records", label: "Need label records" },
-    { value: "ready_mark_shipped", label: "Ready to mark shipped" },
+    { value: "ready_mark_shipped", label: "Paid · not shipped (label complete)" },
     { value: "shipping_active", label: "Label recorded · not shipped" },
     { value: "in_transit", label: "In transit" },
     { value: "delivered", label: "Delivered" },
@@ -545,7 +547,7 @@ function tableCard() {
           <th>Shipping</th>
           <th>Fulfillment</th>
           <th class="sg-table__num">Total</th>
-          <th>Next Action</th>
+          <th>Suggested next (Legacy)</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -789,7 +791,7 @@ function labelRecordsHtml(row) {
       const cost = l.amount_cents != null && Number.isFinite(Number(l.amount_cents)) ? fmtMoneyCents(l.amount_cents) : "—";
       const openLink =
         st === "purchased" && l.label_url
-          ? `<a class="sg-btn sg-btn--ghost sg-btn--sm" href="${escapeHtml(String(l.label_url))}" target="_blank" rel="noopener">Open label</a>`
+          ? `<a class="sg-btn sg-btn--ghost sg-btn--sm" href="${escapeHtml(String(l.label_url))}" target="_blank" rel="noopener noreferrer">Open label</a>`
           : "";
       return `<tr>
         <td class="sg-nowrap">Package ${idx + 1} of ${n}</td>
@@ -1600,10 +1602,10 @@ async function hydrateDrawerHelpers(row, gen) {
       const slipUrls = Array.isArray(dl?.packingSlipUrls) ? dl.packingSlipUrls.filter(Boolean) : dl?.packingSlipUrl ? [String(dl.packingSlipUrl)] : [];
       const links = [];
       labelUrls.forEach((u, i) =>
-        links.push(`<a class="sg-btn sg-btn--ghost sg-btn--sm" href="${escapeHtml(u)}" target="_blank" rel="noopener">${icon("package", 13)}<span>${labelUrls.length > 1 ? `Label ${i + 1}` : "Shipping label"}</span></a>`),
+        links.push(`<a class="sg-btn sg-btn--ghost sg-btn--sm" href="${escapeHtml(u)}" target="_blank" rel="noopener noreferrer">${icon("package", 13)}<span>${labelUrls.length > 1 ? `Label ${i + 1}` : "Shipping label"}</span></a>`),
       );
       slipUrls.forEach((u, i) =>
-        links.push(`<a class="sg-btn sg-btn--ghost sg-btn--sm" href="${escapeHtml(u)}" target="_blank" rel="noopener">${icon("receipt", 13)}<span>${slipUrls.length > 1 ? `Packing slip ${i + 1}` : "Packing slip"}</span></a>`),
+        links.push(`<a class="sg-btn sg-btn--ghost sg-btn--sm" href="${escapeHtml(u)}" target="_blank" rel="noopener noreferrer">${icon("receipt", 13)}<span>${slipUrls.length > 1 ? `Packing slip ${i + 1}` : "Packing slip"}</span></a>`),
       );
       el.innerHTML = links.length ? `<div class="sg-doc-links">${links.join("")}</div>` : `<p class="sg-muted" style="margin:0">No label or packing-slip files on file yet.</p>`;
     })
@@ -1619,11 +1621,13 @@ async function hydrateDrawerHelpers(row, gen) {
 async function loadOrders() {
   const page = getEl("sg-page");
   const alreadyLoaded = Boolean(page?.dataset?.loadedOnce);
+  const gen = ++ordersLoadGen;
   if (page && !alreadyLoaded) {
     page.innerHTML = `<div class="sg-loading">Loading orders…</div>`;
   }
   const supabase = getSupabase();
   if (!supabase) {
+    if (gen !== ordersLoadGen) return;
     if (page && !alreadyLoaded) page.innerHTML = `<div class="sg-error">Not signed in.</div>`;
     else toast("Not signed in.", "danger");
     return;
@@ -1631,6 +1635,7 @@ async function loadOrders() {
 
   try {
     const { orders: nextOrders, labels: nextLabels } = await fetchOrdersAndLabelsReadOnly(supabase);
+    if (gen !== ordersLoadGen) return;
     // Commit only after both reads succeed — never publish a partial labels map.
     ordersCache = nextOrders;
     labelsCache = nextLabels;
@@ -1642,6 +1647,7 @@ async function loadOrders() {
     const warn = getEl("sg-orders-refresh-warn");
     if (warn) warn.remove();
   } catch (error) {
+    if (gen !== ordersLoadGen) return;
     const message = error?.message || "Could not load orders.";
     if (!alreadyLoaded) {
       if (page) page.innerHTML = `<div class="sg-error">${escapeHtml(message)}</div>`;

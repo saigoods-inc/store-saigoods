@@ -114,19 +114,19 @@ function renderShippingMiniCards(kpis) {
     miniCard({
       label: "Shipping Expense",
       value: fmtCents(kpis.totalShippingExpenseCents),
-      sub: `${Number(kpis.shippingKnownOrders) || 0} orders with label cost`,
+      sub: `In selected range · ${Number(kpis.shippingKnownOrders) || 0} orders with label cost`,
       iconName: "truck",
     }),
     miniCard({
       label: "Profit from Shipping",
       value: hasVariance ? fmtCents(kpis.totalShippingVarianceCents) : "—",
-      sub: hasVariance ? "Charged minus label cost" : "No variance data",
+      sub: hasVariance ? "In selected range · Charged minus label cost" : "In selected range · No variance data",
       iconName: "trending-up",
     }),
     miniCard({
       label: "Avg. Shipping Cost",
       value: fmtCents(kpis.averageShippingPerOrderCents),
-      sub: "Per shipped order",
+      sub: "In selected range · Per order with known label cost",
       iconName: "dollar-sign",
     }),
   ];
@@ -446,25 +446,49 @@ function renderPage(summary) {
 
 /* --------------------------------------------------------------- data load */
 
+/** Monotonic generation so overlapping loads discard stale responses. */
+let summaryLoadGen = 0;
+
 async function loadSummary() {
   const page = getEl("sg-page");
-  if (page && !page.dataset.loadedOnce) {
+  const alreadyLoaded = Boolean(page?.dataset?.loadedOnce);
+  const gen = ++summaryLoadGen;
+  if (page && !alreadyLoaded) {
     page.innerHTML = `<div class="sg-loading">Loading summary…</div>`;
   }
   try {
     const token = await getToken();
     const summary = await fetchReportJson(`/api/admin-summary?preset=${encodeURIComponent(currentPreset)}`, token);
+    if (gen !== summaryLoadGen) return;
     renderPage(summary);
     if (page) page.dataset.loadedOnce = "1";
     const metaEl = getEl("sg-topbar-meta");
     if (metaEl && summary?.generatedAt) {
       metaEl.textContent = `Updated ${new Date(summary.generatedAt).toLocaleString()}`;
     }
+    const warn = getEl("sg-summary-refresh-warn");
+    if (warn) warn.remove();
   } catch (error) {
-    if (page) {
-      page.innerHTML = `<div class="sg-error">${escapeHtml(error?.message || "Could not load summary.")}</div>`;
+    if (gen !== summaryLoadGen) return;
+    const message = error?.message || "Could not load summary.";
+    if (!alreadyLoaded) {
+      if (page) {
+        page.innerHTML = `<div class="sg-error">${escapeHtml(message)}</div>`;
+      }
+      toast(message, "danger");
+      return;
     }
-    toast(error?.message || "Could not load summary.", "danger");
+    // Refresh failure: preserve last successful dashboard; toast only.
+    toast(message, "danger");
+    if (page && !getEl("sg-summary-refresh-warn")) {
+      const banner = document.createElement("div");
+      banner.id = "sg-summary-refresh-warn";
+      banner.className = "sg-inline-warn";
+      banner.setAttribute("role", "status");
+      banner.style.margin = "0 0 12px";
+      banner.innerHTML = `${icon("alert-triangle", 14)}<span>${escapeHtml(message)} Showing previously loaded summary.</span>`;
+      page.prepend(banner);
+    }
   }
 }
 

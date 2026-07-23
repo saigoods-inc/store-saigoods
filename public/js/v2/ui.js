@@ -98,8 +98,10 @@ export const ADMIN_V2_NAV = [
  */
 export function sidebar(activeId) {
   const items = ADMIN_V2_NAV.map((item) => {
-    const active = item.id === activeId ? " is-active" : "";
-    return `<li><a class="sg-nav__link${active}" href="${item.href}">${icon(item.iconName, 16)}<span>${escapeHtml(
+    const isActive = item.id === activeId;
+    const active = isActive ? " is-active" : "";
+    const current = isActive ? ` aria-current="page"` : "";
+    return `<li><a class="sg-nav__link${active}" href="${item.href}"${current}>${icon(item.iconName, 16)}<span>${escapeHtml(
       item.label,
     )}</span></a></li>`;
   }).join("");
@@ -119,7 +121,7 @@ export function sidebar(activeId) {
     </nav>
     <div class="sg-sidebar__footer">
       <a class="sg-nav__link" href="/admin/summary.html">Legacy admin</a>
-      <small>admin-v2 read-only preview</small>
+      <small>Admin v2</small>
     </div>
   </aside>`;
 }
@@ -134,7 +136,7 @@ export function topbar(opts = {}) {
   const meta = opts.meta ? escapeHtml(opts.meta) : "";
   return `<header class="sg-topbar">
     <div class="sg-topbar__left">
-      <button type="button" class="sg-menu-btn" id="sg-menu-btn" aria-label="Open menu">${icon("menu", 20)}</button>
+      <button type="button" class="sg-menu-btn" id="sg-menu-btn" aria-label="Open menu" aria-controls="sg-sidebar" aria-expanded="false">${icon("menu", 20)}</button>
       <span class="sg-topbar__email" id="sg-topbar-email">${email}</span>
       <span class="sg-topbar__dot" aria-hidden="true">&middot;</span>
       <button type="button" class="sg-linkbtn" id="sg-logout">Sign out</button>
@@ -176,15 +178,16 @@ export function pageHeader(opts) {
  * @param {{ active: string, email?: string, meta?: string }} opts
  */
 export function shell(opts) {
-  return `<div class="sg-overlay" id="sg-overlay"></div>
+  return `<a class="sg-skip-link" href="#sg-page">Skip to main content</a>
+  <div class="sg-overlay" id="sg-overlay"></div>
   <div class="sg-shell">
     ${sidebar(opts.active)}
     <div class="sg-main">
       ${topbar({ email: opts.email, meta: opts.meta })}
-      <div class="sg-content" id="sg-page"></div>
+      <main class="sg-content" id="sg-page" tabindex="-1"></main>
     </div>
   </div>
-  <div class="sg-toast-region" id="sg-toast-region"></div>`;
+  <div class="sg-toast-region" id="sg-toast-region" role="status" aria-live="polite" aria-atomic="true"></div>`;
 }
 
 /* --------------------------------------------------------------- KPI card */
@@ -333,26 +336,62 @@ export function placeholderTag(label = "Placeholder") {
 
 /* ------------------------------------------------------------ interactivity */
 
-/** Wires the mobile sidebar toggle + overlay. Call once after mounting the shell. */
+/** Document Escape handler for mobile sidebar — wired once across remounts. */
+let _shellDocEscapeWired = false;
+/** @type {null | ((opts?: { restoreFocus?: boolean }) => void)} */
+let _shellCloseSidebar = null;
+
+/**
+ * Wires the mobile sidebar toggle + overlay after mounting the shell.
+ * Document-level Escape is attached once; remounts rebind element handlers only.
+ */
 export function initShellInteractions() {
   const sidebarEl = document.getElementById("sg-sidebar");
   const overlay = document.getElementById("sg-overlay");
   const menuBtn = document.getElementById("sg-menu-btn");
   if (!sidebarEl || !overlay || !menuBtn) return;
 
+  const setExpanded = (open) => {
+    menuBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+
   const open = () => {
     sidebarEl.classList.add("is-open");
     overlay.classList.add("is-open");
+    setExpanded(true);
   };
-  const close = () => {
+
+  const close = (opts = {}) => {
+    const wasOpen = sidebarEl.classList.contains("is-open");
     sidebarEl.classList.remove("is-open");
     overlay.classList.remove("is-open");
+    setExpanded(false);
+    if (wasOpen && opts.restoreFocus && typeof menuBtn.focus === "function") {
+      try {
+        menuBtn.focus();
+      } catch {
+        /* menu button may not be focusable */
+      }
+    }
   };
+
+  _shellCloseSidebar = close;
+  setExpanded(false);
+
   menuBtn.addEventListener("click", open);
-  overlay.addEventListener("click", close);
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") close();
-  });
+  overlay.addEventListener("click", () => close());
+
+  if (!_shellDocEscapeWired) {
+    _shellDocEscapeWired = true;
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      const sidebar = document.getElementById("sg-sidebar");
+      if (!sidebar || !sidebar.classList.contains("is-open")) return;
+      if (typeof _shellCloseSidebar === "function") {
+        _shellCloseSidebar({ restoreFocus: true });
+      }
+    });
+  }
 }
 
 /**
@@ -380,10 +419,25 @@ export function toast(message, variant = "default") {
  *
  * Closed state uses hidden + aria-hidden + inert so the dialog leaves the
  * accessibility/focus tree. Open moves focus to Close; close restores the
- * opener when it is still connected. No full focus trap (Tab cycle) yet.
+ * opener when it is still connected. Tab is trapped while open.
+ *
+ * Pages may register setDrawerCloseGuard(() => boolean) to block close during
+ * irreversible in-flight operations (return false to prevent close).
  */
 let _drawerEls = null;
 let _drawerOpener = null;
+/** @type {null | (() => boolean)} Return false to block close. */
+let _drawerCloseGuard = null;
+let _drawerDocKeyWired = false;
+const DRAWER_TITLE_ID = "sg-drawer-title";
+
+/**
+ * Optional close guard for irreversible in-flight operations.
+ * @param {null | (() => boolean)} fn Return false to prevent close; null clears.
+ */
+export function setDrawerCloseGuard(fn) {
+  _drawerCloseGuard = typeof fn === "function" ? fn : null;
+}
 
 function setDrawerClosed(aside, overlay) {
   aside.hidden = true;
@@ -412,6 +466,99 @@ function restoreDrawerOpener(opener) {
   }
 }
 
+/**
+ * True when `element` or any ancestor up through `drawerRoot` is hidden from
+ * AT/interaction. Stops at `drawerRoot`. Uses DOM flags always; uses
+ * getComputedStyle only when `window.getComputedStyle` is available (browsers).
+ * @param {Element|null|undefined} element
+ * @param {Element} drawerRoot
+ */
+function isHiddenWithinDrawer(element, drawerRoot) {
+  if (!element || !drawerRoot) return true;
+
+  const cssHidden = (node) => {
+    try {
+      const win = typeof window !== "undefined" ? window : undefined;
+      if (!win || typeof win.getComputedStyle !== "function") return false;
+      const style = win.getComputedStyle(node);
+      if (!style) return false;
+      const display = String(style.display || "");
+      const visibility = String(style.visibility || "");
+      if (display === "none") return true;
+      if (visibility === "hidden" || visibility === "collapse") return true;
+    } catch {
+      /* Node harness / restricted environments — ignore */
+    }
+    return false;
+  };
+
+  let node = element;
+  while (node) {
+    if (node.hidden === true) return true;
+    if (typeof node.hasAttribute === "function" && node.hasAttribute("hidden")) return true;
+    if (typeof node.getAttribute === "function" && node.getAttribute("aria-hidden") === "true") {
+      return true;
+    }
+    if (node.inert === true) return true;
+    if (typeof node.hasAttribute === "function" && node.hasAttribute("inert")) return true;
+    if (cssHidden(node)) return true;
+    if (node === drawerRoot) break;
+    node = node.parentElement || node.parentNode;
+  }
+  return false;
+}
+
+function drawerFocusableElements(root) {
+  if (!root || typeof root.querySelectorAll !== "function") return [];
+  const nodes = root.querySelectorAll(
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  );
+  const list = Array.from(nodes || []);
+  return list.filter((el) => {
+    if (!el || el.disabled) return false;
+    if (isHiddenWithinDrawer(el, root)) return false;
+    return true;
+  });
+}
+
+function onDrawerDocumentKeydown(e) {
+  if (!_drawerEls) return;
+  const { aside } = _drawerEls;
+  if (!aside.classList.contains("is-open")) return;
+
+  if (e.key === "Escape") {
+    closeDrawer();
+    return;
+  }
+
+  if (e.key !== "Tab") return;
+
+  const focusables = drawerFocusableElements(aside);
+  if (focusables.length === 0) {
+    e.preventDefault();
+    if (typeof aside.focus === "function") aside.focus();
+    return;
+  }
+  if (focusables.length === 1) {
+    e.preventDefault();
+    focusables[0].focus();
+    return;
+  }
+
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  const active = typeof document !== "undefined" ? document.activeElement : null;
+  if (e.shiftKey) {
+    if (active === first || !aside.contains?.(active)) {
+      e.preventDefault();
+      last.focus();
+    }
+  } else if (active === last || !aside.contains?.(active)) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
 function ensureDrawer() {
   if (_drawerEls) return _drawerEls;
   const overlay = document.createElement("div");
@@ -423,15 +570,18 @@ function ensureDrawer() {
   aside.id = "sg-drawer";
   aside.setAttribute("role", "dialog");
   aside.setAttribute("aria-modal", "true");
+  aside.setAttribute("tabindex", "-1");
   setDrawerClosed(aside, overlay);
 
   document.body.appendChild(overlay);
   document.body.appendChild(aside);
 
   overlay.addEventListener("click", closeDrawer);
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeDrawer();
-  });
+
+  if (!_drawerDocKeyWired) {
+    _drawerDocKeyWired = true;
+    document.addEventListener("keydown", onDrawerDocumentKeydown);
+  }
 
   _drawerEls = { overlay, aside };
   return _drawerEls;
@@ -446,9 +596,11 @@ export function openDrawer(opts = {}) {
   if (!wasOpen) {
     _drawerOpener = typeof document !== "undefined" ? document.activeElement : null;
   }
-  aside.setAttribute("aria-label", opts.title || "Details");
+  const titleText = opts.title || "Details";
+  aside.removeAttribute("aria-label");
+  aside.setAttribute("aria-labelledby", DRAWER_TITLE_ID);
   aside.innerHTML = `<div class="sg-drawer__header">
-      <h2 class="sg-card__title">${escapeHtml(opts.title || "")}</h2>
+      <h2 class="sg-card__title" id="${DRAWER_TITLE_ID}">${escapeHtml(titleText)}</h2>
       <button type="button" class="sg-btn sg-btn--icon sg-btn--ghost" id="sg-drawer-close" aria-label="Close">${icon(
         "x",
         16,
@@ -463,7 +615,8 @@ export function openDrawer(opts = {}) {
   if (closeBtn && typeof closeBtn.focus === "function") closeBtn.focus();
 }
 
-export function closeDrawer() {
+export function closeDrawer(opts = {}) {
+  if (!opts.force && _drawerCloseGuard && _drawerCloseGuard() === false) return;
   if (!_drawerEls) return;
   const { overlay, aside } = _drawerEls;
   const wasOpen = aside.classList.contains("is-open");

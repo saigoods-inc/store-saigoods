@@ -63,10 +63,60 @@ let incomingFilter = "all";
  *   lines: {id: string|null, product_slug: string, size: string, expected_cases: number|string, expected_boxes: number|string}[] }}
  */
 let incDraft = null;
+/** Guard against double-submit of channel commitment mutations. */
+let commitInFlight = false;
 /** Guard against double-submit of the stock-affecting receive action. */
 let receiveInFlight = false;
 /** Guard against double-submit of physical stock_patch overrides. */
 let stockPatchInFlight = false;
+/** Guard against double-submit of incoming shipment create/update saves. */
+let incomingSaveInFlight = false;
+/** Guard against double-submit of incoming shipment status changes. */
+let incomingStatusInFlight = false;
+/** Monotonic generation so overlapping stock loads discard stale responses. */
+let stockLoadGen = 0;
+
+/**
+ * True while any irreversible inventory mutation is in flight.
+ * Used to block overlapping Refresh and conflicting workflows.
+ */
+export function hasInventoryMutationInFlight() {
+  return (
+    receiveInFlight ||
+    stockPatchInFlight ||
+    incomingSaveInFlight ||
+    incomingStatusInFlight ||
+    commitInFlight
+  );
+}
+
+/**
+ * Associate a visible error element with one or more form controls.
+ * @param {string} errorId
+ * @param {string|string[]|null} controlIds
+ * @param {string} [msg]
+ */
+function setAssociatedFieldError(errorId, controlIds, msg = "") {
+  const errEl = document.getElementById(errorId);
+  if (errEl) {
+    errEl.textContent = msg || "";
+    errEl.hidden = !msg;
+  }
+  const ids = controlIds == null ? [] : Array.isArray(controlIds) ? controlIds : [controlIds];
+  for (const id of ids) {
+    const ctrl = document.getElementById(id);
+    if (!ctrl) continue;
+    if (msg) {
+      ctrl.setAttribute("aria-invalid", "true");
+      ctrl.setAttribute("aria-describedby", errorId);
+    } else {
+      ctrl.removeAttribute("aria-invalid");
+      if (ctrl.getAttribute("aria-describedby") === errorId) {
+        ctrl.removeAttribute("aria-describedby");
+      }
+    }
+  }
+}
 
 /* --------------------------------------------------------------- helpers */
 
@@ -498,7 +548,7 @@ function renderKpis(healthCounts) {
     kpiCard({
       label: "Estimated available",
       value: available.value,
-      sub: kpiSub(available.note, "Physical − website orders − Amazon FBM"),
+      sub: kpiSub(available.note, "On hand − website orders − Amazon FBM"),
       iconName: "bar-chart-3",
     }),
     kpiCard({
@@ -565,7 +615,7 @@ function renderHealthCard(healthRows) {
     "package",
     14,
   )}<span>Update stock</span></button>`;
-  const note = `<p class="sg-note" style="margin-top:var(--sg-space-3)">* Row “Est. available” uses physical on hand minus website line reserved. It does not subtract sales-channel commitments. KPI “Estimated available” additionally subtracts unshipped Amazon FBM commitments.</p>`;
+  const note = `<p class="sg-note" style="margin-top:var(--sg-space-3)">* Row “Est. available” uses physical on hand minus website line reserved. It does not subtract sales-channel commitments. KPI “Estimated available” subtracts unshipped Amazon FBM commitments only (not wholesale or manual).</p>`;
   return card({
     title: "Inventory Health",
     subtitle: "Physical on hand by variant. Incoming is expected only until received.",
@@ -901,7 +951,7 @@ function renderCommitmentsCard() {
   return card({
     title: "Sales Channel Commitments",
     subtitle:
-      "External sold-not-shipped demand (Amazon FBM, wholesale, manual). Affects estimated availability in dashboard math only — does not write physical stock or inventory_levels.reserved. Over-commitment is not blocked by the server.",
+      "External sold-not-shipped demand (Amazon FBM, wholesale, manual). Only Amazon FBM unshipped quantities reduce the Estimated available KPI. Wholesale and manual are tracked operationally and do not change that KPI. Commitments do not write physical stock or inventory_levels.reserved. Over-commitment is not blocked by the server.",
     actionHtml: `<span class="sg-batch__actions">${addBtn}</span>`,
     bodyHtml: table,
   });
@@ -929,8 +979,6 @@ const COMMIT_CHANNELS = [
 
 /** Working state for the Add External Order drawer. */
 let commitDraft = null;
-/** Guard against double-submit of commitment writes. */
-let commitInFlight = false;
 
 function commitChannelOptions(selected) {
   const sel = String(selected || "amazon_fbm").trim();
@@ -1039,7 +1087,7 @@ function openAddCommitmentDrawer() {
   const body = `
     <div class="sg-info-banner" role="note">
       <span class="sg-info-banner__icon">${icon("info", 18)}</span>
-      <span>Commitments affect <strong>estimated availability</strong> in dashboard calculations until shipped or removed. They do <strong>not</strong> change physical on-hand stock. The server does not block over-commitment.</span>
+      <span>Only <strong>Amazon FBM</strong> unshipped commitments reduce the Estimated available KPI. Wholesale and manual commitments are tracked here for operations and do <strong>not</strong> change that KPI. Commitments never change physical on-hand stock. The server does not block over-commitment.</span>
     </div>
 
     <div id="commit-form">
@@ -1222,6 +1270,10 @@ function fillAddCommitmentConfirm(built) {
         </div>`
       : "";
 
+  const impactLabel =
+    String(built.channel || "") === "amazon_fbm"
+      ? "Amazon FBM only — reduces Estimated available KPI until shipped"
+      : "Operational tracking only — does not change Estimated available KPI";
   const host = document.getElementById("commit-confirm-summary");
   if (host) {
     host.innerHTML = `
@@ -1229,7 +1281,7 @@ function fillAddCommitmentConfirm(built) {
       <div class="sg-preview__row"><span>Channel</span><strong>${escapeHtml(salesChannelLabel(built.channel))}</strong></div>
       <div class="sg-preview__row"><span>External order ID</span><strong>${built.external_order_id ? escapeHtml(built.external_order_id) : "—"}</strong></div>
       <div class="sg-preview__row"><span>Total quantity</span><strong>${escapeHtml(fmtCB(tc, tb))}</strong></div>
-      <div class="sg-preview__row"><span>Availability impact</span><strong>Affects estimated availability (display math)</strong></div>
+      <div class="sg-preview__row"><span>Availability impact</span><strong>${escapeHtml(impactLabel)}</strong></div>
       <div class="sg-preview__row"><span>Physical stock</span><strong>No change</strong></div>
       <div class="sg-confirm__lines">
         <p class="sg-drawer-section__title" style="margin:0 0 6px">Lines (${built.lines.length})</p>
@@ -1239,7 +1291,7 @@ function fillAddCommitmentConfirm(built) {
 }
 
 async function submitAddCommitment() {
-  if (commitInFlight) return;
+  if (hasInventoryMutationInFlight()) return;
   const built = validateAddCommitment();
   const confirmBtn = document.getElementById("commit-confirm-btn");
   const backBtn = document.getElementById("commit-confirm-back");
@@ -1462,7 +1514,7 @@ function validateEditCommitment() {
 }
 
 async function submitEditCommitment(id) {
-  if (commitInFlight) return;
+  if (hasInventoryMutationInFlight()) return;
   const built = validateEditCommitment();
   const confirmBtn = document.getElementById("cedit-confirm-btn");
   const backBtn = document.getElementById("cedit-confirm-back");
@@ -1571,7 +1623,7 @@ function openCommitmentActionDrawer(kind, id) {
 }
 
 async function submitCommitmentAction(kind, id) {
-  if (commitInFlight) return;
+  if (hasInventoryMutationInFlight()) return;
   const cfg = COMMIT_ACTIONS[kind];
   if (!cfg) return;
   const confirmBtn = document.getElementById("cact-confirm");
@@ -1836,6 +1888,18 @@ function wireUpdateStockDrawer() {
   }
 
   function setErr(id, msg) {
+    if (id === "us-err-qty") {
+      setAssociatedFieldError("us-err-qty", ["us-cases", "us-boxes"], msg);
+      return;
+    }
+    if (id === "us-err-reason") {
+      setAssociatedFieldError("us-err-reason", "us-reason", msg);
+      return;
+    }
+    if (id === "us-error") {
+      setAssociatedFieldError("us-error", ["us-product", "us-size"], msg);
+      return;
+    }
     const el = q(id);
     if (!el) return;
     if (msg) {
@@ -1940,7 +2004,7 @@ function wireUpdateStockDrawer() {
 }
 
 async function submitStockOverride(validate) {
-  if (stockPatchInFlight) return; // hard guard against double-submit
+  if (hasInventoryMutationInFlight()) return; // hard guard against double-submit / overlapping mutations
   const data = validate();
   const confirmBtn = document.getElementById("us-confirm-btn");
   const backBtn = document.getElementById("us-confirm-back");
@@ -2265,6 +2329,14 @@ function openIncomingShipmentDrawer(mode, batchId) {
 }
 
 function incSetErr(id, msg) {
+  if (id === "inc-err-name") {
+    setAssociatedFieldError("inc-err-name", "inc-name", msg);
+    return;
+  }
+  if (id === "inc-err-lines") {
+    setAssociatedFieldError("inc-err-lines", null, msg);
+    return;
+  }
   const el = document.getElementById(id);
   if (!el) return;
   el.textContent = msg || "";
@@ -2419,6 +2491,7 @@ function fillIncomingConfirmSummary(data) {
 }
 
 async function submitIncomingShipment() {
+  if (hasInventoryMutationInFlight()) return;
   const data = validateIncoming();
   const confirmBtn = document.getElementById("inc-confirm-btn");
   const backBtn = document.getElementById("inc-confirm-back");
@@ -2432,6 +2505,7 @@ async function submitIncomingShipment() {
 
   const setConfirmErr = (msg) => incSetErr("inc-confirm-error", msg);
 
+  incomingSaveInFlight = true;
   if (confirmBtn) confirmBtn.disabled = true;
   if (backBtn) backBtn.disabled = true;
   setConfirmErr("");
@@ -2540,6 +2614,8 @@ async function submitIncomingShipment() {
     } catch {
       /* keep drawer open with draft */
     }
+  } finally {
+    incomingSaveInFlight = false;
   }
 }
 
@@ -2781,6 +2857,14 @@ function wireStatusDrawer(batch, currentStatus) {
   };
 
   const setErr = (id, msg) => {
+    if (id === "ss-err") {
+      const controls = [];
+      if (!q("ss-date-wrap")?.hidden) controls.push("ss-date");
+      if (!q("ss-arrival-phrase-wrap")?.hidden) controls.push("ss-arrival-phrase");
+      if (!q("ss-reason-wrap")?.hidden) controls.push("ss-reason");
+      setAssociatedFieldError("ss-err", controls.length ? controls : "ss-reason", msg);
+      return;
+    }
     const el = q(id);
     if (!el) return;
     el.textContent = msg || "";
@@ -2864,10 +2948,13 @@ function wireStatusDrawer(batch, currentStatus) {
 function buildStatusChange(batch, currentStatus, actionKey) {
   const a = STATUS_ACTIONS[actionKey];
   const setErr = (msg) => {
-    const el = document.getElementById("ss-err");
-    if (!el) return;
-    el.textContent = msg || "";
-    el.hidden = !msg;
+    const controls = [];
+    const dateWrap = document.getElementById("ss-date-wrap");
+    const phraseWrap = document.getElementById("ss-arrival-phrase-wrap");
+    if (dateWrap && !dateWrap.hidden) controls.push("ss-date");
+    if (phraseWrap && !phraseWrap.hidden) controls.push("ss-arrival-phrase");
+    controls.push("ss-reason");
+    setAssociatedFieldError("ss-err", controls, msg);
   };
   setErr("");
   if (!a) {
@@ -2917,6 +3004,7 @@ function buildStatusChange(batch, currentStatus, actionKey) {
 }
 
 async function submitStatusChange(batch, currentStatus, actionKey) {
+  if (hasInventoryMutationInFlight()) return;
   const built = buildStatusChange(batch, currentStatus, actionKey);
   const confirmBtn = document.getElementById("ss-confirm-btn");
   const backBtn = document.getElementById("ss-confirm-back");
@@ -2934,6 +3022,7 @@ async function submitStatusChange(batch, currentStatus, actionKey) {
     el.hidden = !msg;
   };
 
+  incomingStatusInFlight = true;
   if (confirmBtn) confirmBtn.disabled = true;
   if (backBtn) backBtn.disabled = true;
   setConfirmErr("");
@@ -2952,6 +3041,8 @@ async function submitStatusChange(batch, currentStatus, actionKey) {
     setConfirmErr(msg);
     if (confirmBtn) confirmBtn.disabled = false;
     if (backBtn) backBtn.disabled = false;
+  } finally {
+    incomingStatusInFlight = false;
   }
 }
 
@@ -3253,7 +3344,7 @@ function wireReceiveDrawer(batch) {
 }
 
 async function submitReceive(batch) {
-  if (receiveInFlight) return; // hard guard against double-submit
+  if (hasInventoryMutationInFlight()) return; // hard guard against double-submit / overlapping mutations
   const built = validateReceive(batch);
   const confirmBtn = document.getElementById("rcv-confirm-btn");
   const backBtn = document.getElementById("rcv-confirm-back");
@@ -3393,20 +3484,35 @@ function wireBatchButtons() {
 
 async function loadStock() {
   const page = getEl("sg-page");
-  if (page && !page.dataset.loadedOnce) {
+  const alreadyLoaded = Boolean(page?.dataset?.loadedOnce);
+  const gen = ++stockLoadGen;
+  if (page && !alreadyLoaded) {
     page.innerHTML = `<div class="sg-loading">Loading inventory…</div>`;
   }
   try {
     const token = await getToken();
-    stockData = await fetchReportJson("/api/admin-stock", token);
+    const next = await fetchReportJson("/api/admin-stock", token);
+    if (gen !== stockLoadGen) return;
+    stockData = next;
     renderPage();
     if (page) page.dataset.loadedOnce = "1";
     const metaEl = getEl("sg-topbar-meta");
     if (metaEl) metaEl.textContent = `Updated ${new Date().toLocaleString()}`;
   } catch (error) {
-    if (page) page.innerHTML = `<div class="sg-error">${escapeHtml(error?.message || "Could not load inventory.")}</div>`;
+    if (gen !== stockLoadGen) return;
+    if (page && !alreadyLoaded) {
+      page.innerHTML = `<div class="sg-error">${escapeHtml(error?.message || "Could not load inventory.")}</div>`;
+    }
     toast(error?.message || "Could not load inventory.", "danger");
   }
+}
+
+function refreshInventory() {
+  if (hasInventoryMutationInFlight()) {
+    toast("Finish the current inventory action before refreshing.", "danger");
+    return;
+  }
+  void loadStock();
 }
 
 /* --------------------------------------------------------------- app boot */
@@ -3417,5 +3523,5 @@ bootAdminV2Page({
     getToken = ctx.getAccessToken;
     await loadStock();
   },
-  onRefresh: () => loadStock(),
+  onRefresh: () => refreshInventory(),
 });

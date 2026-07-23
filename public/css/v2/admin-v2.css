@@ -27,6 +27,52 @@ button {
   font-family: inherit;
 }
 
+/* Skip link — visible on keyboard focus only */
+.sg-skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 10000;
+  padding: 10px 16px;
+  background: var(--sg-card);
+  color: var(--sg-text);
+  border: 2px solid var(--sg-primary);
+  border-radius: var(--sg-radius-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.sg-skip-link:focus,
+.sg-skip-link:focus-visible {
+  left: var(--sg-space-4);
+  top: var(--sg-space-4);
+  outline: none;
+}
+
+/* Shared focus-visible for interactive chrome */
+.sg-btn:focus-visible,
+.sg-nav__link:focus-visible,
+.sg-menu-btn:focus-visible,
+.sg-linkbtn:focus-visible,
+.sg-clickable:focus-visible,
+.sg-btn--icon:focus-visible,
+.sg-btn--icon-sm:focus-visible,
+.mo-qty__btn:focus-visible {
+  outline: 2px solid var(--sg-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* ----------------------------------------------------------------- Shell */
 .sg-shell {
   display: flex;
@@ -235,8 +281,10 @@ button {
   display: none;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   border: none;
   background: transparent;
   border-radius: var(--sg-radius-sm);
@@ -361,8 +409,10 @@ button {
 }
 
 .sg-btn--icon {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0;
 }
 
@@ -1273,10 +1323,12 @@ button {
   align-items: center;
 }
 
-/* Compact disabled icon buttons for dense table rows. */
+/* Compact icon buttons for dense table rows — ~44×44 touch target via padding. */
 .sg-btn--icon-sm {
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0;
   border-radius: var(--sg-radius-sm);
 }
@@ -1340,9 +1392,9 @@ button {
   margin-top: var(--sg-space-4);
 }
 
-/* Keep long product names in dense tables from collapsing too narrow. */
+/* Keep long product names readable without forcing wide scroll on phones. */
 .sg-cell-product {
-  min-width: 176px;
+  min-width: 120px;
 }
 
 /* Prevent short atomic values (quantities, IDs, dates) from wrapping. */
@@ -2572,7 +2624,8 @@ button {
 }
 
 .mo-qty__btn {
-  min-width: 32px;
+  min-width: 44px;
+  min-height: 44px;
   padding-inline: 0;
 }
 
