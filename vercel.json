@@ -9,6 +9,8 @@
     { "source": "/admin/manual-order", "destination": "/admin/manual-order.html" },
     { "source": "/admin/walk-in-order", "destination": "/admin/walk-in-order.html" },
     { "source": "/admin/inventory", "destination": "/admin/inventory.html" },
+    { "source": "/admin-v2", "destination": "/admin-v2/summary.html" },
+    { "source": "/admin-v2/", "destination": "/admin-v2/summary.html" },
     { "source": "/admin-v2/summary", "destination": "/admin-v2/summary.html" },
     { "source": "/admin-v2/summary/", "destination": "/admin-v2/summary.html" },
     { "source": "/admin-v2/tax", "destination": "/admin-v2/tax.html" },

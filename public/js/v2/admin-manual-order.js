@@ -20,7 +20,7 @@ import {
 } from "../size-availability.js";
 import { fetchReportPost, ReportPostError } from "../admin-shared.js";
 import { LOCAL_DELIVERY_AREA_ERROR, isLocalDeliveryServiceArea } from "../hardin-county.js";
-import { card, closeDrawer, escapeHtml, icon, openDrawer, pageHeader, statusChip, toast } from "./ui.js";
+import { card, closeDrawer, escapeHtml, icon, openDrawer, pageHeader, setDrawerCloseGuard, statusChip, toast } from "./ui.js";
 import { bootAdminV2Page } from "./page-boot.js";
 import {
   ManualOrderLocalAuthError,
@@ -1308,6 +1308,7 @@ function openSendLinkConfirm() {
       </div>
     </div>`;
 
+  setDrawerCloseGuard(() => !paymentLinkInFlight);
   openDrawer({ title: "Create and send payment link?", bodyHtml });
   document.getElementById("sg-drawer")?.classList.remove("sg-drawer--wide");
 
@@ -1361,6 +1362,8 @@ async function submitCreateAndSendLink() {
   paymentLinkStage = "Creating order draft";
   const confirmBtn = getEl("mo-send-confirm-btn");
   const cancelBtn = getEl("mo-send-confirm-cancel");
+  const drawerCloseBtn = document.getElementById("sg-drawer-close");
+  if (drawerCloseBtn) drawerCloseBtn.disabled = true;
   setSendLinkConfirmErr("");
   if (confirmBtn) {
     confirmBtn.disabled = true;
@@ -1386,7 +1389,7 @@ async function submitCreateAndSendLink() {
     const createdOrderId = String(createData?.orderId || "").trim();
     if (!createdOrderId) {
       // 2xx without orderId is create_uncertain — do not retry from this page.
-      closeDrawer();
+      closeDrawer({ force: true });
       showSendLinkResult({
         orderId: "",
         orderRef: "",
@@ -1426,7 +1429,7 @@ async function submitCreateAndSendLink() {
               sendErr.message || "",
             )
           : classifyManualOrderSendLinkFailure({}, "", { transportUncertain: true });
-      closeDrawer();
+      closeDrawer({ force: true });
       showSendLinkResult({
         ...created,
         checkoutUrl: classified.checkoutUrl,
@@ -1438,7 +1441,7 @@ async function submitCreateAndSendLink() {
       return;
     }
 
-    closeDrawer();
+    closeDrawer({ force: true });
     const classified = classifyManualOrderSendLinkSuccess(sendData);
     if (classified.outcome === "success") {
       toast(`Payment link emailed for ${created.orderRef}.`, "success");
@@ -1464,7 +1467,7 @@ async function submitCreateAndSendLink() {
         : error?.message || "Could not create order or send payment link.";
 
     if (created?.orderId) {
-      closeDrawer();
+      closeDrawer({ force: true });
       toast("The order was created, but the payment link was not confirmed.", "danger");
       showSendLinkResult({
         ...created,
@@ -1486,10 +1489,12 @@ async function submitCreateAndSendLink() {
         confirmBtn.textContent = restored.confirmText;
         confirmBtn.disabled = restored.confirmDisabled;
       }
+      const drawerCloseBtnRestored = document.getElementById("sg-drawer-close");
+      if (drawerCloseBtnRestored) drawerCloseBtnRestored.disabled = false;
     } else {
       const createKind = classifyManualOrderCreateFailure(error);
       if (createKind === "create_uncertain") {
-        closeDrawer();
+        closeDrawer({ force: true });
         toast("Create result is uncertain. Do not submit again.", "danger");
         showSendLinkResult({
           orderId: "",
@@ -1514,11 +1519,16 @@ async function submitCreateAndSendLink() {
           confirmBtn.textContent = restored.confirmText;
           confirmBtn.disabled = restored.confirmDisabled;
         }
+        const drawerCloseBtnRestored = document.getElementById("sg-drawer-close");
+        if (drawerCloseBtnRestored) drawerCloseBtnRestored.disabled = false;
       }
     }
   } finally {
     paymentLinkInFlight = false;
     paymentLinkStage = "";
+    setDrawerCloseGuard(null);
+    const drawerCloseBtn = document.getElementById("sg-drawer-close");
+    if (drawerCloseBtn) drawerCloseBtn.disabled = false;
     syncSendLinkButtonState();
   }
 }

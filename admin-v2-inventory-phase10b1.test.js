@@ -244,7 +244,7 @@ test("Phase 10B-1 stock_patch has dedicated in-flight guard and non-optimistic f
 
   assert.match(source, /let stockPatchInFlight = false/);
   assert.match(source, /async function submitStockOverride/);
-  assert.match(source, /if \(stockPatchInFlight\) return/);
+  assert.match(source, /if \(hasInventoryMutationInFlight\(\)\) return/);
   assert.match(source, /stockPatchInFlight = true/);
   assert.match(source, /stockPatchInFlight = false/);
   assert.match(source, /Saving…/);
@@ -279,7 +279,7 @@ test("Phase 10B-1 arrival requires typed physical-count confirmation and offers 
 test("Phase 10B-1 receive remains arrived-only with in-flight guard and refetch", () => {
   const source = read("public/js/v2/admin-inventory.js");
   assert.match(source, /let receiveInFlight = false/);
-  assert.match(source, /if \(receiveInFlight\) return/);
+  assert.match(source, /if \(hasInventoryMutationInFlight\(\)\) return/);
   assert.match(source, /st === "arrived"/);
   assert.match(source, /Only arrived shipments can be received/);
   assert.match(source, /action:\s*"incoming_batch_receive"/);
@@ -294,9 +294,9 @@ test("Phase 10B-1 receive remains arrived-only with in-flight guard and refetch"
 test("Phase 10B-1 commitment mutations keep in-flight guard and accurate wording", () => {
   const source = read("public/js/v2/admin-inventory.js");
   assert.match(source, /let commitInFlight = false/);
-  assert.match(source, /if \(commitInFlight\) return/);
+  assert.match(source, /if \(hasInventoryMutationInFlight\(\)\) return/);
   assert.match(source, /Amazon FBM commitments/);
-  assert.match(source, /does not write physical stock|do <strong>not<\/strong> change physical|does not change physical stock/i);
+  assert.match(source, /does not write physical stock|do <strong>not<\/strong> change physical|does not change physical stock|never change physical/i);
   assert.match(source, /Over-commitment is not blocked|does not block over-commitment/i);
   assert.match(source, /Advisory:/);
 });

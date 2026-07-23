@@ -62,6 +62,12 @@ function createDomHarness() {
       return false;
     }
 
+    get parentElement() {
+      const p = this.parentNode;
+      if (!p || !p.tagName) return null;
+      return p;
+    }
+
     setAttribute(name, value) {
       const key = String(name);
       const val = String(value);
@@ -109,11 +115,13 @@ function createDomHarness() {
     }
 
     get inert() {
-      return this._inert;
+      return this._inert || this.attributes.has("inert");
     }
 
     set inert(value) {
       this._inert = Boolean(value);
+      if (this._inert) this.attributes.set("inert", "");
+      else this.attributes.delete("inert");
     }
 
     appendChild(child) {
@@ -143,12 +151,9 @@ function createDomHarness() {
     }
 
     focus() {
-      if (this.hidden || this.inert) return;
-      let p = this.parentNode;
-      while (p) {
-        if (p.hidden || p.inert) return;
-        p = p.parentNode;
-      }
+      // Mirror browser-ish focusing: skip the element itself when hidden/inert/disabled.
+      // Ancestor visibility is enforced by the production focus-trap filter, not focus().
+      if (this.disabled || this.hidden || this.inert) return;
       activeElement = this;
     }
 
@@ -172,10 +177,45 @@ function createDomHarness() {
       return null;
     }
 
+    querySelectorAll(sel) {
+      const all = [];
+      const walk = (node) => {
+        for (const c of node.children) {
+          all.push(c);
+          walk(c);
+        }
+      };
+      walk(this);
+      if (sel.includes("button") || sel.includes("a[href]") || sel.includes("input") || sel.includes("[tabindex]")) {
+        return all.filter((n) => {
+          const tag = n.tagName;
+          if (tag === "BUTTON" && !n.disabled) return true;
+          if (tag === "A" && n.getAttribute("href")) return true;
+          if (tag === "INPUT" && !n.disabled) return true;
+          if (tag === "SELECT" && !n.disabled) return true;
+          if (tag === "TEXTAREA" && !n.disabled) return true;
+          const tab = n.getAttribute("tabindex");
+          if (tab != null && tab !== "-1") return true;
+          return false;
+        });
+      }
+      return all;
+    }
+
+    contains(node) {
+      let n = node;
+      while (n) {
+        if (n === this) return true;
+        n = n.parentNode;
+      }
+      return false;
+    }
+
     set innerHTML(html) {
       this.children = [];
       this._text = String(html || "");
-      const re = /<([a-zA-Z0-9]+)([^>]*)>/g;
+      // Parse only structural/interactive tags — skip SVG internals (line/path/etc).
+      const re = /<(main|aside|nav|div|button|a|header|h[1-6]|small|ul|li|p|span|input|select|textarea)([^>]*)>/gi;
       let m;
       while ((m = re.exec(this._text))) {
         const el = new FakeNode(m[1]);
@@ -319,7 +359,8 @@ test("openDrawer reveals dialog, focuses Close; close restores opener", async ()
   const aside = harness.document.getElementById("sg-drawer");
   const overlay = harness.document.getElementById("sg-drawer-overlay");
   harness.assertOpen(aside, overlay);
-  assert.equal(aside.getAttribute("aria-label"), "Order 1");
+  assert.match(aside.getAttribute("aria-labelledby") || "", /sg-drawer-title/);
+  assert.match(aside.innerHTML, /id="sg-drawer-title"/);
   assert.match(aside.innerHTML, /Order 1/);
   assert.match(aside.innerHTML, /View/);
 
@@ -378,7 +419,7 @@ test("repeated close is harmless; reopen works with fresh title/body", async () 
   harness.setActive(trigger);
   openDrawer({ title: "Second", bodyHtml: `<p id="second-body">two</p>` });
   harness.assertOpen(aside, overlay);
-  assert.equal(aside.getAttribute("aria-label"), "Second");
+  assert.equal(aside.getAttribute("aria-labelledby"), "sg-drawer-title");
   assert.match(aside.innerHTML, /Second/);
   assert.match(aside.innerHTML, /id="second-body"/);
   assert.match(aside.innerHTML, />two</);
@@ -401,5 +442,209 @@ test("disconnected opener does not throw during focus restoration", async () => 
 
   const aside = harness.document.getElementById("sg-drawer");
   const overlay = harness.document.getElementById("sg-drawer-overlay");
+  harness.assertClosed(aside, overlay);
+});
+
+test("openDrawer uses aria-labelledby on the title id", async () => {
+  const harness = createDomHarness();
+  const { openDrawer } = await loadDrawerApi(harness);
+  openDrawer({ title: "Labeled", bodyHtml: `<button type="button" id="inner-a">A</button>` });
+  const aside = harness.document.getElementById("sg-drawer");
+  assert.equal(aside.getAttribute("aria-modal"), "true");
+  assert.equal(aside.getAttribute("aria-labelledby"), "sg-drawer-title");
+  assert.match(aside.innerHTML, /id="sg-drawer-title"/);
+  assert.equal(aside.getAttribute("aria-label"), null);
+});
+
+test("Tab cycles final to first; Shift+Tab cycles first to final", async () => {
+  const harness = createDomHarness();
+  const { openDrawer, closeDrawer } = await loadDrawerApi(harness);
+
+  openDrawer({
+    title: "Trap",
+    bodyHtml: `<button type="button" id="inner-a">A</button><button type="button" id="inner-b">B</button>`,
+  });
+  const aside = harness.document.getElementById("sg-drawer");
+  const closeBtn = aside.querySelector("#sg-drawer-close");
+  const a = aside.querySelector("#inner-a");
+  const b = aside.querySelector("#inner-b");
+  assert.ok(closeBtn && a && b);
+
+  // Focus order from querySelectorAll: close, a, b (document order in parsed HTML).
+  harness.setActive(b);
+  harness.document.dispatchEvent({ type: "keydown", key: "Tab", shiftKey: false, preventDefault() { this._pd = true; } });
+  // After Tab from last, first (close) should receive focus via trap
+  assert.equal(harness.document.activeElement, closeBtn);
+
+  harness.setActive(closeBtn);
+  const shiftEv = { type: "keydown", key: "Tab", shiftKey: true, preventDefault() { this._pd = true; } };
+  harness.document.dispatchEvent(shiftEv);
+  assert.equal(harness.document.activeElement, b);
+
+  closeDrawer();
+  harness.assertClosed(aside, harness.document.getElementById("sg-drawer-overlay"));
+});
+
+test("focus trap skips hidden/aria-hidden/inert ancestors and re-evaluates on each Tab", async () => {
+  const harness = createDomHarness();
+  const { openDrawer, closeDrawer } = await loadDrawerApi(harness);
+
+  const trigger = harness.document.createElement("button");
+  trigger.id = "opener-dyn";
+  trigger.setAttribute("type", "button");
+  harness.document.body.appendChild(trigger);
+  harness.setActive(trigger);
+
+  openDrawer({
+    title: "Dynamic hide",
+    bodyHtml: `<button type="button" id="first-visible">First</button><button type="button" id="final-visible">Final</button>`,
+  });
+  const aside = harness.document.getElementById("sg-drawer");
+  const overlay = harness.document.getElementById("sg-drawer-overlay");
+  const closeBtn = aside.querySelector("#sg-drawer-close");
+  const firstVisible = aside.querySelector("#first-visible");
+  const finalVisible = aside.querySelector("#final-visible");
+  assert.ok(closeBtn && firstVisible && finalVisible);
+  harness.assertOpen(aside, overlay);
+
+  function appendWrappedButton(wrapId, btnId, mode) {
+    const wrap = harness.document.createElement("div");
+    wrap.id = wrapId;
+    if (mode === "hidden") wrap.hidden = true;
+    if (mode === "aria") wrap.setAttribute("aria-hidden", "true");
+    if (mode === "inert") wrap.inert = true;
+    const btn = harness.document.createElement("button");
+    btn.id = btnId;
+    btn.setAttribute("type", "button");
+    wrap.appendChild(btn);
+    // Append after existing visible controls so revealed buttons become eligible
+    // after final-visible in document order (production filters on each Tab).
+    aside.appendChild(wrap);
+    return { wrap, btn };
+  }
+
+  const hidden = appendWrappedButton("hidden-wrap", "hidden-btn", "hidden");
+  const ariaH = appendWrappedButton("aria-wrap", "aria-btn", "aria");
+  const inertW = appendWrappedButton("inert-wrap", "inert-btn", "inert");
+
+  const tab = (shiftKey = false) => {
+    harness.document.dispatchEvent({
+      type: "keydown",
+      key: "Tab",
+      shiftKey,
+      preventDefault() {
+        this._pd = true;
+      },
+    });
+  };
+
+  // Trap bookends among *currently* visible controls: Close … Final
+  harness.setActive(finalVisible);
+  tab(false);
+  assert.equal(harness.document.activeElement, closeBtn, "Tab from final visible cycles to first visible (Close)");
+  assert.notEqual(harness.document.activeElement, hidden.btn);
+  assert.notEqual(harness.document.activeElement, ariaH.btn);
+  assert.notEqual(harness.document.activeElement, inertW.btn);
+
+  harness.setActive(closeBtn);
+  tab(true);
+  assert.equal(harness.document.activeElement, finalVisible, "Shift+Tab from first visible cycles to final visible");
+  assert.notEqual(harness.document.activeElement, hidden.btn);
+  assert.notEqual(harness.document.activeElement, ariaH.btn);
+  assert.notEqual(harness.document.activeElement, inertW.btn);
+
+  // Reveal hidden wrapper — re-evaluated on next Tab; new last becomes the revealed control.
+  hidden.wrap.hidden = false;
+  harness.setActive(closeBtn);
+  tab(true);
+  assert.equal(harness.document.activeElement, hidden.btn, "removing hidden makes button eligible on next Tab");
+  assert.notEqual(harness.document.activeElement, ariaH.btn);
+  assert.notEqual(harness.document.activeElement, inertW.btn);
+
+  // Reveal aria-hidden wrapper.
+  ariaH.wrap.removeAttribute("aria-hidden");
+  harness.setActive(closeBtn);
+  tab(true);
+  assert.equal(harness.document.activeElement, ariaH.btn, "removing aria-hidden makes button eligible on next Tab");
+  assert.notEqual(harness.document.activeElement, inertW.btn);
+
+  // Reveal inert wrapper.
+  inertW.wrap.inert = false;
+  harness.setActive(closeBtn);
+  tab(true);
+  assert.equal(harness.document.activeElement, inertW.btn, "removing inert makes button eligible on next Tab");
+
+  // Last visible is now inert button; Tab cycles to Close.
+  harness.setActive(inertW.btn);
+  tab(false);
+  assert.equal(harness.document.activeElement, closeBtn);
+
+  // Close / reopen must not stack handlers; Escape still closes once.
+  closeDrawer();
+  harness.assertClosed(aside, overlay);
+  assert.equal(harness.document.activeElement, trigger);
+
+  harness.setActive(trigger);
+  openDrawer({
+    title: "Dynamic hide again",
+    bodyHtml: `<button type="button" id="first-visible">First</button><button type="button" id="final-visible">Final</button>`,
+  });
+  harness.assertOpen(aside, overlay);
+  const final2 = aside.querySelector("#final-visible");
+  harness.setActive(final2);
+  tab(false);
+  assert.equal(harness.document.activeElement, aside.querySelector("#sg-drawer-close"));
+  harness.document.dispatchEvent({ type: "keydown", key: "Escape" });
+  harness.assertClosed(aside, overlay);
+  // Second Escape while closed is harmless (no stack reopen).
+  harness.document.dispatchEvent({ type: "keydown", key: "Escape" });
+  harness.assertClosed(aside, overlay);
+});
+
+test("setDrawerCloseGuard blocks Escape/overlay/Close until cleared", async () => {
+  const harness = createDomHarness();
+  const { openDrawer, closeDrawer, setDrawerCloseGuard } = await loadDrawerApi(harness);
+
+  const trigger = harness.document.createElement("button");
+  harness.document.body.appendChild(trigger);
+  harness.setActive(trigger);
+
+  let block = true;
+  setDrawerCloseGuard(() => (block ? false : true));
+  openDrawer({ title: "Guarded", bodyHtml: `<p>x</p>` });
+  const aside = harness.document.getElementById("sg-drawer");
+  const overlay = harness.document.getElementById("sg-drawer-overlay");
+  harness.assertOpen(aside, overlay);
+
+  harness.document.dispatchEvent({ type: "keydown", key: "Escape" });
+  harness.assertOpen(aside, overlay);
+  overlay.click();
+  harness.assertOpen(aside, overlay);
+  aside.querySelector("#sg-drawer-close").click();
+  harness.assertOpen(aside, overlay);
+
+  block = false;
+  setDrawerCloseGuard(null);
+  closeDrawer({ force: true });
+  harness.assertClosed(aside, overlay);
+});
+
+test("reopen does not stack key handlers; single Escape closes once", async () => {
+  const harness = createDomHarness();
+  const { openDrawer, closeDrawer } = await loadDrawerApi(harness);
+  const trigger = harness.document.createElement("button");
+  harness.document.body.appendChild(trigger);
+  harness.setActive(trigger);
+
+  openDrawer({ title: "One", bodyHtml: `<p>1</p>` });
+  closeDrawer();
+  openDrawer({ title: "Two", bodyHtml: `<p>2</p>` });
+  const aside = harness.document.getElementById("sg-drawer");
+  const overlay = harness.document.getElementById("sg-drawer-overlay");
+  harness.assertOpen(aside, overlay);
+  harness.document.dispatchEvent({ type: "keydown", key: "Escape" });
+  harness.assertClosed(aside, overlay);
+  // Second Escape while closed is harmless
+  harness.document.dispatchEvent({ type: "keydown", key: "Escape" });
   harness.assertClosed(aside, overlay);
 });
