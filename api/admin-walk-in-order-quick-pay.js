@@ -1,8 +1,19 @@
+/**
+ * Walk-in quick-pay: create draft then complete via hardened markWalkInOrderPaid.
+ *
+ * Option B — Legacy compatibility preserved; unsuitable for Admin-v2 first release.
+ * Draft creation is not durable-idempotent (retry can create a second draft). Admin-v2
+ * must use create-draft → explicit mark-paid instead of this endpoint.
+ */
+
 import { computeCheckoutEstimate, checkoutFlowErrorJsonFields } from "../lib/checkout-estimate-logic.js";
 import { createWalkInOrderDraft, markWalkInOrderPaid } from "../lib/orders.js";
-import { assertReportsAuthorized } from "../lib/reports-auth.js";
+import { assertReportsAuthorized, getReportsActor } from "../lib/reports-auth.js";
 import { sendPaidOrderReceiptResendIfConfigured } from "../lib/send-paid-order-receipt-resend.js";
 import { WALK_IN_PICKUP_ADDRESS } from "../lib/walk-in-pickup.js";
+
+/** Explicit capability flag for tests / Admin-v2 gating. */
+export const WALK_IN_QUICK_PAY_ADMIN_V2_SAFE = false;
 
 function parseQuickPayBody(body) {
   const name = String(body?.name || "").trim();
@@ -41,6 +52,15 @@ function parseQuickPayBody(body) {
   };
 }
 
+function sanitizePublicError(error) {
+  const status = error?.statusCode || 500;
+  const msg = String(error?.message || "").trim();
+  if (status >= 500) {
+    return "Could not complete quick payment.";
+  }
+  return msg || "Could not complete quick payment.";
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed." });
@@ -49,6 +69,7 @@ export default async function handler(req, res) {
 
   try {
     await assertReportsAuthorized(req);
+    const actor = await getReportsActor(req);
     const parsed = parseQuickPayBody(req.body || {});
     if (parsed.error) {
       res.status(400).json({ error: parsed.error });
@@ -65,7 +86,7 @@ export default async function handler(req, res) {
       adminLocalDiscount: true,
       walkInPickup: true,
       strictShippo: false,
-      allowForceStockOverride: true,
+      allowForceStockOverride: false,
     });
 
     const hardinDiscount =
@@ -95,11 +116,15 @@ export default async function handler(req, res) {
     const paid = await markWalkInOrderPaid({
       orderId: draft.id,
       paymentMethod: parsed.paymentMethod,
+      actorEmail: actor?.email || null,
     });
 
+    const idempotent = paid?.idempotent === true;
     let receipt = { sent: false, reason: "skipped" };
-    if (parsed.sendReceipt) {
+    if (parsed.sendReceipt && !idempotent) {
       receipt = await sendPaidOrderReceiptResendIfConfigured(paid);
+    } else if (parsed.sendReceipt && idempotent) {
+      receipt = { sent: false, reason: "already_completed" };
     }
 
     res.status(200).json({
@@ -108,15 +133,26 @@ export default async function handler(req, res) {
       orderRef: paid.order_ref,
       totalFormatted: quote.totalFormatted,
       paymentMethod: paid.payment_method,
-      ...(paid.inventoryWarning ? { inventoryWarning: String(paid.inventoryWarning) } : {}),
-      receiptEmailAttempted: parsed.sendReceipt,
+      status: paid.status,
+      orderStatus: paid.order_status,
+      paidAt: paid.paid_at || null,
+      adminHandoffAt: paid.admin_handoff_at || null,
+      inventoryCommitted: paid.inventoryCommitted === true || Boolean(paid.inventory_committed_at),
+      inventoryCommittedAt: paid.inventory_committed_at || null,
+      completed: true,
+      idempotent,
+      adminV2Safe: WALK_IN_QUICK_PAY_ADMIN_V2_SAFE,
+      receiptEmailAttempted: parsed.sendReceipt === true && !idempotent,
       receiptEmailSent: receipt.sent === true,
       receiptEmailReason: receipt.reason || null,
+      ...(receipt.sent !== true && parsed.sendReceipt && !idempotent
+        ? { receiptWarning: "Order completed, but the receipt email could not be sent." }
+        : {}),
     });
   } catch (error) {
     console.error(error);
     res.status(error.statusCode || 500).json({
-      error: error.message || "Could not complete quick payment.",
+      error: sanitizePublicError(error),
       ...checkoutFlowErrorJsonFields(error),
     });
   }

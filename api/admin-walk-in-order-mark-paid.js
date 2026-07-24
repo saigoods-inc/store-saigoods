@@ -1,9 +1,17 @@
 import { markWalkInOrderPaid } from "../lib/orders.js";
-import { assertReportsAuthorized } from "../lib/reports-auth.js";
+import { assertReportsAuthorized, getReportsActor } from "../lib/reports-auth.js";
 import { sendPaidOrderReceiptResendIfConfigured } from "../lib/send-paid-order-receipt-resend.js";
 
-// Future seam: `card_present` reserved for Terminal/device flow (not exposed in current UI).
-const WALK_IN_PAYMENT_METHODS = new Set(["cash", "check", "card_present"]);
+const WALK_IN_PAYMENT_METHODS = new Set(["cash", "check"]);
+
+function sanitizePublicError(error) {
+  const status = error?.statusCode || 500;
+  const msg = String(error?.message || "").trim();
+  if (status >= 500) {
+    return "Could not complete walk-in order.";
+  }
+  return msg || "Could not complete walk-in order.";
+}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -13,6 +21,7 @@ export default async function handler(req, res) {
 
   try {
     await assertReportsAuthorized(req);
+    const actor = await getReportsActor(req);
     const orderId = String(req.body?.orderId ?? "").trim();
     const paymentMethod = String(req.body?.paymentMethod ?? "").trim().toLowerCase();
     const sendReceipt = req.body?.sendReceipt === true;
@@ -22,20 +31,22 @@ export default async function handler(req, res) {
       return;
     }
     if (!WALK_IN_PAYMENT_METHODS.has(paymentMethod)) {
-      res.status(400).json({ error: "paymentMethod is invalid." });
-      return;
-    }
-    // Keep current walk-in POS flow to cash/check only until Terminal/card-present is implemented.
-    if (paymentMethod !== "cash" && paymentMethod !== "check") {
       res.status(400).json({ error: "paymentMethod must be cash or check." });
       return;
     }
 
-    const order = await markWalkInOrderPaid({ orderId, paymentMethod });
+    const order = await markWalkInOrderPaid({
+      orderId,
+      paymentMethod,
+      actorEmail: actor?.email || null,
+    });
 
+    const idempotent = order?.idempotent === true;
     let receipt = { sent: false, reason: "skipped" };
-    if (sendReceipt) {
+    if (sendReceipt && !idempotent) {
       receipt = await sendPaidOrderReceiptResendIfConfigured(order);
+    } else if (sendReceipt && idempotent) {
+      receipt = { sent: false, reason: "already_completed" };
     }
 
     res.status(200).json({
@@ -43,13 +54,23 @@ export default async function handler(req, res) {
       orderId: order.id,
       orderRef: order.order_ref,
       paymentMethod: order.payment_method,
-      ...(order.inventoryWarning ? { inventoryWarning: String(order.inventoryWarning) } : {}),
-      receiptEmailAttempted: sendReceipt,
+      status: order.status,
+      orderStatus: order.order_status,
+      paidAt: order.paid_at || null,
+      adminHandoffAt: order.admin_handoff_at || null,
+      inventoryCommitted: order.inventoryCommitted === true || Boolean(order.inventory_committed_at),
+      inventoryCommittedAt: order.inventory_committed_at || null,
+      completed: true,
+      idempotent,
+      receiptEmailAttempted: sendReceipt === true && !idempotent,
       receiptEmailSent: receipt.sent === true,
       receiptEmailReason: receipt.reason || null,
+      ...(receipt.sent !== true && sendReceipt && !idempotent
+        ? { receiptWarning: "Order completed, but the receipt email could not be sent." }
+        : {}),
     });
   } catch (error) {
     console.error(error);
-    res.status(error.statusCode || 500).json({ error: error.message || "Could not mark order paid." });
+    res.status(error.statusCode || 500).json({ error: sanitizePublicError(error) });
   }
 }
