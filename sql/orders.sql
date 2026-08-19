@@ -48,6 +48,21 @@ create table if not exists public.orders (
   total_cents integer not null default 0,
   provider text not null default 'square',
   payment_id text,
+  estimated_processing_fee_cents integer check (estimated_processing_fee_cents >= 0),
+  actual_processing_fee_cents integer check (actual_processing_fee_cents >= 0),
+  processing_fee_status text not null default 'estimated'
+    check (processing_fee_status in ('estimated', 'awaiting_square', 'actual', 'adjusted', 'reconciliation_failed')),
+  processing_fee_profile text,
+  processing_fee_synced_at timestamptz,
+  processing_fee_details_json jsonb,
+  checkout_attempt_id uuid unique,
+  inventory_committed_at timestamptz,
+  payment_reconciliation_required boolean not null default false,
+  payment_reconciliation_error text,
+  vendor_paid_notification_claimed_at timestamptz,
+  vendor_paid_notification_sent_at timestamptz,
+  vendor_paid_notification_resend_id text,
+  vendor_paid_notification_error text,
   state text,
   amount integer not null default 0,
   tax_collected integer not null default 0,
@@ -73,8 +88,19 @@ comment on column public.orders.quoted_shipping_provider_quote_id is 'Provider q
 comment on column public.orders.quoted_taxable_shipping_cents is 'Quoted shipping amount that is taxable, cents.';
 comment on column public.orders.quoted_parcel_summary_json is 'Quoted parcel planning snapshot used for shipping quote.';
 comment on column public.orders.quoted_address_snapshot_json is 'Quoted ship-to snapshot (input + normalized/validated shape).';
+comment on column public.orders.vendor_paid_notification_claimed_at is
+  'When a Square webhook worker claimed the right to send the vendor paid-order email; cleared after send or release. Stale claims may be reclaimed.';
+comment on column public.orders.vendor_paid_notification_sent_at is
+  'When the vendor paid-order notification was successfully sent via Resend; null until first successful send.';
+comment on column public.orders.vendor_paid_notification_resend_id is
+  'Resend email id returned after a successful vendor paid-order notification send.';
+comment on column public.orders.vendor_paid_notification_error is
+  'Safe, length-limited summary of the last vendor notification failure after a released claim; not secrets or raw provider payloads.';
 comment on column public.orders.state is 'Shipping destination state, 2-letter US.';
 comment on column public.orders.updated_at is 'Last row update (draft saves, payment link, etc.).';
+comment on column public.orders.checkout_attempt_id is 'Browser-generated online checkout attempt id. Unique so payment retries reuse one order and one Square idempotency key.';
+comment on column public.orders.inventory_committed_at is 'When inventory was atomically committed for this order.';
+comment on column public.orders.payment_reconciliation_required is 'True when Square reported payment but local paid-order finalization needs review.';
 
 create index if not exists orders_status_idx on public.orders (status);
 create index if not exists orders_customer_email_idx on public.orders (customer_email);

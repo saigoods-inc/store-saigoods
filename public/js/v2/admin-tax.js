@@ -46,20 +46,30 @@ function filteredRows() {
   return rows.filter((r) => r.month === monthFilter);
 }
 
+function kpiScopeLabel() {
+  return monthFilter === "all" ? "All months · TN paid orders" : `${monthFilter} · TN paid orders`;
+}
+
 /* --------------------------------------------------------------- sections */
 
 function renderKpis() {
-  const rows = taxRows();
+  const rows = filteredRows();
   const taxable = rows.reduce((s, r) => s + (Number(r.taxable_revenue) || 0), 0);
   const collected = rows.reduce((s, r) => s + (Number(r.tax_collected) || 0), 0);
   const orders = rows.reduce((s, r) => s + (Number(r.total_orders) || 0), 0);
-  const months = new Set(rows.map((r) => r.month)).size;
+  const months = new Set(rows.map((r) => r.month).filter(Boolean)).size;
+  const scope = kpiScopeLabel();
 
   const cards = [
-    kpiCard({ label: "Taxable Revenue", value: fmtCents(taxable), sub: "TN paid orders", iconName: "dollar-sign" }),
-    kpiCard({ label: "Tax Collected", value: fmtCents(collected), sub: "Across all months", iconName: "receipt" }),
-    kpiCard({ label: "Total Orders", value: String(orders), sub: "TN paid orders", iconName: "shopping-cart" }),
-    kpiCard({ label: "Months Reported", value: String(months), sub: "With paid TN activity", iconName: "bar-chart-3" }),
+    kpiCard({ label: "Taxable Revenue", value: fmtCents(taxable), sub: scope, iconName: "dollar-sign" }),
+    kpiCard({ label: "Tax Collected", value: fmtCents(collected), sub: scope, iconName: "receipt" }),
+    kpiCard({ label: "Total Orders", value: String(orders), sub: scope, iconName: "shopping-cart" }),
+    kpiCard({
+      label: "Months Reported",
+      value: String(months),
+      sub: monthFilter === "all" ? "With paid TN activity" : "Selected month scope",
+      iconName: "bar-chart-3",
+    }),
   ];
   return `<div class="sg-grid sg-grid--kpi">${cards.join("")}</div>`;
 }
@@ -97,7 +107,9 @@ function monthOptionsHtml() {
 function tableRowsHtml() {
   return filteredRows()
     .map(
-      (r, idx) => `<tr class="sg-clickable" data-idx="${idx}">
+      (r, idx) => `<tr class="sg-clickable" data-idx="${idx}" tabindex="0" aria-haspopup="dialog" aria-label="Open details dialog for ${escapeHtml(
+        String(r.month || ""),
+      )}">
         <td>${escapeHtml(r.month)}</td>
         <td>${escapeHtml(r.state)}</td>
         <td class="sg-table__num">${fmtCents(r.taxable_revenue)}</td>
@@ -157,12 +169,26 @@ function openMonthDrawer(row) {
   });
 }
 
+function bindDetailRow(tr, open) {
+  tr.addEventListener("click", open);
+  tr.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      open();
+    } else if (e.key === " " || e.key === "Spacebar") {
+      e.preventDefault();
+      open();
+    }
+  });
+}
+
 function wireTableInteractions() {
   const monthSel = getEl("sg-month-filter");
   if (monthSel) {
     monthSel.addEventListener("change", () => {
       monthFilter = monthSel.value || "all";
-      // Re-render just the table card region.
+      const kpiHost = getEl("sg-tax-kpi-host");
+      if (kpiHost) kpiHost.innerHTML = renderKpis();
       const host = getEl("sg-tax-table-host");
       if (host) {
         host.innerHTML = renderTableCard();
@@ -171,8 +197,8 @@ function wireTableInteractions() {
     });
   }
   const rows = filteredRows();
-  document.querySelectorAll('#sg-tax-table-host tr[data-idx]').forEach((tr) => {
-    tr.addEventListener("click", () => {
+  document.querySelectorAll("#sg-tax-table-host tr[data-idx]").forEach((tr) => {
+    bindDetailRow(tr, () => {
       const idx = Number(tr.getAttribute("data-idx"));
       openMonthDrawer(rows[idx]);
     });
@@ -189,7 +215,7 @@ function renderPage() {
         <p class="sg-page-header__subtitle">Review Tennessee taxable sales, collected tax, and monthly order totals.</p>
       </div>
     </div>
-    ${renderKpis()}
+    <div id="sg-tax-kpi-host">${renderKpis()}</div>
     <div class="sg-grid sg-grid--2">
       <div id="sg-tax-table-host">${renderTableCard()}</div>
       ${renderBasisCard()}

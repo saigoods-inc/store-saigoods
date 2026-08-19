@@ -1,7 +1,13 @@
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
 import { getOrderByIdForService } from "../lib/orders.js";
+import {
+  buildFulfillmentPackingPlan,
+  loadRuntimeFulfillmentPackagingConfig,
+} from "../lib/fulfillment-cartonization.js";
+import { primeRuntimeStore } from "../lib/runtime-store.js";
 import { describeShippoOrderSync } from "../lib/shippo-order-sync.js";
 import { describeShipmentCreatePreview } from "../lib/shippo-shipment-sync.js";
+import { withRuntimeWarehouseAddress } from "../lib/warehouse-settings.js";
 
 /**
  * Returns the same merge + payloads the server uses for Shippo POST /orders/ and POST /shipments/
@@ -14,6 +20,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    await primeRuntimeStore();
     await assertReportsAuthorized(req);
     const orderId = String(req.body?.orderId || "").trim();
     if (!orderId) {
@@ -21,15 +28,27 @@ export default async function handler(req, res) {
       return;
     }
 
-    const order = await getOrderByIdForService(orderId);
+    let order = await getOrderByIdForService(orderId);
     if (!order) {
       res.status(404).json({ error: "Order not found." });
       return;
+    }
+    order = await withRuntimeWarehouseAddress(order);
+
+    let packingPlan = null;
+    let packingPlanError = null;
+    try {
+      const config = await loadRuntimeFulfillmentPackagingConfig();
+      packingPlan = buildFulfillmentPackingPlan(order, { config });
+    } catch (e) {
+      packingPlanError = String(e?.message || e);
     }
 
     const preview = {
       ...describeShippoOrderSync(order),
       ...describeShipmentCreatePreview(order),
+      recommendedPackingPlan: packingPlan,
+      recommendedPackingPlanError: packingPlanError,
     };
     res.status(200).json({ ok: true, order, preview });
   } catch (error) {

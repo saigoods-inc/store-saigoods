@@ -32,7 +32,10 @@ try {
     ) {
       value = value.slice(1, -1);
     }
-    // Always apply from `.env` so local file wins over empty/stale host env (same as dotenv override).
+    // Preserve explicit runtime overrides for process-level controls such as test ports.
+    if ((key === "PORT" || key === "NODE_ENV") && process.env[key]) {
+      continue;
+    }
     process.env[key] = value;
   }
 } catch {

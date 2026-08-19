@@ -1,5 +1,5 @@
 /*
- * SAI Goods admin-v2 — Walk-in Order (Phase W0–W4: estimate + unpaid drafts + mark-paid + quick-pay).
+ * SAI Goods admin-v2 — Walk-in Order (estimate + unpaid drafts + mark-paid completion).
  *
  * Connected:
  *   - GET  /api/products
@@ -9,9 +9,9 @@
  *   - POST /api/admin-walk-in-order-update-draft
  *   - POST /api/admin-walk-in-order-delete-draft
  *   - POST /api/admin-walk-in-order-mark-paid
- *   - POST /api/admin-walk-in-order-quick-pay
  *
- * NOT connected: handoff, frontend inventory APIs, Square/payment-link.
+ * Compatibility-only backend endpoint (hidden in Admin v2 UI):
+ *   - POST /api/admin-walk-in-order-quick-pay
  *
  * Does not import from admin-manual-order.js — product helpers are duplicated inline.
  */
@@ -24,7 +24,7 @@ import {
   isSizeChannelPurchasable,
 } from "../size-availability.js";
 import { fetchReportJson, fetchReportPost, ReportPostError } from "../admin-shared.js";
-import { card, closeDrawer, escapeHtml, icon, openDrawer, pageHeader, statusChip, toast } from "./ui.js";
+import { card, closeDrawer, escapeHtml, icon, openDrawer, orderBuilderModeSwitch, pageHeader, statusChip, toast } from "./ui.js";
 import { bootAdminV2Page } from "./page-boot.js";
 
 const CREATE_DRAFT_PHRASE = "CREATE DRAFT";
@@ -32,6 +32,7 @@ const UPDATE_DRAFT_PHRASE = "UPDATE DRAFT";
 const DELETE_DRAFT_PHRASE = "DELETE DRAFT";
 const MARK_PAID_PHRASE = "MARK PAID";
 const CHARGE_WALK_IN_PHRASE = "CHARGE WALK-IN";
+const WALK_IN_ADMIN_V2_QUICK_PAY_ENABLED = false;
 
 /** @type {() => Promise<string|undefined>} */
 let getToken = async () => undefined;
@@ -40,7 +41,7 @@ let getToken = async () => undefined;
 let products = [];
 /** @type {string[]} */
 let siteSizes = ["S", "M", "L", "XL"];
-/** @type {Record<string, { bundleQty: Record<string, number>, caseBySize: Record<string, number>, boxBySize: Record<string, number> }>} */
+/** @type {Record<string, { bundleQty: Record<string, number>, caseBySize: Record<string, number>, boxBySize: Record<string, number>, ui: { bundleOpen: boolean, sizeOpen: boolean } }>} */
 let productState = {};
 /** Slugs with expanded product detail. */
 const openProductSlugs = new Set();
@@ -111,12 +112,21 @@ function productStockChip(product) {
 
 function ensureProductState(product) {
   const slug = product.slug;
-  if (productState[slug]) return;
+  if (productState[slug]) {
+    if (!productState[slug].ui) {
+      productState[slug].ui = { bundleOpen: true, sizeOpen: false };
+    }
+    return;
+  }
   const bundles = product.bundles || [];
   productState[slug] = {
     bundleQty: Object.fromEntries(bundles.map((b) => [b.id, 0])),
     caseBySize: Object.fromEntries(siteSizes.map((s) => [s, 0])),
     boxBySize: Object.fromEntries(siteSizes.map((s) => [s, 0])),
+    ui: {
+      bundleOpen: true,
+      sizeOpen: false,
+    },
   };
 }
 
@@ -274,10 +284,19 @@ function applyBundleDelta(slug, bundleId, delta) {
   if (!product || isWalkInProductOutOfStock(product)) return;
   ensureProductState(product);
   const st = productState[slug];
+  const hadSelection = hasAnyBundleSelection(st.bundleQty);
   const prevReq = computeRequiredUnits(product, st.bundleQty);
   const next = Math.max(0, Math.floor(Number(st.bundleQty[bundleId]) || 0) + delta);
   st.bundleQty[bundleId] = next;
   const nextReq = computeRequiredUnits(product, st.bundleQty);
+  const hasSelection = hasAnyBundleSelection(st.bundleQty);
+  if (!hadSelection && hasSelection) {
+    st.ui.bundleOpen = false;
+    st.ui.sizeOpen = true;
+  } else if (hadSelection && !hasSelection) {
+    st.ui.bundleOpen = true;
+    st.ui.sizeOpen = false;
+  }
   applyBundleRequirementDeltas(slug, prevReq, nextReq);
   markEstimateStale();
   renderProducts();
@@ -306,6 +325,7 @@ function handleSizeStep(slug, channel, size, delta) {
     if (req > 0 && total + 1 > req) return;
   }
   map[size] = next;
+  if (st.ui) st.ui.sizeOpen = true;
   markEstimateStale();
   renderProducts();
 }
@@ -425,7 +445,7 @@ function markEstimateStale() {
   }
   estimateStale = true;
   setQuoteStaleMessage();
-  setPanelVisible(getEl("wi-quote-stale"), true);
+  renderQuotePreview(lastQuote);
   syncEstimateButtonState();
 }
 
@@ -499,6 +519,73 @@ function unitWord(kind, n) {
   const isBox = String(kind || "case").toLowerCase() === "box";
   if (Math.abs(n) === 1) return isBox ? "box" : "case";
   return isBox ? "boxes" : "cases";
+}
+
+function currentSelectionEntries() {
+  const entries = [];
+  for (const product of products) {
+    const st = productState[product.slug];
+    if (!st) continue;
+    const bundleBits = bundleLinesPayload(st.bundleQty).map((line) => {
+      const bundle = (product.bundles || []).find((item) => item.id === line.id);
+      return `${bundle?.label || line.id} × ${line.qty}`;
+    });
+    const caseBits = Object.entries(compactQuantities(st.caseBySize, supportedSizesForProduct(product))).map(
+      ([size, qty]) => `${size}: ${qty} ${unitWord("case", qty)}`,
+    );
+    const boxBits = Object.entries(compactQuantities(st.boxBySize, supportedSizesForProduct(product))).map(
+      ([size, qty]) => `${size}: ${qty} ${unitWord("box", qty)}`,
+    );
+    if (!bundleBits.length && !caseBits.length && !boxBits.length) continue;
+    entries.push({
+      name: product.name || product.slug,
+      bundleBits,
+      caseBits,
+      boxBits,
+    });
+  }
+  return entries;
+}
+
+function currentSelectionSummaryHtml(opts = {}) {
+  const entries = currentSelectionEntries();
+  const emptyMessage = opts.emptyMessage || "No items selected yet.";
+  const compact = opts.compact === true;
+  if (!entries.length) {
+    return `<p class="sg-muted" style="margin:0">${escapeHtml(emptyMessage)}</p>`;
+  }
+  return `<div class="mo-item-summaries${compact ? " mo-item-summaries--compact" : ""}">
+    ${entries
+      .map((entry) => {
+        const sizeBits = [];
+        if (entry.caseBits.length) sizeBits.push(`Cases: ${entry.caseBits.join(", ")}`);
+        if (entry.boxBits.length) sizeBits.push(`Boxes: ${entry.boxBits.join(", ")}`);
+        return `<div class="mo-item-summary">
+          <strong>${escapeHtml(entry.name)}</strong>
+          ${entry.bundleBits.length ? `<div class="sg-muted">${escapeHtml(entry.bundleBits.join(" · "))}</div>` : ""}
+          ${sizeBits.length ? `<div class="sg-muted">${escapeHtml(sizeBits.join(" · "))}</div>` : ""}
+        </div>`;
+      })
+      .join("")}
+  </div>`;
+}
+
+function renderStepPanel({ slug, stepKey, badge, title, help, bodyHtml, open, extraClass = "" }) {
+  const safeSlug = escapeHtml(slug);
+  const safeStepKey = escapeHtml(stepKey);
+  const bodyId = `wi-step-${safeSlug}-${safeStepKey}`;
+  return `<section class="mo-step${extraClass}${open ? " is-open" : " is-collapsed"}">
+    <button type="button" class="mo-step__toggle" data-wi-step-toggle data-slug="${safeSlug}" data-step="${safeStepKey}" aria-expanded="${open ? "true" : "false"}" aria-controls="${bodyId}">
+      <span class="mo-step__head">
+        <span class="mo-step__badge">${escapeHtml(badge)}</span>
+        <span class="mo-step__title">${escapeHtml(title)}</span>
+      </span>
+      <span class="mo-step__chevron" aria-hidden="true">${icon("chevron-down", 16)}</span>
+    </button>
+    <div class="mo-step__body" id="${bodyId}"${open ? "" : " hidden"}>
+      ${open ? `${help ? `<p class="mo-step__help">${escapeHtml(help)}</p>` : ""}${bodyHtml}` : ""}
+    </div>
+  </section>`;
 }
 
 function sizeStockChip(product, size, channel) {
@@ -917,11 +1004,12 @@ function syncMarkPaidButtonState() {
 function syncQuickPayPanel() {
   const el = getEl("wi-quick-pay-block");
   if (!el) return;
-  setPanelVisible(el, !editingOrderId);
+  setPanelVisible(el, WALK_IN_ADMIN_V2_QUICK_PAY_ENABLED && !editingOrderId);
 }
 
 function syncQuickPayButtonState() {
   syncQuickPayPanel();
+  if (!WALK_IN_ADMIN_V2_QUICK_PAY_ENABLED) return;
   const cashBtn = getEl("wi-charge-cash");
   const checkBtn = getEl("wi-charge-check");
   const hint = getEl("wi-quick-receipt-hint");
@@ -972,8 +1060,8 @@ function syncDraftSaveButtonState() {
     markPaidInFlight ||
     quickPayInFlight;
   const laterNote = editing
-    ? "Use Mark paid on this draft to record cash or check payment."
-    : "Or use Charge cash/check to create and pay in one step.";
+    ? "Use Mark paid on this draft to record cash or check payment and complete the order."
+    : "After creating the draft, reopen it and use Mark paid to record cash or check payment and complete the order.";
 
   if (btn) {
     btn.textContent = label;
@@ -1084,15 +1172,13 @@ function syncEstimateButtonState() {
 function renderSizeColumn(product, st, channel) {
   const map = channel === "box" ? st.boxBySize : st.caseBySize;
   const progress = allocationProgressForChannel(product, st, channel);
-  const { req, assigned, incomplete, progressLabel, statusHtml, kind } = progress;
+  const { req, assigned, incomplete, kind } = progress;
   const title = kind === "box" ? "Boxes by size" : "Cases by size";
 
   return `<div class="mo-size-col${incomplete ? " is-incomplete" : progress.complete ? " is-complete" : ""}">
     <div class="mo-size-col__head">
       <span class="mo-size-col__title">${escapeHtml(title)}</span>
-      ${progressLabel ? `<span class="mo-size-col__progress">${escapeHtml(progressLabel)}</span>` : ""}
     </div>
-    ${statusHtml}
     <div class="mo-size-rows">
       ${supportedSizesForProduct(product)
         .map((size) => {
@@ -1118,6 +1204,7 @@ function renderSizeColumn(product, st, channel) {
 }
 
 function renderBundleStep(product, st, oos) {
+  const isOpen = st.ui?.bundleOpen !== false;
   const bundlesHtml = (product.bundles || [])
     .map((b) => {
       const qty = Math.floor(st.bundleQty[b.id] || 0);
@@ -1125,7 +1212,6 @@ function renderBundleStep(product, st, oos) {
       const price = b.priceFormatted || formatCurrency(b.priceCents || 0);
       const kind = String(b.kind || "case").toLowerCase() === "box" ? "box" : "case";
       const units = Math.max(0, Math.floor(Number(b.units) || 0));
-      const perPack = units > 0 ? `Adds ${units} ${unitWord(kind, units)}` : "";
       const selectedTotal =
         qty > 0 && units > 0 ? `${qty * units} ${unitWord(kind, qty * units)} selected` : "";
       return `<div class="mo-bundle-row${qty > 0 ? " is-selected" : ""}">
@@ -1133,7 +1219,6 @@ function renderBundleStep(product, st, oos) {
           <div class="mo-bundle-row__name">${escapeHtml(label)}</div>
           <div class="mo-bundle-row__meta">
             <span class="mo-bundle-row__price">${escapeHtml(price)}</span>
-            ${perPack ? `<span class="mo-bundle-row__adds">${escapeHtml(perPack)}</span>` : ""}
             ${selectedTotal ? `<span class="mo-bundle-row__selected-total">${escapeHtml(selectedTotal)}</span>` : ""}
           </div>
         </div>
@@ -1146,61 +1231,51 @@ function renderBundleStep(product, st, oos) {
     })
     .join("");
 
-  return `<div class="mo-step">
-    <div class="mo-step__head">
-      <span class="mo-step__badge">Step 1</span>
-      <h3 class="mo-step__title">Choose package quantity</h3>
-    </div>
-    <p class="mo-step__help">Select how many boxes or cases the customer wants.</p>
-    <div class="mo-bundle-list">${bundlesHtml}</div>
-  </div>`;
+  return renderStepPanel({
+    slug: product.slug,
+    stepKey: "bundle",
+    badge: "Step 1",
+    title: "Choose package quantity",
+    help: "Select the bundle first, then select size in Step 2.",
+    bodyHtml: `<div class="mo-bundle-list">${bundlesHtml}</div>`,
+    open: isOpen,
+  });
 }
 
 function renderAssignSizesStep(product, st) {
   const hasSelection = hasAnyBundleSelection(st.bundleQty);
+  const isOpen = hasSelection ? st.ui?.sizeOpen !== false : st.ui?.sizeOpen === true;
   if (!hasSelection) {
-    return `<div class="mo-step mo-step--sizes mo-step--waiting">
-      <div class="mo-step__head">
-        <span class="mo-step__badge">Step 2</span>
-        <h3 class="mo-step__title">Assign sizes</h3>
-      </div>
-      <p class="mo-step__help">Assign sizes to match the total selected above.</p>
-      <p class="mo-step__empty">Choose a package quantity above to assign sizes.</p>
-    </div>`;
+    return renderStepPanel({
+      slug: product.slug,
+      stepKey: "size",
+      badge: "Step 2",
+      title: "Assign sizes",
+      help: "Match every selected box or case with a size before moving on.",
+      bodyHtml: "",
+      open: isOpen,
+      extraClass: " mo-step--sizes mo-step--waiting",
+    });
   }
 
   const sizeCols = [];
+  const progressWarnings = [];
+  const progressChannels = [];
   if (showCaseColumn(product, st.bundleQty)) sizeCols.push(renderSizeColumn(product, st, "case"));
   if (showBoxColumn(product, st.bundleQty)) sizeCols.push(renderSizeColumn(product, st, "box"));
+  if (showCaseColumn(product, st.bundleQty)) progressChannels.push("case");
+  if (showBoxColumn(product, st.bundleQty)) progressChannels.push("box");
 
-  const { reqBox, reqCase } = computeRequiredUnits(product, st.bundleQty);
-  const sumBox = sumChannel(st.boxBySize);
-  const sumCase = sumChannel(st.caseBySize);
-  const name = product.name || product.slug;
-  const summaryParts = [];
   const warnParts = [];
-
-  if (showBoxColumn(product, st.bundleQty) && reqBox > 0) {
-    const remaining = reqBox - sumBox;
-    summaryParts.push(
-      `Selected: ${reqBox} ${unitWord("box", reqBox)} · Assigned: ${sumBox} ${unitWord("box", sumBox)} · Remaining: ${Math.max(0, remaining)} ${unitWord("box", Math.max(0, remaining))}`,
-    );
-    if (remaining > 0) {
-      warnParts.push(`${name}: Assign ${remaining} more ${unitWord("box", remaining)} to continue.`);
-    } else if (remaining < 0) {
-      warnParts.push(`${name}: Remove ${Math.abs(remaining)} ${unitWord("box", remaining)} to match the package total.`);
+  for (const channel of progressChannels) {
+    const progress = allocationProgressForChannel(product, st, channel);
+    if (progress.req < 1 || progress.complete) continue;
+    const prefix = progressChannels.length > 1 ? `${channel === "box" ? "Boxes" : "Cases"} by size: ` : "";
+    if (progress.remaining > 0) {
+      progressWarnings.push(`${prefix}assign ${progress.remaining} more ${unitWord(channel, progress.remaining)}.`);
+      continue;
     }
-  }
-  if (showCaseColumn(product, st.bundleQty) && reqCase > 0) {
-    const remaining = reqCase - sumCase;
-    summaryParts.push(
-      `Selected: ${reqCase} ${unitWord("case", reqCase)} · Assigned: ${sumCase} ${unitWord("case", sumCase)} · Remaining: ${Math.max(0, remaining)} ${unitWord("case", Math.max(0, remaining))}`,
-    );
-    if (remaining > 0) {
-      warnParts.push(`${name}: Assign ${remaining} more ${unitWord("case", remaining)} to continue.`);
-    } else if (remaining < 0) {
-      warnParts.push(`${name}: Remove ${Math.abs(remaining)} ${unitWord("case", remaining)} to match the package total.`);
-    }
+    progressWarnings.push(`${prefix}remove ${Math.abs(progress.remaining)} ${unitWord(channel, progress.remaining)} to match the selected bundle.`);
   }
 
   const stockIssues = productAllocationIssues(product).filter((i) =>
@@ -1208,6 +1283,7 @@ function renderAssignSizesStep(product, st) {
   );
   const hasOosQty = stockIssues.some((i) => /out-of-stock/i.test(i.message));
   for (const issue of stockIssues) warnParts.push(issue.message);
+  warnParts.push(...progressWarnings);
 
   const allComplete =
     warnParts.length === 0 &&
@@ -1220,11 +1296,8 @@ function renderAssignSizesStep(product, st) {
 
   const stepHelp = hasOosQty
     ? "Remove out-of-stock quantities before calculating totals."
-    : "Assign sizes to match the selected package quantity.";
+    : "Match every selected box or case with a size before moving to the rest of the order.";
 
-  const summaryHtml = summaryParts.length
-    ? `<p class="mo-alloc-summary">${summaryParts.map((s) => escapeHtml(s)).join("<br>")}</p>`
-    : "";
   const warnHtml = warnParts.length
     ? warnParts
         .map(
@@ -1237,16 +1310,16 @@ function renderAssignSizesStep(product, st) {
     ? `<p class="mo-alloc-status mo-alloc-status--ok">${icon("check", 14)}<span>Size allocation complete.</span></p>`
     : "";
 
-  return `<div class="mo-step mo-step--sizes${allComplete ? "" : " is-incomplete"}">
-    <div class="mo-step__head">
-      <span class="mo-step__badge">Step 2</span>
-      <h3 class="mo-step__title">Assign sizes</h3>
-    </div>
-    <p class="mo-step__help">${escapeHtml(stepHelp)}</p>
-    ${summaryHtml}
-    ${okHtml}${warnHtml}
-    <div class="mo-size-grid${sizeCols.length === 1 ? " mo-size-grid--single" : ""}">${sizeCols.join("")}</div>
-  </div>`;
+  return renderStepPanel({
+    slug: product.slug,
+    stepKey: "size",
+    badge: "Step 2",
+    title: "Assign sizes",
+    help: stepHelp,
+    bodyHtml: `${okHtml}${warnHtml}<div class="mo-size-grid${sizeCols.length === 1 ? " mo-size-grid--single" : ""}">${sizeCols.join("")}</div>`,
+    open: isOpen,
+    extraClass: ` mo-step--sizes${allComplete ? "" : " is-incomplete"}`,
+  });
 }
 
 function renderProductCard(product) {
@@ -1334,6 +1407,10 @@ function renderQuotePreview(data) {
   const checkoutNote = v.canCheckout
     ? ""
     : `<p class="sg-meta-note" style="margin:10px 0 0">Quote is not ready for checkout. Resolve issues above and recalculate.</p>`;
+  const itemsHtml = currentSelectionSummaryHtml({
+    emptyMessage: "No items selected yet.",
+    compact: true,
+  });
 
   host.innerHTML = `
     <div class="mo-quote-rows">
@@ -1345,6 +1422,10 @@ function renderQuotePreview(data) {
         taxSourceLabel(v.taxSource) === "—" ? "TN sales tax" : taxSourceLabel(v.taxSource),
       )}</span></div>
       <div class="mo-quote-row mo-quote-row--total"><span>Total</span><strong>${escapeHtml(v.totalFormatted)}</strong></div>
+    </div>
+    <div class="mo-quote-items">
+      <p class="mo-quote-items__label">Items in this order</p>
+      ${itemsHtml}
     </div>
     ${hardinBits.length ? `<div class="mo-quote-chips" style="margin-top:10px">${hardinBits.join(" ")}</div>` : ""}
     ${err}${warnings}${checkoutNote}
@@ -1773,7 +1854,7 @@ function openCreateOrUpdateConfirm() {
         <h4 class="sg-drawer-section__title" style="font-size:13px;margin:14px 0 6px">Items / quantities</h4>
         ${itemsSummaryHtml(elig.items)}
       </div>
-      <p class="sg-meta-note">No payment will be recorded. Use Charge cash/check on a new order, or Mark paid when editing a draft.</p>
+      <p class="sg-meta-note">No payment will be recorded yet. Save the draft now, then reopen it and use Mark paid to complete the walk-in order.</p>
       <label class="sg-field" style="margin-top:14px">
         <span class="sg-field__label">Type <span class="sg-mono">${escapeHtml(PHRASE)}</span> to enable</span>
         <input type="text" class="sg-input" id="${typeId}" autocomplete="off" spellcheck="false" placeholder="${escapeHtml(PHRASE)}" />
@@ -1831,7 +1912,7 @@ function showCreateDraftSuccess(created) {
   result.innerHTML = `
     <div class="mo-success-card">
       <h3 class="mo-success-card__title">${icon("check", 16)}<span>Unpaid walk-in draft created</span></h3>
-      <p class="sg-meta-note" style="margin:0 0 12px">No payment was recorded. Open the draft to mark paid, or use Charge cash/check on a new order.</p>
+      <p class="sg-meta-note" style="margin:0 0 12px">No payment was recorded. Open the draft and use Mark paid to complete the walk-in order.</p>
       ${kvHtml([
         ["Reference", `<span class="sg-mono">${escapeHtml(created.orderRef)}</span>`],
         ["Order ID", `<span class="sg-mono">${escapeHtml(created.orderId)}</span>`],
@@ -1868,12 +1949,12 @@ function showPaidSuccess(paid) {
       </div>`
     : "";
 
-  const title = paid.quickPay === true ? "Walk-in order charged" : "Walk-in order marked paid";
+  const title = "Walk-in order completed";
 
   result.innerHTML = `
     <div class="mo-success-card">
       <h3 class="mo-success-card__title">${icon("check", 16)}<span>${escapeHtml(title)}</span></h3>
-      <p class="sg-meta-note" style="margin:0 0 12px">Complete physical handoff later from Orders v2.</p>
+      <p class="sg-meta-note" style="margin:0 0 12px">Payment was recorded, inventory was committed, and in-person handoff was completed.</p>
       ${inventoryBanner}
       ${kvHtml([
         ["Reference", `<span class="sg-mono">${escapeHtml(paid.orderRef)}</span>`],
@@ -2498,16 +2579,18 @@ async function submitQuickPay(paymentMethod) {
 /* --------------------------------------------------------------- page */
 
 function pageHtml() {
+  const sectionTitleHtml = (iconName, label) => `${icon(iconName, 16)}<span>${escapeHtml(label)}</span>`;
+
   const draftsCard = card({
-    title: "Open walk-in drafts",
+    titleHtml: sectionTitleHtml("clipboard-list", "Open walk-in drafts"),
     actionHtml: `<button type="button" class="sg-btn sg-btn--ghost sg-btn--sm" id="wi-new-order-btn">New order</button>`,
     bodyHtml: `
       <div id="wi-drafts-list"><p class="sg-muted">Loading drafts…</p></div>
-      <p class="sg-meta-note" style="margin:12px 0 0">Open a draft to collect payment (Mark paid). For new orders, use Charge cash/check to create and pay in one step.</p>`,
+      <p class="sg-meta-note" style="margin:12px 0 0">Open a draft to collect payment and complete the order with Mark paid.</p>`,
   });
 
   const customer = card({
-    title: "Customer",
+    titleHtml: sectionTitleHtml("user", "Customer"),
     bodyHtml: `<div class="mo-grid">
       <label class="sg-field"><span class="sg-field__label">Full name</span><input class="sg-input" id="wi-cust-name" type="text" autocomplete="name" required /></label>
       <label class="sg-field"><span class="sg-field__label">Email <span class="sg-field__optional">(optional)</span></span><input class="sg-input" id="wi-cust-email" type="email" autocomplete="email" /></label>
@@ -2516,13 +2599,12 @@ function pageHtml() {
   });
 
   const productsCard = card({
-    title: "Products / line items",
-    bodyHtml: `<p class="sg-meta-note" style="margin:0 0 12px">For each product: choose a package quantity, then assign sizes until the totals match.</p>
-      <div id="wi-products" class="mo-products"><p class="sg-muted">Loading products…</p></div>`,
+    titleHtml: sectionTitleHtml("package", "Products / line items"),
+    bodyHtml: `<div id="wi-products" class="mo-products"><p class="sg-muted">Loading products…</p></div>`,
   });
 
   const discount = card({
-    title: "Discount",
+    titleHtml: sectionTitleHtml("tag", "Discount"),
     bodyHtml: `
       <label class="mo-check">
         <input type="checkbox" id="wi-apply-discount" />
@@ -2532,7 +2614,7 @@ function pageHtml() {
   });
 
   const quote = card({
-    title: "Estimate / quote preview",
+    titleHtml: sectionTitleHtml("receipt", "Estimate / quote preview"),
     bodyHtml: `
       <div class="mo-estimate-actions" id="wi-estimate-wrap">
         <div class="mo-estimate-actions__btnrow">
@@ -2546,7 +2628,7 @@ function pageHtml() {
   });
 
   const payment = `<div id="wi-payment-card" class="sg-hide" hidden>${card({
-    title: "Collect payment",
+    titleHtml: sectionTitleHtml("dollar-sign", "Collect payment"),
     bodyHtml: `
       <div id="wi-dirty-guard" class="sg-hide" hidden>
         <div class="sg-warn-banner sg-warn-banner--danger" role="alert">
@@ -2573,7 +2655,7 @@ function pageHtml() {
         <span>Send receipt email after marking paid</span>
       </label>
       <p class="sg-meta-note sg-hide" id="wi-receipt-hint" hidden style="margin:8px 0 0"></p>
-      <p class="sg-meta-note" style="margin:12px 0 0">Recording payment reduces inventory. Physical handoff is completed later from Orders v2.</p>
+      <p class="sg-meta-note" style="margin:12px 0 0">Recording payment completes the walk-in order and commits inventory immediately.</p>
       <div style="margin-top:14px">
         <button type="button" class="sg-btn mo-btn-deferred" id="wi-mark-paid-btn" disabled title="Open a walk-in draft to collect payment.">Mark paid</button>
       </div>`,
@@ -2583,28 +2665,20 @@ function pageHtml() {
     <div class="mo-future-actions__btns">
       <button type="button" class="sg-btn mo-btn-deferred" id="wi-save-draft-btn" disabled title="Complete a fresh quote to save a draft.">Create unpaid walk-in order</button>
     </div>
-    <div id="wi-quick-pay-block">
-      <label class="mo-check">
-        <input type="checkbox" id="wi-quick-receipt" />
-        <span>Send receipt email after charging</span>
-      </label>
-      <p class="sg-meta-note sg-hide" id="wi-quick-receipt-hint" hidden></p>
-      <p class="sg-meta-note">Quick-pay creates the walk-in order and records payment in one step. Inventory may be reduced when payment is recorded. Physical handoff is completed later from Orders v2.</p>
-      <div class="mo-future-actions__btns">
-        <button type="button" class="sg-btn mo-btn-deferred" id="wi-charge-cash" disabled title="Complete a fresh quote to charge.">Charge cash</button>
-        <button type="button" class="sg-btn mo-btn-deferred" id="wi-charge-check" disabled title="Complete a fresh quote to charge.">Charge check</button>
-      </div>
+    <div class="sg-warn-banner" role="note">
+      ${icon("info", 16)}
+      <span>Admin v2 uses a draft-first walk-in flow. Create the draft first, then reopen it and use Mark paid to complete the order.</span>
     </div>
-    <p class="sg-meta-note" id="wi-save-helper" style="margin:10px 0 0">Create unpaid drafts, or use Charge cash/check for new orders. Mark paid is available when editing a draft.</p>
+    <p class="sg-meta-note" id="wi-save-helper" style="margin:10px 0 0">Create unpaid drafts first. Mark paid is available when editing a draft.</p>
   </div>
   <div id="wi-draft-result" class="sg-hide" hidden></div>`;
 
   return `${pageHeader({
     title: "Walk-in Order",
     subtitle:
-      "Create an in-person order, estimate totals, then Charge cash/check for new orders or Mark paid on open drafts.",
+      "Create an in-person order, estimate totals, save an unpaid draft, then use Mark paid to complete it.",
   })}
-  <p class="wi-helper-banner sg-meta-note" style="margin:0 0 16px">${icon("info", 14)}<span>Walk-in payment reduces inventory when payment is recorded. Physical handoff is completed later from Orders v2.</span></p>
+  <p class="wi-helper-banner sg-meta-note" style="margin:0 0 16px">${icon("info", 14)}<span>Walk-in completion records payment, commits inventory, and finishes in-person handoff in one step.</span></p>
   <p id="wi-editing-banner" class="wi-editing-banner sg-hide" hidden><span data-wi-editing-text></span></p>
   <p id="wi-page-error" class="sg-error" role="alert" hidden style="white-space:pre-wrap"></p>
   <div class="mo-stack">
@@ -2623,6 +2697,26 @@ function wirePage() {
   if (!page) return;
 
   page.addEventListener("click", (e) => {
+    const stepToggle = e.target.closest("[data-wi-step-toggle]");
+    if (stepToggle) {
+      const slug = stepToggle.getAttribute("data-slug");
+      const step = stepToggle.getAttribute("data-step");
+      const product = products.find((item) => item.slug === slug);
+      if (!product) return;
+      ensureProductState(product);
+      if (step === "bundle") {
+        const next = !productState[slug].ui.bundleOpen;
+        productState[slug].ui.bundleOpen = next;
+        if (next) productState[slug].ui.sizeOpen = false;
+      }
+      if (step === "size") {
+        const next = !productState[slug].ui.sizeOpen;
+        productState[slug].ui.sizeOpen = next;
+        if (next) productState[slug].ui.bundleOpen = false;
+      }
+      renderProducts();
+      return;
+    }
     const toggle = e.target.closest("[data-wi-toggle-product]");
     if (toggle) {
       const slug = toggle.getAttribute("data-wi-toggle-product");
@@ -2762,7 +2856,8 @@ async function enterPage() {
 }
 
 bootAdminV2Page({
-  activeNav: "walk-in-order",
+  activeNav: "order-builder",
+  topbarLeftHtml: orderBuilderModeSwitch("walk-in", { location: "topbar" }),
   onEnter: async (_session, ctx) => {
     getToken = ctx.getAccessToken;
     await enterPage();

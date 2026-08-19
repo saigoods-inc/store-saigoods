@@ -63,8 +63,64 @@ let incomingFilter = "all";
  *   lines: {id: string|null, product_slug: string, size: string, expected_cases: number|string, expected_boxes: number|string}[] }}
  */
 let incDraft = null;
+/** Guard against double-submit of channel commitment mutations. */
+let commitInFlight = false;
 /** Guard against double-submit of the stock-affecting receive action. */
 let receiveInFlight = false;
+/** Guard against double-submit of physical stock_patch overrides. */
+let stockPatchInFlight = false;
+/** Guard against double-submit of incoming shipment create/update saves. */
+let incomingSaveInFlight = false;
+/** Guard against double-submit of incoming shipment status changes. */
+let incomingStatusInFlight = false;
+/** Monotonic generation so overlapping stock loads discard stale responses. */
+let stockLoadGen = 0;
+
+function sectionTitleHtml(iconName, label) {
+  return `${icon(iconName, 16)}<span>${escapeHtml(label)}</span>`;
+}
+
+/**
+ * True while any irreversible inventory mutation is in flight.
+ * Used to block overlapping Refresh and conflicting workflows.
+ */
+export function hasInventoryMutationInFlight() {
+  return (
+    receiveInFlight ||
+    stockPatchInFlight ||
+    incomingSaveInFlight ||
+    incomingStatusInFlight ||
+    commitInFlight
+  );
+}
+
+/**
+ * Associate a visible error element with one or more form controls.
+ * @param {string} errorId
+ * @param {string|string[]|null} controlIds
+ * @param {string} [msg]
+ */
+function setAssociatedFieldError(errorId, controlIds, msg = "") {
+  const errEl = document.getElementById(errorId);
+  if (errEl) {
+    errEl.textContent = msg || "";
+    errEl.hidden = !msg;
+  }
+  const ids = controlIds == null ? [] : Array.isArray(controlIds) ? controlIds : [controlIds];
+  for (const id of ids) {
+    const ctrl = document.getElementById(id);
+    if (!ctrl) continue;
+    if (msg) {
+      ctrl.setAttribute("aria-invalid", "true");
+      ctrl.setAttribute("aria-describedby", errorId);
+    } else {
+      ctrl.removeAttribute("aria-invalid");
+      if (ctrl.getAttribute("aria-describedby") === errorId) {
+        ctrl.removeAttribute("aria-describedby");
+      }
+    }
+  }
+}
 
 /* --------------------------------------------------------------- helpers */
 
@@ -470,33 +526,33 @@ function renderKpis(healthCounts) {
 
   const cards = [
     kpiCard({
-      label: "Total Physical Stock",
+      label: "Physical on hand",
       value: physical.value,
-      sub: kpiSub(physical.note, "On hand now"),
+      sub: kpiSub(physical.note, "Current warehouse count"),
       iconName: "package",
     }),
     kpiCard({
-      label: "Open Orders Reserved",
+      label: "Open website orders",
       value: reserved.value,
-      sub: kpiSub(reserved.note, "Awaiting shipment"),
+      sub: kpiSub(reserved.note, "Paid orders awaiting shipment"),
       iconName: "shopping-cart",
     }),
     kpiCard({
-      label: "External Channel Reserved",
+      label: "Amazon FBM commitments",
       value: external.value,
-      sub: kpiSub(external.note, "Amazon FBM"),
+      sub: kpiSub(external.note, "Unshipped Amazon FBM only"),
       iconName: "truck",
     }),
     kpiCard({
-      label: "Incoming Stock",
+      label: "Incoming (expected)",
       value: incoming.value,
-      sub: kpiSub(incoming.note, "Expected inbound"),
+      sub: kpiSub(incoming.note, "Not physical until received"),
       iconName: "inbox",
     }),
     kpiCard({
-      label: "Estimated Available to Sell",
+      label: "Estimated available",
       value: available.value,
-      sub: kpiSub(available.note, "After reservations"),
+      sub: kpiSub(available.note, "On hand − website orders − Amazon FBM"),
       iconName: "bar-chart-3",
     }),
     kpiCard({
@@ -548,10 +604,10 @@ function renderHealthCard(healthRows) {
     columns: [
       { label: "Product" },
       { label: "Size" },
-      { label: "Physical Stock", align: "right" },
-      { label: "Reserved", align: "right" },
-      { label: "Incoming", align: "right" },
-      { label: "Available to Sell", align: "right" },
+      { label: "Physical on hand", align: "right" },
+      { label: "Website reserved", align: "right" },
+      { label: "Incoming expected", align: "right" },
+      { label: "Est. available*", align: "right" },
       { label: "Status" },
       { label: "Actions" },
     ],
@@ -563,11 +619,12 @@ function renderHealthCard(healthRows) {
     "package",
     14,
   )}<span>Update stock</span></button>`;
+  const note = `<p class="sg-note" style="margin-top:var(--sg-space-3)">* Row “Est. available” uses physical on hand minus website line reserved. It does not subtract sales-channel commitments. KPI “Estimated available” subtracts unshipped Amazon FBM commitments only (not wholesale or manual).</p>`;
   return card({
-    title: "Inventory Health",
-    subtitle: "Physical, reserved, incoming, and estimated available-to-sell by variant",
+    titleHtml: sectionTitleHtml("package", "Inventory Health"),
+    subtitle: "Physical on hand by variant. Incoming is expected only until received.",
     actionHtml: `<span class="sg-batch__actions">${updateStock}</span>`,
-    bodyHtml: table,
+    bodyHtml: table + note,
   });
 }
 
@@ -692,8 +749,8 @@ function renderIncomingCard() {
     ${createBtn}
   </span>`;
   return card({
-    title: "Incoming Inventory",
-    subtitle: "Inbound shipments before they become physical stock",
+    titleHtml: sectionTitleHtml("inbox", "Incoming Inventory"),
+    subtitle: "Expected inbound records — physical on hand increases only after Receive",
     actionHtml: toolbar,
     bodyHtml: `<div id="sg-inc-list">${incomingListHtml()}</div>`,
   });
@@ -896,9 +953,9 @@ function renderCommitmentsCard() {
     14,
   )}<span>Add external order</span></button>`;
   return card({
-    title: "Sales Channel Commitments",
+    titleHtml: sectionTitleHtml("shopping-cart", "Sales Channel Commitments"),
     subtitle:
-      "Units sold on external platforms (e.g. Amazon FBM) awaiting shipment. External commitments reduce available-to-sell inventory until shipped or removed — they do not change physical stock.",
+      "External sold-not-shipped demand (Amazon FBM, wholesale, manual). Only Amazon FBM unshipped quantities reduce the Estimated available KPI. Wholesale and manual are tracked operationally and do not change that KPI. Commitments do not write physical stock or inventory_levels.reserved. Over-commitment is not blocked by the server.",
     actionHtml: `<span class="sg-batch__actions">${addBtn}</span>`,
     bodyHtml: table,
   });
@@ -926,8 +983,6 @@ const COMMIT_CHANNELS = [
 
 /** Working state for the Add External Order drawer. */
 let commitDraft = null;
-/** Guard against double-submit of commitment writes. */
-let commitInFlight = false;
 
 function commitChannelOptions(selected) {
   const sel = String(selected || "amazon_fbm").trim();
@@ -1036,7 +1091,7 @@ function openAddCommitmentDrawer() {
   const body = `
     <div class="sg-info-banner" role="note">
       <span class="sg-info-banner__icon">${icon("info", 18)}</span>
-      <span>External commitments <strong>reduce available-to-sell</strong> inventory until shipped or removed. Saving does <strong>not</strong> change physical stock.</span>
+      <span>Only <strong>Amazon FBM</strong> unshipped commitments reduce the Estimated available KPI. Wholesale and manual commitments are tracked here for operations and do <strong>not</strong> change that KPI. Commitments never change physical on-hand stock. The server does not block over-commitment.</span>
     </div>
 
     <div id="commit-form">
@@ -1070,7 +1125,7 @@ function openAddCommitmentDrawer() {
 
     <div id="commit-confirm" class="sg-confirm" hidden>
       <h3 class="sg-confirm__title">Add external commitment?</h3>
-      <p class="sg-confirm__copy">This reserves available-to-sell inventory for an external order. It <strong>does not</strong> directly change physical stock.</p>
+      <p class="sg-confirm__copy">This records external demand used in estimated-availability math. It <strong>does not</strong> change physical on-hand stock. Over-commitment is not prevented by the server.</p>
       <div class="sg-confirm__summary" id="commit-confirm-summary"></div>
       <p class="sg-error" id="commit-confirm-error" role="alert" hidden></p>
       <div class="sg-drawer-actions">
@@ -1192,14 +1247,46 @@ function fillAddCommitmentConfirm(built) {
       )} — ${escapeHtml(fmtCB(ln._cases, ln._boxes))}</li>`;
     })
     .join("");
+
+  // Advisory only — uses current display snapshot; not an authoritative hard block.
+  const s = stockData?.overview?.summary || {};
+  const amz = amazonReserved();
+  const groups = Array.isArray(stockData?.editor?.groups) ? stockData.editor.groups : [];
+  const refBpc = referenceBoxesPerCaseFromEditor(groups);
+  const avail = estimatedAvailableCasesBoxes(
+    s.remainingCases ?? 0,
+    s.remainingBoxes ?? 0,
+    s.toShipCases ?? 0,
+    s.toShipBoxes ?? 0,
+    amz.cases,
+    amz.boxes,
+    refBpc,
+  );
+  const availBoxes = Math.max(0, Math.floor(Number(avail.cases) || 0)) * refBpc + Math.max(0, Math.floor(Number(avail.boxes) || 0));
+  const needBoxes = tc * refBpc + tb;
+  const advisory =
+    needBoxes > availBoxes
+      ? `<div class="sg-warn-banner" role="note" style="margin-bottom:var(--sg-space-3)">
+          <span class="sg-warn-banner__icon">${icon("alert-triangle", 18)}</span>
+          <span><strong>Advisory:</strong> this commitment (${escapeHtml(fmtCB(tc, tb))}) exceeds the currently displayed estimated available (${escapeHtml(
+            fmtCB(avail.cases, avail.boxes),
+          )}). The server does not block over-commitment — proceed only if intentional.</span>
+        </div>`
+      : "";
+
+  const impactLabel =
+    String(built.channel || "") === "amazon_fbm"
+      ? "Amazon FBM only — reduces Estimated available KPI until shipped"
+      : "Operational tracking only — does not change Estimated available KPI";
   const host = document.getElementById("commit-confirm-summary");
   if (host) {
     host.innerHTML = `
+      ${advisory}
       <div class="sg-preview__row"><span>Channel</span><strong>${escapeHtml(salesChannelLabel(built.channel))}</strong></div>
       <div class="sg-preview__row"><span>External order ID</span><strong>${built.external_order_id ? escapeHtml(built.external_order_id) : "—"}</strong></div>
       <div class="sg-preview__row"><span>Total quantity</span><strong>${escapeHtml(fmtCB(tc, tb))}</strong></div>
-      <div class="sg-preview__row"><span>Availability impact</span><strong>Reduces available-to-sell</strong></div>
-      <div class="sg-preview__row"><span>Physical stock</span><strong>No direct change</strong></div>
+      <div class="sg-preview__row"><span>Availability impact</span><strong>${escapeHtml(impactLabel)}</strong></div>
+      <div class="sg-preview__row"><span>Physical stock</span><strong>No change</strong></div>
       <div class="sg-confirm__lines">
         <p class="sg-drawer-section__title" style="margin:0 0 6px">Lines (${built.lines.length})</p>
         <ul class="sg-note-list">${items}</ul>
@@ -1208,7 +1295,7 @@ function fillAddCommitmentConfirm(built) {
 }
 
 async function submitAddCommitment() {
-  if (commitInFlight) return;
+  if (hasInventoryMutationInFlight()) return;
   const built = validateAddCommitment();
   const confirmBtn = document.getElementById("commit-confirm-btn");
   const backBtn = document.getElementById("commit-confirm-back");
@@ -1223,9 +1310,10 @@ async function submitAddCommitment() {
   if (backBtn) backBtn.disabled = true;
   commitSetErr("commit-confirm-error", "");
 
-  const token = await getToken();
   let created = 0;
   try {
+    // Token acquisition is inside try so session failures hit the same catch/finally cleanup.
+    const token = await getToken();
     // One create per line. Successful lines are removed so a retry after a
     // mid-loop failure never double-creates the already-saved lines.
     while (commitDraft.lines.length) {
@@ -1256,14 +1344,27 @@ async function submitAddCommitment() {
         ? error.message || "The server rejected the commitment."
         : error?.message || "Could not save the commitment.";
     const prefix = created ? `Saved ${created} line${created === 1 ? "" : "s"}. ` : "";
-    commitSetErr("commit-confirm-error", `${prefix}${base}`);
+    const detail = `${prefix}${base}`;
+    const formDetail = created
+      ? `${created} line${created === 1 ? "" : "s"} already saved. Remaining lines below still need saving. ${base}`
+      : base;
+    commitSetErr("commit-confirm-error", detail);
+    commitSetErr("commit-err", formDetail);
     if (confirmBtn) confirmBtn.disabled = false;
     if (backBtn) backBtn.disabled = false;
-    // Return to the form so the remaining (unsaved) lines can be fixed/retried.
+    // Keep drawer open with remaining unsaved lines for retry (not transactional).
+    // Always surface the failure on the visible form panel (confirm is hidden next).
     renderCommitLines();
     document.getElementById("commit-confirm").hidden = true;
     document.getElementById("commit-form").hidden = false;
-    if (created) commitSetErr("commit-err", `${created} line${created === 1 ? "" : "s"} already saved. Remaining lines below still need saving.`);
+    if (created) {
+      // Refetch so the page reflects partial creates; do not close or clear the draft/error.
+      try {
+        await loadStock();
+      } catch {
+        /* preserve drawer, draft, and original save failure message */
+      }
+    }
   } finally {
     commitInFlight = false;
   }
@@ -1284,7 +1385,7 @@ function openEditCommitmentDrawer(id) {
   const body = `
     <div class="sg-info-banner" role="note">
       <span class="sg-info-banner__icon">${icon("info", 18)}</span>
-      <span>Editing a commitment adjusts reserved available-to-sell quantity. It <strong>does not</strong> change physical stock. Only unshipped commitments can be edited.</span>
+      <span>Editing a commitment updates estimated-availability demand. It <strong>does not</strong> change physical stock. Only unshipped commitments can be edited. Over-commitment is not blocked by the server.</span>
     </div>
 
     <div id="cedit-form">
@@ -1338,7 +1439,7 @@ function openEditCommitmentDrawer(id) {
 
     <div id="cedit-confirm" class="sg-confirm" hidden>
       <h3 class="sg-confirm__title">Save commitment changes?</h3>
-      <p class="sg-confirm__copy">This updates the reserved available-to-sell quantity for this external order. It <strong>does not</strong> change physical stock.</p>
+      <p class="sg-confirm__copy">This updates estimated-availability demand for this external order. It <strong>does not</strong> change physical stock.</p>
       <div class="sg-confirm__summary" id="cedit-confirm-summary"></div>
       <p class="sg-error" id="cedit-confirm-error" role="alert" hidden></p>
       <div class="sg-drawer-actions">
@@ -1417,7 +1518,7 @@ function validateEditCommitment() {
 }
 
 async function submitEditCommitment(id) {
-  if (commitInFlight) return;
+  if (hasInventoryMutationInFlight()) return;
   const built = validateEditCommitment();
   const confirmBtn = document.getElementById("cedit-confirm-btn");
   const backBtn = document.getElementById("cedit-confirm-back");
@@ -1476,14 +1577,14 @@ const COMMIT_ACTIONS = {
   },
   cancel: {
     title: "Cancel this external commitment?",
-    copy: "This sets the commitment status to cancelled and frees the reserved available-to-sell quantity. It does not change physical stock.",
+    copy: "This sets the commitment status to cancelled and removes it from estimated-availability demand. It does not change physical stock.",
     confirmLabel: "Confirm cancel",
     successMsg: "Commitment cancelled.",
     danger: true,
   },
   delete: {
     title: "Remove this external commitment?",
-    copy: "Removing this record deletes the external demand. This may increase available-to-sell quantity. It does not change physical stock.",
+    copy: "Removing this record deletes the external demand used in estimated-availability math. It does not change physical stock.",
     confirmLabel: "Confirm remove",
     successMsg: "Commitment removed.",
     danger: true,
@@ -1526,7 +1627,7 @@ function openCommitmentActionDrawer(kind, id) {
 }
 
 async function submitCommitmentAction(kind, id) {
-  if (commitInFlight) return;
+  if (hasInventoryMutationInFlight()) return;
   const cfg = COMMIT_ACTIONS[kind];
   if (!cfg) return;
   const confirmBtn = document.getElementById("cact-confirm");
@@ -1791,6 +1892,18 @@ function wireUpdateStockDrawer() {
   }
 
   function setErr(id, msg) {
+    if (id === "us-err-qty") {
+      setAssociatedFieldError("us-err-qty", ["us-cases", "us-boxes"], msg);
+      return;
+    }
+    if (id === "us-err-reason") {
+      setAssociatedFieldError("us-err-reason", "us-reason", msg);
+      return;
+    }
+    if (id === "us-error") {
+      setAssociatedFieldError("us-error", ["us-product", "us-size"], msg);
+      return;
+    }
     const el = q(id);
     if (!el) return;
     if (msg) {
@@ -1849,8 +1962,23 @@ function wireUpdateStockDrawer() {
     const data = validate();
     if (!data) return;
     const summary = q("us-confirm-summary");
+    const zeroWarn =
+      data.cases === 0 && data.boxes === 0
+        ? `<div class="sg-warn-banner" role="alert" style="margin-bottom:var(--sg-space-3)">
+            <span class="sg-warn-banner__icon">${icon("alert-triangle", 18)}</span>
+            <span><strong>Zero stock warning:</strong> confirming will set this product/size to <strong>0 cases and 0 boxes</strong> of physical on hand.</span>
+          </div>`
+        : data.cases === 0 || data.boxes === 0
+          ? `<div class="sg-warn-banner" role="alert" style="margin-bottom:var(--sg-space-3)">
+              <span class="sg-warn-banner__icon">${icon("alert-triangle", 18)}</span>
+              <span><strong>Zero channel warning:</strong> one channel will be set to <strong>zero</strong> (${escapeHtml(
+                fmtCB(data.cases, data.boxes),
+              )}).</span>
+            </div>`
+          : "";
     if (summary) {
       summary.innerHTML = `
+        ${zeroWarn}
         <div class="sg-preview__row"><span>Product</span><strong>${escapeHtml(data.productName)} · ${escapeHtml(
           data.size,
         )}</strong></div>
@@ -1880,9 +2008,18 @@ function wireUpdateStockDrawer() {
 }
 
 async function submitStockOverride(validate) {
+  if (hasInventoryMutationInFlight()) return; // hard guard against double-submit / overlapping mutations
   const data = validate();
   const confirmBtn = document.getElementById("us-confirm-btn");
   const backBtn = document.getElementById("us-confirm-back");
+  const saveBtn = document.getElementById("us-save");
+  const cancelBtn = document.getElementById("us-cancel");
+  const productSel = document.getElementById("us-product");
+  const sizeSel = document.getElementById("us-size");
+  const casesInput = document.getElementById("us-cases");
+  const boxesInput = document.getElementById("us-boxes");
+  const reasonInput = document.getElementById("us-reason");
+  const noteInput = document.getElementById("us-note");
   if (!data) {
     // Validation regressed (rare) — return to the form to show the field error.
     const form = document.getElementById("us-form");
@@ -1899,12 +2036,21 @@ async function submitStockOverride(validate) {
     el.hidden = !msg;
   };
 
-  if (confirmBtn) confirmBtn.disabled = true;
-  if (backBtn) backBtn.disabled = true;
+  const setSavingUi = (saving) => {
+    const controls = [confirmBtn, backBtn, saveBtn, cancelBtn, productSel, sizeSel, casesInput, boxesInput, reasonInput, noteInput];
+    for (const el of controls) {
+      if (el) el.disabled = saving;
+    }
+    if (confirmBtn) confirmBtn.textContent = saving ? "Saving…" : "Confirm override";
+  };
+
+  stockPatchInFlight = true;
+  setSavingUi(true);
   setConfirmErr("");
 
   // Exact payload shape from the old /admin page: one patch per channel, setOnHand,
   // track:true, with source flagged so the backend records a stock-override entry.
+  // Displayed stock is not changed until loadStock() completes after a successful POST.
   const payload = {
     action: "stock_patch",
     patches: [
@@ -1928,8 +2074,9 @@ async function submitStockOverride(validate) {
         ? error.message || "The server rejected the stock override."
         : error?.message || "Could not update stock.";
     setConfirmErr(msg);
-    if (confirmBtn) confirmBtn.disabled = false;
-    if (backBtn) backBtn.disabled = false;
+    setSavingUi(false);
+  } finally {
+    stockPatchInFlight = false;
   }
 }
 
@@ -2186,6 +2333,14 @@ function openIncomingShipmentDrawer(mode, batchId) {
 }
 
 function incSetErr(id, msg) {
+  if (id === "inc-err-name") {
+    setAssociatedFieldError("inc-err-name", "inc-name", msg);
+    return;
+  }
+  if (id === "inc-err-lines") {
+    setAssociatedFieldError("inc-err-lines", null, msg);
+    return;
+  }
   const el = document.getElementById(id);
   if (!el) return;
   el.textContent = msg || "";
@@ -2340,6 +2495,7 @@ function fillIncomingConfirmSummary(data) {
 }
 
 async function submitIncomingShipment() {
+  if (hasInventoryMutationInFlight()) return;
   const data = validateIncoming();
   const confirmBtn = document.getElementById("inc-confirm-btn");
   const backBtn = document.getElementById("inc-confirm-back");
@@ -2353,15 +2509,20 @@ async function submitIncomingShipment() {
 
   const setConfirmErr = (msg) => incSetErr("inc-confirm-error", msg);
 
+  incomingSaveInFlight = true;
   if (confirmBtn) confirmBtn.disabled = true;
   if (backBtn) backBtn.disabled = true;
   setConfirmErr("");
 
+  /** @type {string} */
+  let step = "header";
   try {
     const token = await getToken();
 
     // 1) Header — create once then flip the draft to edit so a retry never duplicates.
+    // Multi-request save is not transactional; failed steps keep draft state for retry.
     if (incDraft.mode === "create" && !incDraft.batchId) {
+      step = "create batch header";
       const created = await fetchReportPost("/api/admin-inventory", token, {
         action: "incoming_batch_create",
         batch: data.batch,
@@ -2372,6 +2533,7 @@ async function submitIncomingShipment() {
       incDraft.mode = "edit";
       incDraft.currentStatus = data.batch.status;
     } else {
+      step = "update batch header";
       await fetchReportPost("/api/admin-inventory", token, {
         action: "incoming_batch_update",
         id: incDraft.batchId,
@@ -2386,6 +2548,7 @@ async function submitIncomingShipment() {
     const presentIds = new Set(data.lines.filter((l) => l.id).map((l) => String(l.id)));
     for (const origId of Array.from(incDraft.originalById.keys())) {
       if (!presentIds.has(origId)) {
+        step = `delete line ${origId}`;
         await fetchReportPost("/api/admin-inventory", token, { action: "incoming_batch_line_delete", id: origId });
         incDraft.originalById.delete(origId);
       }
@@ -2401,6 +2564,7 @@ async function submitIncomingShipment() {
         expected_boxes: ln.expected_boxes,
       };
       if (!ln.id) {
+        step = `create line ${i + 1}`;
         const res = await fetchReportPost("/api/admin-inventory", token, {
           action: "incoming_batch_line_create",
           batch_id: batchId,
@@ -2423,6 +2587,7 @@ async function submitIncomingShipment() {
           Number(orig.expected_cases) !== Number(ln.expected_cases) ||
           Number(orig.expected_boxes) !== Number(ln.expected_boxes);
         if (changed) {
+          step = `update line ${i + 1}`;
           await fetchReportPost("/api/admin-inventory", token, {
             action: "incoming_batch_line_update",
             id: ln.id,
@@ -2438,13 +2603,23 @@ async function submitIncomingShipment() {
     toast("Incoming shipment saved.", "success");
     await loadStock();
   } catch (error) {
-    const msg =
+    const base =
       error instanceof ReportPostError
         ? error.message || "The server rejected the shipment."
         : error?.message || "Could not save the shipment.";
-    setConfirmErr(msg);
+    setConfirmErr(
+      `Save incomplete (failed at: ${step}). ${base} Partial changes may already be stored — review and retry; this save is not transactional.`,
+    );
     if (confirmBtn) confirmBtn.disabled = false;
     if (backBtn) backBtn.disabled = false;
+    // Refresh so the UI reflects any partial server state while keeping the draft for retry.
+    try {
+      await loadStock();
+    } catch {
+      /* keep drawer open with draft */
+    }
+  } finally {
+    incomingSaveInFlight = false;
   }
 }
 
@@ -2476,22 +2651,28 @@ function appendBatchNote(existing, addition) {
 /**
  * Status-workflow action catalogue. `reason` is "required" | "optional".
  * Only transitions the backend permits (see lib VALID_STATUS_TRANSITIONS) are offered.
+ * Mark-arrived requires an explicit operator physical-count acknowledgement (frontend only;
+ * the backend does not verify expected vs actual quantities).
  */
+const ARRIVAL_CONFIRM_PHRASE = "COUNTS REVIEWED";
+
 const STATUS_ACTIONS = {
   mark_arrived: {
     label: "Mark as arrived",
     newStatus: "arrived",
     needsDate: true,
     reason: "optional",
+    requiresPhysicalConfirm: true,
     variant: "primary",
     tag: (d) => `[Marked arrived ${d}]`,
-    successMsg: "Shipment marked as arrived (status only).",
+    successMsg: "Shipment marked as arrived (status only — physical stock unchanged until Receive).",
   },
   place_hold: {
     label: "Place on hold",
     newStatus: "on_hold",
     needsDate: false,
     reason: "required",
+    requiresPhysicalConfirm: false,
     variant: "warning",
     tag: () => `[On hold]`,
     successMsg: "Shipment placed on hold.",
@@ -2501,6 +2682,7 @@ const STATUS_ACTIONS = {
     newStatus: "arrived",
     needsDate: false,
     reason: "optional",
+    requiresPhysicalConfirm: false,
     variant: "primary",
     tag: (d) => `[Hold released ${d}]`,
     successMsg: "Hold released — shipment back to arrived.",
@@ -2510,6 +2692,7 @@ const STATUS_ACTIONS = {
     newStatus: "cancelled",
     needsDate: false,
     reason: "required",
+    requiresPhysicalConfirm: false,
     variant: "danger",
     tag: (d) => `[Cancelled ${d}]`,
     successMsg: "Shipment cancelled.",
@@ -2619,7 +2802,7 @@ function openStatusDrawer(batchId) {
         "info",
         14,
         "sg-note__icon",
-      )} Receiving stock into physical inventory is not part of this step and remains disabled.</p>
+      )} Status changes do not receive stock. Use <strong>Place on hold</strong> when actual quantities differ from expected. Receiving into physical inventory is a separate step and requires status <strong>arrived</strong>.</p>
     </div>
 
     <div id="ss-form" class="sg-drawer-section" hidden>
@@ -2627,6 +2810,20 @@ function openStatusDrawer(batchId) {
       <div class="sg-field" id="ss-date-wrap" hidden>Actual arrival date
         <input class="sg-input sg-field__control" id="ss-date" type="date" value="${escapeHtml(todayIso())}" />
       </div>
+      <div id="ss-arrival-ack" class="sg-warn-banner" role="note" hidden style="margin-bottom:var(--sg-space-3)">
+        <span class="sg-warn-banner__icon">${icon("alert-triangle", 18)}</span>
+        <span>
+          Confirm that the shipment was <strong>physically received</strong> and that actual quantities were reviewed against expected.
+          If there is a discrepancy, go back and choose <strong>Place on hold</strong> instead.
+          The server does <strong>not</strong> automatically verify expected versus actual counts.
+        </span>
+      </div>
+      <label class="sg-field" id="ss-arrival-phrase-wrap" hidden>
+        Type <strong>${escapeHtml(ARRIVAL_CONFIRM_PHRASE)}</strong> to confirm counts were reviewed
+        <input class="sg-input sg-field__control" id="ss-arrival-phrase" type="text" autocomplete="off" spellcheck="false" placeholder="${escapeHtml(
+          ARRIVAL_CONFIRM_PHRASE,
+        )}" />
+      </label>
       <label class="sg-field" id="ss-reason-wrap">
         <span id="ss-reason-label">Reason / note</span>
         <textarea class="sg-input sg-field__control sg-textarea" id="ss-reason" rows="3" maxlength="400" placeholder="Context for the audit log"></textarea>
@@ -2640,7 +2837,7 @@ function openStatusDrawer(batchId) {
 
     <div id="ss-confirm" class="sg-confirm" hidden>
       <h3 class="sg-confirm__title">Confirm status change?</h3>
-      <p class="sg-confirm__copy">This changes the shipment record's status only. <strong>Physical stock will not change.</strong></p>
+      <p class="sg-confirm__copy" id="ss-confirm-copy">This changes the shipment record's status only. <strong>Physical stock will not change.</strong></p>
       <div class="sg-confirm__summary" id="ss-confirm-summary"></div>
       <p class="sg-error" id="ss-confirm-error" role="alert" hidden></p>
       <div class="sg-drawer-actions">
@@ -2664,6 +2861,14 @@ function wireStatusDrawer(batch, currentStatus) {
   };
 
   const setErr = (id, msg) => {
+    if (id === "ss-err") {
+      const controls = [];
+      if (!q("ss-date-wrap")?.hidden) controls.push("ss-date");
+      if (!q("ss-arrival-phrase-wrap")?.hidden) controls.push("ss-arrival-phrase");
+      if (!q("ss-reason-wrap")?.hidden) controls.push("ss-reason");
+      setAssociatedFieldError("ss-err", controls.length ? controls : "ss-reason", msg);
+      return;
+    }
     const el = q(id);
     if (!el) return;
     el.textContent = msg || "";
@@ -2678,6 +2883,10 @@ function wireStatusDrawer(batch, currentStatus) {
       if (!a) return;
       q("ss-form-title").textContent = a.label;
       q("ss-date-wrap").hidden = !a.needsDate;
+      const needsAck = Boolean(a.requiresPhysicalConfirm);
+      if (q("ss-arrival-ack")) q("ss-arrival-ack").hidden = !needsAck;
+      if (q("ss-arrival-phrase-wrap")) q("ss-arrival-phrase-wrap").hidden = !needsAck;
+      if (q("ss-arrival-phrase")) q("ss-arrival-phrase").value = "";
       q("ss-reason-label").innerHTML =
         a.reason === "required"
           ? "Reason / note"
@@ -2697,8 +2906,20 @@ function wireStatusDrawer(batch, currentStatus) {
     const built = buildStatusChange(batch, currentStatus, currentAction);
     if (!built) return;
     const s = q("ss-confirm-summary");
+    const copyEl = q("ss-confirm-copy");
+    if (copyEl) {
+      copyEl.innerHTML = built.requiresPhysicalConfirm
+        ? `This marks the batch <strong>arrived</strong> (status only). Physical stock does <strong>not</strong> change until you use <strong>Receive stock</strong>. The server does not verify expected vs actual counts.`
+        : `This changes the shipment record's status only. <strong>Physical stock will not change.</strong>`;
+    }
     if (s) {
       const reasonText = built.reasonText ? escapeHtml(built.reasonText) : "—";
+      const ackRow = built.requiresPhysicalConfirm
+        ? `<div class="sg-preview__row"><span>Physical count review</span><strong>Operator confirmed (${escapeHtml(
+            ARRIVAL_CONFIRM_PHRASE,
+          )})</strong></div>
+           <div class="sg-preview__row"><span>If quantities differ</span><strong>Use Place on hold instead</strong></div>`
+        : "";
       s.innerHTML = `
         <div class="sg-preview__row"><span>Current status</span><strong>${escapeHtml(
           incomingStatusLabel(currentStatus),
@@ -2711,6 +2932,7 @@ function wireStatusDrawer(batch, currentStatus) {
             ? `<div class="sg-preview__row"><span>Arrival date</span><strong>${escapeHtml(built.arrivalDate)}</strong></div>`
             : ""
         }
+        ${ackRow}
         <div class="sg-preview__row"><span>Reason / note</span><strong>${reasonText}</strong></div>
         <div class="sg-preview__row"><span>Physical stock</span><strong>No change</strong></div>`;
     }
@@ -2725,15 +2947,18 @@ function wireStatusDrawer(batch, currentStatus) {
 
 /**
  * Validate + build the incoming_batch_update payload for a status action.
- * @returns {null | { payload: object, newStatus: string, arrivalDate: string|null, reasonText: string, successMsg: string }}
+ * @returns {null | { payload: object, newStatus: string, arrivalDate: string|null, reasonText: string, successMsg: string, requiresPhysicalConfirm: boolean }}
  */
 function buildStatusChange(batch, currentStatus, actionKey) {
   const a = STATUS_ACTIONS[actionKey];
   const setErr = (msg) => {
-    const el = document.getElementById("ss-err");
-    if (!el) return;
-    el.textContent = msg || "";
-    el.hidden = !msg;
+    const controls = [];
+    const dateWrap = document.getElementById("ss-date-wrap");
+    const phraseWrap = document.getElementById("ss-arrival-phrase-wrap");
+    if (dateWrap && !dateWrap.hidden) controls.push("ss-date");
+    if (phraseWrap && !phraseWrap.hidden) controls.push("ss-arrival-phrase");
+    controls.push("ss-reason");
+    setAssociatedFieldError("ss-err", controls, msg);
   };
   setErr("");
   if (!a) {
@@ -2756,6 +2981,15 @@ function buildStatusChange(batch, currentStatus, actionKey) {
     }
   }
 
+  const requiresPhysicalConfirm = Boolean(a.requiresPhysicalConfirm);
+  if (requiresPhysicalConfirm) {
+    const phrase = String(document.getElementById("ss-arrival-phrase")?.value ?? "").trim();
+    if (phrase.toUpperCase() !== ARRIVAL_CONFIRM_PHRASE) {
+      setErr(`Type ${ARRIVAL_CONFIRM_PHRASE} to confirm physical receipt and count review, or go back and Place on hold if quantities differ.`);
+      return null;
+    }
+  }
+
   const dateForTag = arrivalDate || todayIso();
   const noteAddition = [a.tag(dateForTag), reasonText].filter(Boolean).join(" ");
   const notes = appendBatchNote(batch?.notes, noteAddition);
@@ -2769,10 +3003,12 @@ function buildStatusChange(batch, currentStatus, actionKey) {
     arrivalDate,
     reasonText,
     successMsg: a.successMsg,
+    requiresPhysicalConfirm,
   };
 }
 
 async function submitStatusChange(batch, currentStatus, actionKey) {
+  if (hasInventoryMutationInFlight()) return;
   const built = buildStatusChange(batch, currentStatus, actionKey);
   const confirmBtn = document.getElementById("ss-confirm-btn");
   const backBtn = document.getElementById("ss-confirm-back");
@@ -2790,6 +3026,7 @@ async function submitStatusChange(batch, currentStatus, actionKey) {
     el.hidden = !msg;
   };
 
+  incomingStatusInFlight = true;
   if (confirmBtn) confirmBtn.disabled = true;
   if (backBtn) backBtn.disabled = true;
   setConfirmErr("");
@@ -2808,6 +3045,8 @@ async function submitStatusChange(batch, currentStatus, actionKey) {
     setConfirmErr(msg);
     if (confirmBtn) confirmBtn.disabled = false;
     if (backBtn) backBtn.disabled = false;
+  } finally {
+    incomingStatusInFlight = false;
   }
 }
 
@@ -3109,7 +3348,7 @@ function wireReceiveDrawer(batch) {
 }
 
 async function submitReceive(batch) {
-  if (receiveInFlight) return; // hard guard against double-submit
+  if (hasInventoryMutationInFlight()) return; // hard guard against double-submit / overlapping mutations
   const built = validateReceive(batch);
   const confirmBtn = document.getElementById("rcv-confirm-btn");
   const backBtn = document.getElementById("rcv-confirm-back");
@@ -3174,7 +3413,7 @@ function renderPage() {
     <div class="sg-page-header">
       <div>
         <h1 class="sg-page-header__title">Inventory</h1>
-        <p class="sg-page-header__subtitle">Track physical stock, reserved orders, incoming shipments, and available-to-sell quantities.</p>
+        <p class="sg-page-header__subtitle">Physical on hand, website order demand, incoming expected shipments, and estimated availability. External commitments do not alter physical stock.</p>
       </div>
     </div>
     ${oosBannerHtml()}
@@ -3249,20 +3488,35 @@ function wireBatchButtons() {
 
 async function loadStock() {
   const page = getEl("sg-page");
-  if (page && !page.dataset.loadedOnce) {
+  const alreadyLoaded = Boolean(page?.dataset?.loadedOnce);
+  const gen = ++stockLoadGen;
+  if (page && !alreadyLoaded) {
     page.innerHTML = `<div class="sg-loading">Loading inventory…</div>`;
   }
   try {
     const token = await getToken();
-    stockData = await fetchReportJson("/api/admin-stock", token);
+    const next = await fetchReportJson("/api/admin-stock", token);
+    if (gen !== stockLoadGen) return;
+    stockData = next;
     renderPage();
     if (page) page.dataset.loadedOnce = "1";
     const metaEl = getEl("sg-topbar-meta");
     if (metaEl) metaEl.textContent = `Updated ${new Date().toLocaleString()}`;
   } catch (error) {
-    if (page) page.innerHTML = `<div class="sg-error">${escapeHtml(error?.message || "Could not load inventory.")}</div>`;
+    if (gen !== stockLoadGen) return;
+    if (page && !alreadyLoaded) {
+      page.innerHTML = `<div class="sg-error">${escapeHtml(error?.message || "Could not load inventory.")}</div>`;
+    }
     toast(error?.message || "Could not load inventory.", "danger");
   }
+}
+
+function refreshInventory() {
+  if (hasInventoryMutationInFlight()) {
+    toast("Finish the current inventory action before refreshing.", "danger");
+    return;
+  }
+  void loadStock();
 }
 
 /* --------------------------------------------------------------- app boot */
@@ -3273,5 +3527,5 @@ bootAdminV2Page({
     getToken = ctx.getAccessToken;
     await loadStock();
   },
-  onRefresh: () => loadStock(),
+  onRefresh: () => refreshInventory(),
 });

@@ -2,6 +2,7 @@ import {
   bundleCardPricePerHtml,
   formatCurrency,
   formatSizeDisplayLabel,
+  getCartQuote,
   getProduct,
   storefrontSizesForProduct,
 } from "./catalog.js";
@@ -35,6 +36,19 @@ let bundleSubmitAttempted = false;
 
 /** Which bundle's size dropdown is open (`bundle.id`), or null. */
 let openBundleDropdownId = null;
+let purchaseLimitCheckInFlight = false;
+
+const CUSTOMER_PURCHASE_LIMIT_MESSAGE =
+  "Orders are limited to 10 shipping packages. Please reduce the quantity or complete your current order before adding more.";
+
+function sortBundlesHierarchically(bundles) {
+  return [...(bundles || [])].sort((a, b) => {
+    const kindDifference = (a.kind === "box" ? 0 : 1) - (b.kind === "box" ? 0 : 1);
+    if (kindDifference) return kindDifference;
+    const unitDifference = (Number(a.units) || 0) - (Number(b.units) || 0);
+    return unitDifference || String(a.label || "").localeCompare(String(b.label || ""));
+  });
+}
 
 document.addEventListener("DOMContentLoaded", init);
 
@@ -48,7 +62,7 @@ async function init() {
   }
 
   const sizes = storefrontSizesForProduct(product, store);
-  const bundles = product.bundles || [];
+  const bundles = sortBundlesHierarchically(product.bundles);
 
   bundleQty = Object.fromEntries(bundles.map((b) => [b.id, 0]));
   caseBySize = sizes.reduce((acc, size) => {
@@ -214,13 +228,23 @@ function selectBundleCard(bundleId) {
 
 function bundleSubtotalCents() {
   const bundles = product.bundles || [];
+  const caseCount = bundles.reduce((sum, b) => {
+    const qty = Math.max(0, Math.floor(bundleQty[b.id] || 0));
+    return sum + (String(b.kind).toLowerCase() === "case" ? qty * Math.max(1, Math.floor(Number(b.units) || 1)) : 0);
+  }, 0);
+  const rule = product.volumePricing;
+  const volumeActive = rule?.active === true && caseCount >= Number(rule.minCases) && Number(rule.pricePerCaseCents) > 0;
   let total = 0;
   for (const b of bundles) {
     const q = Math.floor(bundleQty[b.id] || 0);
     if (q < 1) {
       continue;
     }
-    total += q * Math.max(0, Number(b.priceCents) || 0);
+    const regular = Math.max(0, Number(b.priceCents) || 0);
+    const volume = String(b.kind).toLowerCase() === "case"
+      ? Math.max(1, Math.floor(Number(b.units) || 1)) * Number(rule?.pricePerCaseCents || 0)
+      : regular;
+    total += q * (volumeActive ? Math.min(regular, volume) : regular);
   }
   return total;
 }
@@ -229,6 +253,48 @@ function bundleLinesPayload() {
   return Object.entries(bundleQty)
     .filter(([, q]) => q > 0)
     .map(([id, qty]) => ({ id, qty }));
+}
+
+function candidateCartItems() {
+  const sizes = store.site.sizes;
+  const currentItems = getCart(sizes).filter((item) => item.slug !== product.slug);
+  return [
+    ...currentItems,
+    {
+      slug: product.slug,
+      quantities: { ...caseBySize },
+      boxQuantities: { ...boxBySize },
+      bundleLines: bundleLinesPayload(),
+    },
+  ];
+}
+
+function showPurchaseLimitMessage(message = "") {
+  const element = document.querySelector("[data-purchase-limit-message]");
+  if (!element) return;
+  element.textContent = message;
+  element.hidden = !message;
+}
+
+async function selectionFitsOnlinePurchaseLimit(button) {
+  if (purchaseLimitCheckInFlight) return false;
+  purchaseLimitCheckInFlight = true;
+  if (button) button.disabled = true;
+  try {
+    const quote = await getCartQuote(candidateCartItems());
+    if (quote?.shippingPackageLimit?.exceeded === true) {
+      showPurchaseLimitMessage(CUSTOMER_PURCHASE_LIMIT_MESSAGE);
+      return false;
+    }
+    showPurchaseLimitMessage();
+    return true;
+  } catch (error) {
+    showToast(error?.message || "We couldn't verify this order. Please try again.", "error");
+    return false;
+  } finally {
+    purchaseLimitCheckInFlight = false;
+    if (button?.isConnected) button.disabled = false;
+  }
 }
 
 function allocationValid() {
@@ -389,7 +455,7 @@ function renderBundleCard(b, err, globalOos) {
         hideHeader: true,
       });
     } else if (kind === "case" && showCaseColumn()) {
-      panelInner = renderSizeColumn("Case bundle", "case", caseBySize, {
+      panelInner = renderSizeColumn("Carton bundle", "case", caseBySize, {
         invalid: err.showCaseError,
         hint: err.caseHint,
         hideHeader: true,
@@ -508,18 +574,22 @@ function renderSizeColumn(title, channel, map, { invalid = false, hint = "", hid
   `;
 }
 
-/** Gloves ship 100 pieces per box by weight; case size from `boxesPerCase` in catalog data. */
+/** Gloves ship 100 pieces per box by weight; carton size comes from `boxesPerCase`. */
 function casePackagingNote(product) {
   const boxes = Math.max(1, Math.floor(Number(product.boxesPerCase) || 10));
   const pieces = boxes * 100;
   const boxNoun = boxes === 1 ? "box" : "boxes";
-  return `1 case contains ${boxes} ${boxNoun}, and each case totals ${pieces.toLocaleString("en-US")} pieces by weight.`;
+  return `1 carton contains ${boxes} ${boxNoun}, totaling ${pieces.toLocaleString("en-US")} pieces by weight.`;
 }
 
 function renderProduct() {
   const thumbIndexes = product.gallery.slice(0, 4).map((_, index) => index);
   const subtotal = bundleSubtotalCents();
-  const bundles = product.bundles || [];
+  const volumeRule = product.volumePricing;
+  const volumePricingNote = volumeRule?.active === true && Number(volumeRule.minCases) >= 2 && Number(volumeRule.pricePerCaseCents) > 0
+    ? `<p class="product-volume-pricing"><strong>Volume price:</strong> ${escapeHtml(String(volumeRule.minCases))}+ cartons of this product are ${formatCurrency(volumeRule.pricePerCaseCents)} per carton, automatically.</p>`
+    : "";
+  const bundles = sortBundlesHierarchically(product.bundles);
   const reqUnits = computeRequiredUnits();
   const sumBoxes = sumChannel(boxBySize);
   const sumCases = sumChannel(caseBySize);
@@ -533,7 +603,7 @@ function renderProduct() {
     ? `Total boxes must equal ${reqUnits.reqBox} to match your bundle packs. Current: ${sumBoxes}.`
     : "";
   const caseHint = showCaseError
-    ? `Total cases must equal ${reqUnits.reqCase} to match your bundle packs. Current: ${sumCases}.`
+    ? `Total cartons must equal ${reqUnits.reqCase} to match your bundle quantity. Current: ${sumCases}.`
     : "";
   const globalOos = isStorefrontGlobalOutOfStock(product);
   const hasSizeSelection = sumCases + sumBoxes > 0;
@@ -559,6 +629,7 @@ function renderProduct() {
           <div class="bundle-grid">
             ${bundles.map((b) => renderBundleCard(b, err, globalOos)).join("")}
           </div>
+          ${volumePricingNote}
           ${
             !hasAnyBundleSelection()
               ? `<p class="inline-note inline-note--muted product-bundle-hint">Select a bundle, then choose sizes in the panel below it.</p>`
@@ -627,6 +698,8 @@ function renderProduct() {
         </div>
 
         ${bundleSection}
+
+        <p class="product-purchase-limit-message" data-purchase-limit-message role="alert" aria-live="polite" hidden></p>
 
         <div class="selection-summary">
           <div class="selection-summary__subtotal-row">
@@ -757,7 +830,7 @@ async function handleProductClick(event) {
       bundleSubmitAttempted = true;
       focusBundleForAllocationError();
       showToast(
-        "Adjust box and case totals above to match your bundle packs before adding to cart.",
+        "Adjust box and carton totals above to match your bundle quantity before adding to cart.",
         "error",
       );
       return;
@@ -768,6 +841,9 @@ async function handleProductClick(event) {
         `Out-of-stock sizes still have quantity (${oosSizes.join(", ")}). Use − to clear them before adding to cart.`,
         "error",
       );
+      return;
+    }
+    if (!(await selectionFitsOnlinePurchaseLimit(target))) {
       return;
     }
     setProductQuantities(
@@ -783,7 +859,7 @@ async function handleProductClick(event) {
     const cb = sumChannel(caseBySize);
     const bb = sumChannel(boxBySize);
     if (cb) {
-      parts.push(`${cb} case${cb === 1 ? "" : "s"}`);
+      parts.push(`${cb} carton${cb === 1 ? "" : "s"}`);
     }
     if (bb) {
       parts.push(`${bb} box${bb === 1 ? "" : "es"}`);
@@ -800,7 +876,7 @@ async function handleProductClick(event) {
       bundleSubmitAttempted = true;
       focusBundleForAllocationError();
       showToast(
-        "Adjust box and case totals above to match your bundle packs before checkout.",
+        "Adjust box and carton totals above to match your bundle quantity before checkout.",
         "error",
       );
       return;
@@ -811,6 +887,9 @@ async function handleProductClick(event) {
         `Out-of-stock sizes still have quantity (${oosCheckout.join(", ")}). Use − to clear them before checkout.`,
         "error",
       );
+      return;
+    }
+    if (!(await selectionFitsOnlinePurchaseLimit(target))) {
       return;
     }
     setProductQuantities(

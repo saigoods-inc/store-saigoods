@@ -38,18 +38,8 @@
           "expectedProfitCents": 113
         },
         {
-          "id": "box_5",
-          "label": "5 boxes",
-          "kind": "box",
-          "units": 5,
-          "priceCents": 2699,
-          "hardinPriceCents": 2699,
-          "builtInShippingTotalCents": 0,
-          "expectedProfitCents": 382
-        },
-        {
           "id": "case_1",
-          "label": "1 case",
+          "label": "1 carton",
           "kind": "case",
           "units": 1,
           "priceCents": 5499,
@@ -57,50 +47,6 @@
           "builtInShippingTotalCents": 0,
           "expectedProfitCents": 794,
           "badge": "popular"
-        },
-        {
-          "id": "case_5",
-          "label": "5 cases",
-          "kind": "case",
-          "units": 5,
-          "priceCents": 26699,
-          "hardinPriceCents": 26699,
-          "builtInShippingTotalCents": 0,
-          "expectedProfitCents": 3197,
-          "saveCents": 3296
-        },
-        {
-          "id": "case_10",
-          "label": "10 cases",
-          "kind": "case",
-          "units": 10,
-          "priceCents": 53099,
-          "hardinPriceCents": 53099,
-          "builtInShippingTotalCents": 0,
-          "expectedProfitCents": 6315,
-          "saveCents": 7491
-        },
-        {
-          "id": "case_20",
-          "label": "20 cases",
-          "kind": "case",
-          "units": 20,
-          "priceCents": 105399,
-          "hardinPriceCents": 105399,
-          "builtInShippingTotalCents": 0,
-          "expectedProfitCents": 12511,
-          "saveCents": 15781
-        },
-        {
-          "id": "case_30",
-          "label": "30 cases",
-          "kind": "case",
-          "units": 30,
-          "priceCents": 156899,
-          "hardinPriceCents": 156899,
-          "builtInShippingTotalCents": 0,
-          "expectedProfitCents": 20271,
-          "saveCents": 8041
         }
       ],
       "cardImage": "/img/nitrile-sale-page.png",
@@ -172,18 +118,8 @@
           "expectedProfitCents": 94
         },
         {
-          "id": "box_5",
-          "label": "5 boxes",
-          "kind": "box",
-          "units": 5,
-          "priceCents": 2899,
-          "hardinPriceCents": 2899,
-          "builtInShippingTotalCents": 0,
-          "expectedProfitCents": 443
-        },
-        {
           "id": "case_1",
-          "label": "1 case",
+          "label": "1 carton",
           "kind": "case",
           "units": 1,
           "priceCents": 5799,
@@ -191,50 +127,6 @@
           "builtInShippingTotalCents": 0,
           "expectedProfitCents": 855,
           "badge": "popular"
-        },
-        {
-          "id": "case_5",
-          "label": "5 cases",
-          "kind": "case",
-          "units": 5,
-          "priceCents": 28299,
-          "hardinPriceCents": 28299,
-          "builtInShippingTotalCents": 0,
-          "expectedProfitCents": 3690,
-          "saveCents": 3196
-        },
-        {
-          "id": "case_10",
-          "label": "10 cases",
-          "kind": "case",
-          "units": 10,
-          "priceCents": 56099,
-          "hardinPriceCents": 56099,
-          "builtInShippingTotalCents": 0,
-          "expectedProfitCents": 6981,
-          "saveCents": 7491
-        },
-        {
-          "id": "case_20",
-          "label": "20 cases",
-          "kind": "case",
-          "units": 20,
-          "priceCents": 111299,
-          "hardinPriceCents": 111299,
-          "builtInShippingTotalCents": 0,
-          "expectedProfitCents": 13768,
-          "saveCents": 15881
-        },
-        {
-          "id": "case_30",
-          "label": "30 cases",
-          "kind": "case",
-          "units": 30,
-          "priceCents": 165699,
-          "hardinPriceCents": 165699,
-          "builtInShippingTotalCents": 0,
-          "expectedProfitCents": 22296,
-          "saveCents": 8271
         }
       ],
       "cardImage": "/img/nitrile-general-sale-page.png",
@@ -308,18 +200,8 @@
           "expectedProfitCents": 457
         },
         {
-          "id": "box_5",
-          "label": "5 boxes",
-          "kind": "box",
-          "units": 5,
-          "priceCents": 5799,
-          "hardinPriceCents": 5799,
-          "builtInShippingTotalCents": 0,
-          "expectedProfitCents": 2186
-        },
-        {
           "id": "case_1",
-          "label": "1 case",
+          "label": "1 carton",
           "kind": "case",
           "units": 1,
           "priceCents": 11599,
@@ -327,50 +209,6 @@
           "builtInShippingTotalCents": 0,
           "expectedProfitCents": 4328,
           "badge": "popular"
-        },
-        {
-          "id": "case_5",
-          "label": "5 cases",
-          "kind": "case",
-          "units": 5,
-          "priceCents": 56999,
-          "hardinPriceCents": 56999,
-          "builtInShippingTotalCents": 0,
-          "expectedProfitCents": 20366,
-          "saveCents": 3496
-        },
-        {
-          "id": "case_10",
-          "label": "10 cases",
-          "kind": "case",
-          "units": 10,
-          "priceCents": 113399,
-          "hardinPriceCents": 113399,
-          "builtInShippingTotalCents": 0,
-          "expectedProfitCents": 40069,
-          "saveCents": 8291
-        },
-        {
-          "id": "case_20",
-          "label": "20 cases",
-          "kind": "case",
-          "units": 20,
-          "priceCents": 225599,
-          "hardinPriceCents": 225599,
-          "builtInShippingTotalCents": 0,
-          "expectedProfitCents": 79868,
-          "saveCents": 17281
-        },
-        {
-          "id": "case_30",
-          "label": "30 cases",
-          "kind": "case",
-          "units": 30,
-          "priceCents": 336799,
-          "hardinPriceCents": 336799,
-          "builtInShippingTotalCents": 0,
-          "expectedProfitCents": 126523,
-          "saveCents": 11171
         }
       ],
       "cardImage": "/img/nitrile-heavy-duty-sale-page.png",

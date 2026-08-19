@@ -1,0 +1,174 @@
+{
+  "$schema": "sai-fulfillment-packaging-v1",
+  "description": "Warehouse packaging profiles for physical fulfillment. Storefront bundles remain pricing concepts; this file describes retail boxes, factory cases, and standard shipping cartons.",
+  "distanceUnit": "in",
+  "massUnit": "lb",
+  "defaults": {
+    "boxesPerFactoryCase": 10,
+    "factoryCaseShipAsIs": true,
+    "compatibilityGroup": "nitrile_gloves"
+  },
+  "shippingCartons": [
+    {
+      "id": "loose_1_box_carton",
+      "label": "1-box corrugated carton (10 x 6 x 4 in)",
+      "compatibilityGroup": "nitrile_gloves",
+      "packageType": "corrugated_carton",
+      "packingMaterial": "200# C-flute corrugated carton; bubble wrap or tightly crumpled kraft paper",
+      "packingInstructions": "Wrap the retail box or cushion all sides, place it in the carton, fill empty space, and tape all seams.",
+      "inner": { "length": 10, "width": 6, "height": 4 },
+      "outer": { "length": 10.375, "width": 6.375, "height": 4.625 },
+      "maxRetailBox": { "length": 9.45, "width": 5.12, "height": 3.15 },
+      "tareWeightLb": 0.3,
+      "costCents": 58,
+      "maxWeightLb": 5,
+      "maxRetailBoxes": 1
+    },
+    {
+      "id": "loose_2_box_carton",
+      "label": "2-box corrugated carton (10 x 7 x 7 in)",
+      "compatibilityGroup": "nitrile_gloves",
+      "packageType": "corrugated_carton",
+      "packingMaterial": "200# C-flute corrugated carton; bubble wrap or tightly crumpled kraft paper",
+      "packingInstructions": "Stack two retail boxes, cushion the stack on all sides, fill empty space, and tape all seams.",
+      "inner": { "length": 10, "width": 7, "height": 7 },
+      "outer": { "length": 10.375, "width": 7.375, "height": 7.625 },
+      "maxRetailBox": { "length": 9.45, "width": 5.12, "height": 3.15 },
+      "tareWeightLb": 0.4,
+      "costCents": 102,
+      "maxWeightLb": 8,
+      "maxRetailBoxes": 2
+    },
+    {
+      "id": "loose_3_5_box_carton",
+      "label": "3-5 box corrugated carton (11 x 11 x 10 in)",
+      "compatibilityGroup": "nitrile_gloves",
+      "packageType": "corrugated_carton",
+      "packingMaterial": "200# C-flute corrugated carton; kraft paper or bubble wrap between stacks and voids",
+      "packingInstructions": "Arrange retail boxes in stable stacks, cushion the carton walls and voids, and tape all seams.",
+      "inner": { "length": 11, "width": 11, "height": 10 },
+      "outer": { "length": 11.375, "width": 11.375, "height": 10.625 },
+      "maxRetailBox": { "length": 9.45, "width": 5.12, "height": 3.15 },
+      "tareWeightLb": 0.8,
+      "costCents": 161,
+      "maxWeightLb": 15,
+      "maxRetailBoxes": 5
+    },
+    {
+      "id": "standard_10_box_factory_carton",
+      "label": "Standard 10-box factory carton",
+      "compatibilityGroup": "nitrile_gloves",
+      "packageType": "factory_case",
+      "packingMaterial": "Factory corrugated case; reinforce seams with shipping tape as needed",
+      "packingInstructions": "Ship the unopened factory case as received after checking the carton for damage.",
+      "inner": { "length": 14.1, "width": 9.9, "height": 9.5 },
+      "outer": { "length": 14.37, "width": 10.24, "height": 9.84 },
+      "maxRetailBox": { "length": 9.45, "width": 4.92, "height": 2.76 },
+      "tareWeightLb": 0,
+      "costCents": 0,
+      "maxWeightLb": 10,
+      "maxRetailBoxes": 10
+    },
+    {
+      "id": "general_10_box_factory_carton",
+      "label": "General 10-box factory carton",
+      "compatibilityGroup": "nitrile_gloves",
+      "packageType": "factory_case",
+      "packingMaterial": "Factory corrugated case; reinforce seams with shipping tape as needed",
+      "packingInstructions": "Ship the unopened factory case as received after checking the carton for damage.",
+      "inner": { "length": 12.1, "width": 9.5, "height": 9.1 },
+      "outer": { "length": 12.4, "width": 9.84, "height": 9.45 },
+      "maxRetailBox": { "length": 9.06, "width": 4.72, "height": 2.36 },
+      "tareWeightLb": 0,
+      "costCents": 0,
+      "maxWeightLb": 12,
+      "maxRetailBoxes": 10
+    },
+    {
+      "id": "heavy_duty_10_box_factory_carton",
+      "label": "Heavy Duty 10-box factory carton",
+      "compatibilityGroup": "nitrile_gloves",
+      "packageType": "factory_case",
+      "packingMaterial": "Factory corrugated case; reinforce seams with shipping tape as needed",
+      "packingInstructions": "Ship the unopened factory case as received after checking the carton for damage.",
+      "inner": { "length": 16.2, "width": 10.5, "height": 9.8 },
+      "outer": { "length": 16.54, "width": 10.83, "height": 10.04 },
+      "maxRetailBox": { "length": 9.45, "width": 5.12, "height": 3.15 },
+      "tareWeightLb": 0,
+      "costCents": 0,
+      "maxWeightLb": 21,
+      "maxRetailBoxes": 10
+    }
+  ],
+  "products": {
+    "nitrile-standard": {
+      "compatibilityGroup": "nitrile_gloves",
+      "boxesPerFactoryCase": 10,
+      "factoryCaseShipAsIs": true,
+      "sizes": {
+        "Small": {
+          "retailUnit": { "length": 9.45, "width": 4.92, "height": 2.76, "weightLb": 0.97 },
+          "factoryCase": { "length": 14.37, "width": 10.24, "height": 9.84, "weightLb": 9.74 }
+        },
+        "Medium": {
+          "retailUnit": { "length": 9.45, "width": 4.92, "height": 2.76, "weightLb": 0.97 },
+          "factoryCase": { "length": 14.37, "width": 10.24, "height": 9.84, "weightLb": 9.74 }
+        },
+        "Large": {
+          "retailUnit": { "length": 9.45, "width": 4.92, "height": 2.76, "weightLb": 0.97 },
+          "factoryCase": { "length": 14.37, "width": 10.24, "height": 9.84, "weightLb": 9.74 }
+        },
+        "X Large": {
+          "retailUnit": { "length": 9.45, "width": 4.92, "height": 2.76, "weightLb": 0.97 },
+          "factoryCase": { "length": 14.37, "width": 10.24, "height": 9.84, "weightLb": 9.74 }
+        }
+      }
+    },
+    "black-nitrile-general": {
+      "compatibilityGroup": "nitrile_gloves",
+      "boxesPerFactoryCase": 10,
+      "factoryCaseShipAsIs": true,
+      "sizes": {
+        "Small": {
+          "retailUnit": { "length": 9.06, "width": 4.72, "height": 2.36, "weightLb": 1.19 },
+          "factoryCase": { "length": 12.4, "width": 9.84, "height": 9.45, "weightLb": 11.88 }
+        },
+        "Medium": {
+          "retailUnit": { "length": 9.06, "width": 4.72, "height": 2.36, "weightLb": 1.19 },
+          "factoryCase": { "length": 12.4, "width": 9.84, "height": 9.45, "weightLb": 11.88 }
+        },
+        "Large": {
+          "retailUnit": { "length": 9.06, "width": 4.72, "height": 2.36, "weightLb": 1.19 },
+          "factoryCase": { "length": 12.4, "width": 9.84, "height": 9.45, "weightLb": 11.88 }
+        },
+        "X Large": {
+          "retailUnit": { "length": 9.06, "width": 4.72, "height": 2.36, "weightLb": 1.19 },
+          "factoryCase": { "length": 12.4, "width": 9.84, "height": 9.45, "weightLb": 11.88 }
+        }
+      }
+    },
+    "black-nitrile-heavy-duty": {
+      "compatibilityGroup": "nitrile_gloves",
+      "boxesPerFactoryCase": 10,
+      "factoryCaseShipAsIs": true,
+      "sizes": {
+        "Small": {
+          "retailUnit": { "length": 9.45, "width": 5.12, "height": 3.15, "weightLb": 2.07 },
+          "factoryCase": { "length": 16.54, "width": 10.83, "height": 10.04, "weightLb": 20.7 }
+        },
+        "Medium": {
+          "retailUnit": { "length": 9.45, "width": 5.12, "height": 3.15, "weightLb": 2.07 },
+          "factoryCase": { "length": 16.54, "width": 10.83, "height": 10.04, "weightLb": 20.7 }
+        },
+        "Large": {
+          "retailUnit": { "length": 9.45, "width": 5.12, "height": 3.15, "weightLb": 2.07 },
+          "factoryCase": { "length": 16.54, "width": 10.83, "height": 10.04, "weightLb": 20.7 }
+        },
+        "X Large": {
+          "retailUnit": { "length": 9.45, "width": 5.12, "height": 3.15, "weightLb": 2.07 },
+          "factoryCase": { "length": 16.54, "width": 10.83, "height": 10.04, "weightLb": 20.7 }
+        }
+      }
+    }
+  }
+}

@@ -1,6 +1,8 @@
 import { getOrderByIdForService, updateOrderShippoShipmentState } from "../lib/orders.js";
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
 import { purchaseShippoLabelWithRate } from "../lib/shippo-transaction.js";
+import { upsertOrderShippoLabelRow } from "../lib/order-shippo-labels.js";
+import { assertStoredRatesMatchWarehouse, withRuntimeWarehouseAddress } from "../lib/warehouse-settings.js";
 
 function carrierServiceFromRateLike(rateObj) {
   if (!rateObj || typeof rateObj !== "object") {
@@ -12,7 +14,7 @@ function carrierServiceFromRateLike(rateObj) {
   };
 }
 
-function findStoredRateMeta(orderRow, rateObjectId) {
+export function findStoredRateMeta(orderRow, rateObjectId) {
   const raw = orderRow?.shippo_shipment_rates_json;
   let list = [];
   if (Array.isArray(raw)) {
@@ -33,23 +35,29 @@ export default async function handler(req, res) {
   try {
     await assertReportsAuthorized(req);
     const orderId = String(req.body?.orderId || "").trim();
-    const rateObjectId = String(req.body?.rateObjectId || "").trim();
+    let rateObjectId = String(req.body?.rateObjectId || "").trim();
     if (!orderId) {
       res.status(400).json({ error: "orderId is required." });
       return;
     }
-    if (!rateObjectId) {
-      res.status(400).json({ error: "rateObjectId is required (Shippo Rate object_id)." });
-      return;
-    }
-
-    const order = await getOrderByIdForService(orderId);
+    let order = await getOrderByIdForService(orderId);
     if (!order) {
       res.status(404).json({ error: "Order not found." });
       return;
     }
     if (String(order.status || "").toLowerCase() !== "paid") {
       res.status(400).json({ error: "Only paid orders can purchase labels." });
+      return;
+    }
+    order = await withRuntimeWarehouseAddress(order);
+    assertStoredRatesMatchWarehouse(order);
+    if (!rateObjectId) {
+      res.status(400).json({ error: "rateObjectId is required (Shippo Rate object_id)." });
+      return;
+    }
+    const storedRate = findStoredRateMeta(order, rateObjectId);
+    if (!storedRate) {
+      res.status(400).json({ error: "Choose a current Shippo rate before purchasing a label." });
       return;
     }
     if (!String(order.shippo_order_id || "").trim()) {
@@ -92,12 +100,37 @@ export default async function handler(req, res) {
     }
 
     const fromTx = carrierServiceFromRateLike(purchased.rate);
-    const fromStored = findStoredRateMeta(order, rateObjectId);
+    const fromStored = storedRate;
     const fromStoredCs = carrierServiceFromRateLike(fromStored);
     const carrier = fromTx.carrier || fromStoredCs.carrier || fromStored?.provider || null;
     const service = fromTx.service || fromStoredCs.service || fromStored?.servicelevel_name || null;
+    const serviceToken = String(
+      purchased.rate?.servicelevel?.token ||
+      purchased.rate?.servicelevel_token ||
+      fromStored?.servicelevel?.token ||
+      fromStored?.servicelevel_token ||
+      "",
+    ).trim() || null;
+    const amount = Number.parseFloat(String(purchased.rate?.amount ?? fromStored?.amount ?? ""));
+    const amountCents = Number.isFinite(amount) ? Math.round(amount * 100) : null;
+    const currency = String(purchased.rate?.currency || fromStored?.currency || "USD").trim().toUpperCase() || "USD";
 
     const nowIso = new Date().toISOString();
+    await upsertOrderShippoLabelRow(order.id, 0, 1, {
+      shipment_object_id: order.shippo_shipment_object_id,
+      selected_rate_object_id: rateObjectId,
+      transaction_id: purchased.transactionObjectId || null,
+      label_url: purchased.labelUrl,
+      tracking_number: purchased.trackingNumber,
+      tracking_url: purchased.trackingUrlProvider,
+      carrier,
+      servicelevel_name: service,
+      servicelevel_token: serviceToken,
+      amount_cents: amountCents,
+      currency,
+      status: "purchased",
+      error_message: null,
+    });
     await updateOrderShippoShipmentState(order.id, {
       shippo_selected_rate_object_id: rateObjectId,
       shippo_transaction_id: purchased.transactionObjectId || null,

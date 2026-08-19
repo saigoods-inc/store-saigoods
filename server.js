@@ -4,19 +4,12 @@ import { access, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { enrichCartQuoteApiResponse } from "./lib/cart-api-response.js";
-import { fetchNexusSummaryRows, fetchTaxSummaryTnRows } from "./lib/orders.js";
-import { buildQuote } from "./lib/quote.js";
-import {
-  buildSupabasePublicConfig503Body,
-  resolveSupabasePublicConfigFromEnv,
-} from "./lib/supabase-public-config-env.js";
-import { isCheckoutAddressValidationEnabled } from "./lib/address-validation.js";
-import { mergeInventoryIntoProduct, mergeInventoryIntoStore } from "./lib/stock.js";
-import { assertReportsAuthorized } from "./lib/reports-auth.js";
+import { mergeInventoryIntoProduct } from "./lib/stock.js";
 import adminDiscountCodesHandler from "./api/admin-discount-codes.js";
 import adminStockHandler from "./api/admin-stock.js";
 import adminInventoryHandler from "./api/admin-inventory.js";
+import adminMarketplaceOrdersHandler from "./api/admin-marketplace-orders.js";
+import adminAddressVerifyHandler from "./api/admin-address-verify.js";
 import adminManualOrderCreateHandler from "./api/admin-manual-order-create.js";
 import adminManualOrderDeleteDraftHandler from "./api/admin-manual-order-delete-draft.js";
 import adminManualOrderDraftsHandler from "./api/admin-manual-order-drafts.js";
@@ -28,6 +21,7 @@ import adminOrderShippoShipmentHandler from "./api/admin-order-shippo-shipment.j
 import adminOrderShippoPurchaseLabelHandler from "./api/admin-order-shippo-purchase-label.js";
 import adminOrderShippoBuyAllLabelsHandler from "./api/admin-order-shippo-buy-all-labels.js";
 import adminOrderParcelOverrideHandler from "./api/admin-order-parcel-override.js";
+import adminOrderPackingPlanHandler from "./api/admin-order-packing-plan.js";
 import adminOrderShippoShipmentDateHandler from "./api/admin-order-shippo-shipment-date.js";
 import adminOrderUpdateShippingAddressHandler from "./api/admin-order-update-shipping-address.js";
 import adminOrderFulfillmentCheckpointHandler from "./api/admin-order-fulfillment-checkpoint.js";
@@ -35,10 +29,17 @@ import adminOrderFulfillmentHandoffHandler from "./api/admin-order-fulfillment-h
 import adminOrderFulfillmentAddressesHandler from "./api/admin-order-fulfillment-addresses.js";
 import adminOrderPackingSlipHtmlHandler from "./api/admin-order-packing-slip-html.js";
 import adminOrderBuyerShippingNotifyHandler from "./api/admin-order-buyer-shipping-notify.js";
+import adminOrderConfirmShippedHandler from "./api/admin-order-confirm-shipped.js";
 import adminOrderShipFromDisplayHandler from "./api/admin-order-ship-from-display.js";
 import adminOrderExternalFulfillmentSaveHandler from "./api/admin-order-external-fulfillment-save.js";
 import adminOrderFulfillmentDocLinksHandler from "./api/admin-order-fulfillment-doc-links.js";
+import adminPackagingConfigHandler from "./api/admin-packaging-config.js";
+import adminBundleConfigHandler from "./api/admin-bundle-config.js";
+import adminWarehouseConfigHandler from "./api/admin-warehouse-config.js";
 import adminSummaryHandler from "./api/admin-summary.js";
+import adminShippingHealthHandler from "./api/admin-shipping-health.js";
+import adminPaymentHealthHandler from "./api/admin-payment-health.js";
+import adminPaymentFeeConfigHandler from "./api/admin-payment-fee-config.js";
 import adminManualOrderRecordPaymentHandler from "./api/admin-manual-order-record-payment.js";
 import adminManualOrderSendLinkHandler from "./api/admin-manual-order-send-link.js";
 import adminManualOrderUpdateDraftHandler from "./api/admin-manual-order-update-draft.js";
@@ -49,9 +50,20 @@ import adminWalkInOrderEstimateHandler from "./api/admin-walk-in-order-estimate.
 import adminWalkInOrderMarkPaidHandler from "./api/admin-walk-in-order-mark-paid.js";
 import adminWalkInOrderQuickPayHandler from "./api/admin-walk-in-order-quick-pay.js";
 import adminWalkInOrderUpdateDraftHandler from "./api/admin-walk-in-order-update-draft.js";
+import cartQuoteHandler from "./api/cart-quote.js";
+import checkoutHandler from "./api/checkout.js";
 import checkoutEstimateHandler from "./api/checkout-estimate.js";
 import checkoutPayHandler from "./api/checkout-pay.js";
+import nexusSummaryHandler from "./api/nexus-summary.js";
+import productsHandler from "./api/products.js";
 import shippoWebhookHandler from "./api/webhooks/shippo.js";
+import squareWebhookHandler from "./api/webhooks/square.js";
+import squareSandboxWebhookHandler from "./api/webhooks/square-sandbox.js";
+import squareConfigHandler from "./api/square-config.js";
+import supabasePublicConfigHandler from "./api/supabase-public-config.js";
+import taxSummaryHandler from "./api/tax-summary.js";
+import manualOrderPaymentHandler from "./api/manual-order-payment.js";
+import { primeRuntimeStore } from "./lib/runtime-store.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -62,23 +74,29 @@ function readStoreData() {
   return JSON.parse(readFileSync(storeJsonPath, "utf8"));
 }
 
-const storeData = readStoreData();
-
-const productMap = new Map(storeData.products.map((product) => [product.slug, product]));
-const knownSizes = storeData.site.sizes;
 const port = Number(process.env.PORT || 3000);
 const publicDir = path.join(__dirname, "public");
 const imageDir = path.join(__dirname, "public", "img");
 
 function adaptExpressStyleResponse(res) {
   let statusCode = 200;
+  /** @type {Record<string, string>} */
+  const extraHeaders = {};
   return {
     status(c) {
       statusCode = c;
       return this;
     },
+    setHeader(name, value) {
+      extraHeaders[String(name)] = String(value);
+      return this;
+    },
     json(body) {
-      sendJson(res, statusCode, body);
+      sendJson(res, statusCode, body, extraHeaders);
+    },
+    end(body = "") {
+      res.writeHead(statusCode, extraHeaders);
+      res.end(body);
     },
   };
 }
@@ -103,17 +121,16 @@ const server = createServer(async (req, res) => {
     const requestUrl = new URL(req.url, `http://${req.headers.host || `localhost:${port}`}`);
     const { pathname } = requestUrl;
 
-    if (pathname === "/api/products" && req.method === "GET") {
-      // Always read from disk so site metadata (phone, address, etc.) updates without restarting Node.
-      return sendJson(res, 200, await mergeInventoryIntoStore(readStoreData()), {
-        "Cache-Control": "no-store",
-      });
+    if (pathname === "/api/products") {
+      await productsHandler({ method: req.method }, adaptExpressStyleResponse(res));
+      return;
     }
 
     if (pathname.startsWith("/api/products/") && req.method === "GET") {
       const slug = pathname.replace("/api/products/", "");
-      const fresh = readStoreData();
-      const product = fresh.products.find((p) => p.slug === slug);
+      const { store: fresh } = await primeRuntimeStore();
+      const found = fresh.products.find((p) => p.slug === slug);
+      const product = found ? { ...found, bundles: (found.bundles || []).filter((bundle) => bundle.active !== false) } : null;
 
       if (!product) {
         return sendJson(res, 404, { error: "Product not found." });
@@ -124,82 +141,38 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/api/cart/quote" && req.method === "POST") {
       const body = await readJsonBody(req);
-      const quote = buildQuote(body.items, { omitShippingEstimate: true });
-      return sendJson(res, 200, enrichCartQuoteApiResponse(quote));
+      await cartQuoteHandler({ method: "POST", body }, adaptExpressStyleResponse(res));
+      return;
     }
 
-    if (pathname === "/api/square-config" && req.method === "GET") {
-      const squareApplicationId = process.env.SQUARE_APPLICATION_ID?.trim() || null;
-      const squareLocationId = process.env.SQUARE_LOCATION_ID?.trim() || null;
-      const squareEnvironment =
-        (process.env.SQUARE_ENVIRONMENT || "production").toLowerCase() === "sandbox" ? "sandbox" : "production";
-
-      const checkoutAddressValidationEnabled = isCheckoutAddressValidationEnabled();
-      const isProduction = process.env.NODE_ENV === "production";
-      const checkoutShowAddressValidationDisabledBanner =
-        !checkoutAddressValidationEnabled && !isProduction;
-
-      if (!squareApplicationId || !squareLocationId) {
-        return sendJson(res, 503, {
-          error: "Embedded checkout is not configured.",
-          squareApplicationId: null,
-          squareLocationId: null,
-          squareEnvironment,
-          checkoutAddressValidationEnabled,
-          checkoutShowAddressValidationDisabledBanner,
-        });
-      }
-
-      return sendJson(res, 200, {
-        squareApplicationId,
-        squareLocationId,
-        squareEnvironment,
-        checkoutAddressValidationEnabled,
-        checkoutShowAddressValidationDisabledBanner,
-      });
+    if (pathname === "/api/square-config") {
+      await squareConfigHandler(
+        { method: req.method },
+        adaptExpressStyleResponse(res),
+      );
+      return;
     }
 
-    if (pathname === "/api/nexus-summary" && req.method === "GET") {
-      try {
-        await assertReportsAuthorized(req);
-        const summary = await fetchNexusSummaryRows();
-        return sendJson(res, 200, {
-          generated_at: new Date().toISOString(),
-          currency: "USD",
-          amounts_in: "cents",
-          summary,
-        });
-      } catch (error) {
-        console.error(error);
-        return sendJson(res, error.statusCode || 500, {
-          error: error.message || "Could not load nexus summary.",
-        });
-      }
+    if (pathname === "/api/nexus-summary") {
+      await nexusSummaryHandler(
+        { method: req.method, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
     }
 
-    if (pathname === "/api/tax-summary" && req.method === "GET") {
-      try {
-        await assertReportsAuthorized(req);
-        const summary = await fetchTaxSummaryTnRows();
-        return sendJson(res, 200, {
-          generated_at: new Date().toISOString(),
-          currency: "USD",
-          amounts_in: "cents",
-          note: "Tennessee (TN) paid orders only; months are UTC.",
-          summary,
-        });
-      } catch (error) {
-        console.error(error);
-        return sendJson(res, error.statusCode || 500, {
-          error: error.message || "Could not load tax summary.",
-        });
-      }
+    if (pathname === "/api/tax-summary") {
+      await taxSummaryHandler(
+        { method: req.method, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
     }
 
     if (pathname === "/api/checkout-estimate" && req.method === "POST") {
       const body = await readJsonBody(req);
       await checkoutEstimateHandler(
-        { method: "POST", body },
+        { method: "POST", body, headers: req.headers, socket: req.socket },
         adaptExpressStyleResponse(res),
       );
       return;
@@ -207,7 +180,10 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/api/checkout-pay" && req.method === "POST") {
       const body = await readJsonBody(req);
-      await checkoutPayHandler({ method: "POST", body }, adaptExpressStyleResponse(res));
+      await checkoutPayHandler(
+        { method: "POST", body, headers: req.headers, socket: req.socket },
+        adaptExpressStyleResponse(res),
+      );
       return;
     }
 
@@ -218,6 +194,16 @@ const server = createServer(async (req, res) => {
         { method: "POST", body, headers: req.headers, query, url: req.url },
         adaptExpressStyleResponse(res),
       );
+      return;
+    }
+
+    if (pathname === "/api/webhooks/square" && req.method === "POST") {
+      await squareWebhookHandler(req, adaptExpressStyleResponse(res));
+      return;
+    }
+
+    if (pathname === "/api/webhooks/square-sandbox" && req.method === "POST") {
+      await squareSandboxWebhookHandler(req, adaptExpressStyleResponse(res));
       return;
     }
 
@@ -253,6 +239,57 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === "/api/admin-packaging-config" && (req.method === "GET" || req.method === "POST")) {
+      const body = req.method === "POST" ? await readJsonBody(req) : undefined;
+      await adminPackagingConfigHandler(
+        { method: req.method, headers: req.headers, body },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-payment-fee-config" && (req.method === "GET" || req.method === "POST")) {
+      const body = req.method === "POST" ? await readJsonBody(req) : undefined;
+      await adminPaymentFeeConfigHandler({ method: req.method, headers: req.headers, body }, adaptExpressStyleResponse(res));
+      return;
+    }
+
+    if (pathname === "/api/admin-bundle-config" && (req.method === "GET" || req.method === "POST")) {
+      const body = req.method === "POST" ? await readJsonBody(req) : undefined;
+      await adminBundleConfigHandler(
+        { method: req.method, headers: req.headers, body },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-warehouse-config" && (req.method === "GET" || req.method === "POST")) {
+      const body = req.method === "POST" ? await readJsonBody(req) : undefined;
+      await adminWarehouseConfigHandler(
+        { method: req.method, headers: req.headers, body },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-marketplace-orders" && (req.method === "GET" || req.method === "POST")) {
+      const body = req.method === "POST" ? await readJsonBody(req) : undefined;
+      await adminMarketplaceOrdersHandler(
+        { method: req.method, headers: req.headers, body, url: req.url },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-address-verify" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminAddressVerifyHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
     if (pathname === "/api/admin-manual-order-estimate" && req.method === "POST") {
       const body = await readJsonBody(req);
       await adminManualOrderEstimateHandler(
@@ -275,6 +312,18 @@ const server = createServer(async (req, res) => {
       const body = await readJsonBody(req);
       await adminManualOrderSendLinkHandler(
         { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/manual-order-payment" && req.method === "GET") {
+      await manualOrderPaymentHandler(
+        {
+          method: "GET",
+          headers: req.headers,
+          query: Object.fromEntries(requestUrl.searchParams.entries()),
+        },
         adaptExpressStyleResponse(res),
       );
       return;
@@ -311,6 +360,16 @@ const server = createServer(async (req, res) => {
       const body = await readJsonBody(req);
       await adminOrderShippoPreviewHandler(
         { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-order-packing-plan" && (req.method === "POST" || req.method === "GET")) {
+      const body = req.method === "POST" ? await readJsonBody(req) : {};
+      const query = Object.fromEntries(requestUrl.searchParams.entries());
+      await adminOrderPackingPlanHandler(
+        { method: req.method, body, query, headers: req.headers },
         adaptExpressStyleResponse(res),
       );
       return;
@@ -409,6 +468,15 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/admin-order-buyer-shipping-notify" && req.method === "POST") {
       const body = await readJsonBody(req);
       await adminOrderBuyerShippingNotifyHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-order-confirm-shipped" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminOrderConfirmShippedHandler(
         { method: "POST", body, headers: req.headers },
         adaptExpressStyleResponse(res),
       );
@@ -532,28 +600,11 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/api/checkout" && req.method === "POST") {
       const body = await readJsonBody(req);
-      const quote = buildQuote(body.items, { omitShippingEstimate: true });
-
-      if (!quote.items.length) {
-        return sendJson(res, 400, { error: "Your cart is empty." });
-      }
-
-      if (!process.env.STRIPE_SECRET_KEY) {
-        return sendJson(res, 503, {
-          error:
-            "Stripe is not configured yet. Add STRIPE_SECRET_KEY and PUBLIC_BASE_URL to your .env file to enable live checkout.",
-          stripeReady: false,
-          quote,
-        });
-      }
-
-      const session = await createCheckoutSession(quote, req);
-      return sendJson(res, 200, {
-        checkoutUrl: session.url,
-        sessionId: session.id,
-        quote,
-        stripeReady: true,
-      });
+      await checkoutHandler(
+        { method: "POST", body },
+        adaptExpressStyleResponse(res),
+      );
+      return;
     }
 
     if (pathname === "/api/admin-summary" && req.method === "GET") {
@@ -564,16 +615,32 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    if (req.method !== "GET" && req.method !== "HEAD") {
-      return sendJson(res, 405, { error: "Method not allowed." });
+    if (pathname === "/api/admin-shipping-health" && req.method === "GET") {
+      await adminShippingHealthHandler(
+        { method: "GET", headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-payment-health" && req.method === "GET") {
+      await adminPaymentHealthHandler(
+        { method: "GET", headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
     }
 
     if (pathname === "/api/supabase-public-config") {
-      const { supabaseUrl, supabaseAnonKey } = resolveSupabasePublicConfigFromEnv();
-      if (!supabaseUrl || !supabaseAnonKey) {
-        return sendJson(res, 503, buildSupabasePublicConfig503Body());
-      }
-      return sendJson(res, 200, { supabaseUrl, supabaseAnonKey });
+      await supabasePublicConfigHandler(
+        { method: req.method },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      return sendJson(res, 405, { error: "Method not allowed." });
     }
 
     if (pathname === "/admin/orders" || pathname === "/admin/orders/" || pathname === "/admin/orders.html") {
@@ -622,6 +689,10 @@ const server = createServer(async (req, res) => {
       pathname === "/admin/inventory.html"
     ) {
       return serveFile(res, path.join(publicDir, "admin", "inventory.html"), req.method);
+    }
+
+    if (pathname === "/admin-v2" || pathname === "/admin-v2/") {
+      return serveFile(res, path.join(publicDir, "admin-v2", "summary.html"), req.method);
     }
 
     if (
@@ -678,6 +749,18 @@ const server = createServer(async (req, res) => {
       pathname === "/admin-v2/walk-in-order.html"
     ) {
       return serveFile(res, path.join(publicDir, "admin-v2", "walk-in-order.html"), req.method);
+    }
+
+    if (pathname === "/admin-v2.5" || pathname === "/admin-v2.5/") {
+      return serveFile(res, path.join(publicDir, "admin-v2.5", "index.html"), req.method);
+    }
+
+    if (pathname.startsWith("/admin-v2.5/")) {
+      const requestedAsset = safeJoin(publicDir, pathname.replace(/^\//, ""));
+      if (requestedAsset && path.extname(pathname)) {
+        return serveFile(res, requestedAsset, req.method);
+      }
+      return serveFile(res, path.join(publicDir, "admin-v2.5", "index.html"), req.method);
     }
 
     if (pathname === "/" || pathname === "/index.html") {
@@ -784,23 +867,7 @@ function sendJson(res, statusCode, body, extraHeaders = {}) {
 }
 
 async function readJsonBody(req) {
-  let rawBody = "";
-
-  for await (const chunk of req) {
-    rawBody += chunk;
-  }
-
-  if (!rawBody) {
-    return {};
-  }
-
-  try {
-    return JSON.parse(rawBody);
-  } catch {
-    const error = new Error("Invalid JSON body.");
-    error.statusCode = 400;
-    throw error;
-  }
+  return readJsonBodyWithLimit(req, 128_000);
 }
 
 async function readJsonBodyWithLimit(req, maxBytes) {
@@ -830,73 +897,4 @@ async function readJsonBodyWithLimit(req, maxBytes) {
     error.statusCode = 400;
     throw error;
   }
-}
-
-function getBaseUrl(req) {
-  const configuredBaseUrl = process.env.PUBLIC_BASE_URL;
-
-  if (configuredBaseUrl) {
-    return configuredBaseUrl.replace(/\/$/, "");
-  }
-
-  const host = req.headers.host || `localhost:${port}`;
-  const forwardedProto = req.headers["x-forwarded-proto"];
-  const protocol = forwardedProto || (host.includes("localhost") ? "http" : "https");
-
-  return `${protocol}://${host}`;
-}
-
-async function createCheckoutSession(quote, req) {
-  const stripeEndpoint = "https://api.stripe.com/v1/checkout/sessions";
-  const baseUrl = getBaseUrl(req);
-  const params = new URLSearchParams();
-
-  params.set("mode", "payment");
-  params.set("success_url", `${baseUrl}/cart.html?checkout=success&session_id={CHECKOUT_SESSION_ID}`);
-  params.set("cancel_url", `${baseUrl}/cart.html?checkout=cancelled`);
-  params.set("payment_method_types[0]", "card");
-  params.set("billing_address_collection", "required");
-  params.set("shipping_address_collection[allowed_countries][0]", "US");
-  params.set("phone_number_collection[enabled]", "true");
-  params.set("submit_type", "pay");
-  params.set("metadata[store]", "saigoods");
-  params.set("metadata[total_cases]", String(quote.totalCases));
-
-  let lineIndex = 0;
-
-  for (const item of quote.items) {
-    const product = productMap.get(item.slug);
-    const selectedSizes = Object.entries(item.quantities).filter(([, quantity]) => quantity > 0);
-
-    for (const [size, quantity] of selectedSizes) {
-      params.set(`line_items[${lineIndex}][price_data][currency]`, "usd");
-      params.set(`line_items[${lineIndex}][price_data][product_data][name]`, `${item.name} (${size})`);
-      params.set(
-        `line_items[${lineIndex}][price_data][product_data][description]`,
-        `${product.shortName} gloves, ${size} size, priced per case.`,
-      );
-      params.set(`line_items[${lineIndex}][price_data][unit_amount]`, String(item.priceCents));
-      params.set(`line_items[${lineIndex}][quantity]`, String(quantity));
-      lineIndex += 1;
-    }
-  }
-
-  const response = await fetch(stripeEndpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: params,
-  });
-
-  const session = await response.json();
-
-  if (!response.ok || !session.url) {
-    const error = new Error(session.error?.message || "Stripe checkout could not be created.");
-    error.statusCode = response.status || 500;
-    throw error;
-  }
-
-  return session;
 }

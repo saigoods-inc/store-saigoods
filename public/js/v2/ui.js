@@ -63,6 +63,7 @@ const ICON_PATHS = {
   clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
   check: '<polyline points="20 6 9 17 4 12"/>',
+  user: '<path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/>',
   copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   "external-link":
     '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
@@ -82,12 +83,12 @@ export function icon(name, size = 16, cls = "") {
 
 /* ---------------------------------------------------------------- sidebar */
 
+/* Admin-v2 navigation: dashboard + operations + one combined order-builder entry for remote and walk-in creation. */
 export const ADMIN_V2_NAV = [
   { id: "summary", label: "Summary", href: "/admin-v2/summary", iconName: "layout-dashboard" },
   { id: "orders", label: "Orders", href: "/admin-v2/orders", iconName: "shopping-cart" },
+  { id: "order-builder", label: "Order Builder", href: "/admin-v2/manual-order", iconName: "clipboard-list" },
   { id: "inventory", label: "Inventory", href: "/admin-v2/inventory", iconName: "package" },
-  { id: "manual-order", label: "Manual order", href: "/admin-v2/manual-order", iconName: "clipboard-list" },
-  { id: "walk-in-order", label: "Walk-in order", href: "/admin-v2/walk-in-order", iconName: "store" },
   { id: "discounts", label: "Discount codes", href: "/admin-v2/discount-codes", iconName: "tag" },
   { id: "tax", label: "Sales tax (TN)", href: "/admin-v2/tax", iconName: "receipt" },
   { id: "nexus", label: "Nexus by state", href: "/admin-v2/nexus", iconName: "map-pin" },
@@ -96,21 +97,26 @@ export const ADMIN_V2_NAV = [
 /**
  * @param {string} activeId
  */
-export function sidebar(activeId) {
+export function sidebar(activeId, email = "") {
   const items = ADMIN_V2_NAV.map((item) => {
-    const active = item.id === activeId ? " is-active" : "";
-    return `<li><a class="sg-nav__link${active}" href="${item.href}">${icon(item.iconName, 16)}<span>${escapeHtml(
+    const isActive = item.id === activeId;
+    const active = isActive ? " is-active" : "";
+    const current = isActive ? ` aria-current="page"` : "";
+    return `<li><a class="sg-nav__link${active}" href="${item.href}"${current}>${icon(item.iconName, 16)}<span>${escapeHtml(
       item.label,
     )}</span></a></li>`;
   }).join("");
+  const emailHtml = email
+    ? `<p class="sg-sidebar__account-email" id="sg-sidebar-email">${escapeHtml(email)}</p>`
+    : `<p class="sg-sidebar__account-email sg-muted" id="sg-sidebar-email">No active session</p>`;
 
   return `<aside class="sg-sidebar" id="sg-sidebar">
     <div class="sg-sidebar__brand">
       <!-- Logo-ready: swap "SAI" for an <img>/<svg> logo later; CSS sizes it to the badge. -->
       <div class="sg-brand__mark">SAI</div>
       <div>
-        <p class="sg-brand__name">SAI Goods Inc.</p>
-        <p class="sg-brand__sub">Back office</p>
+        <p class="sg-brand__name">SAI Goods, Inc.</p>
+        <p class="sg-brand__sub">Operation Dashboard</p>
       </div>
     </div>
     <nav class="sg-nav" aria-label="Admin sections">
@@ -118,8 +124,20 @@ export function sidebar(activeId) {
       <ul class="sg-nav__list">${items}</ul>
     </nav>
     <div class="sg-sidebar__footer">
-      Back office dashboard
-      <small>admin-v2 preview</small>
+      <div class="sg-sidebar__account">
+        ${emailHtml}
+        <div class="sg-sidebar__footer-actions">
+          <button type="button" class="sg-btn sg-btn--ghost sg-btn--sm sg-btn--block sg-sidebar__signout" id="sg-logout">${icon(
+            "external-link",
+            14,
+          )}<span>Sign out</span></button>
+          <a class="sg-btn sg-btn--ghost sg-btn--sm sg-btn--block sg-sidebar__legacy" href="/admin/summary.html">${icon(
+            "arrow-up-right",
+            14,
+          )}<span>Legacy admin</span></a>
+        </div>
+      </div>
+      <small>Version 2.1.45</small>
     </div>
   </aside>`;
 }
@@ -127,21 +145,23 @@ export function sidebar(activeId) {
 /* ---------------------------------------------------------------- topbar */
 
 /**
- * @param {{ email?: string, meta?: string }} [opts]
+ * @param {{ email?: string, meta?: string, leftHtml?: string }} [opts]
  */
 export function topbar(opts = {}) {
-  const email = opts.email ? escapeHtml(opts.email) : "";
   const meta = opts.meta ? escapeHtml(opts.meta) : "";
+  const leftHtml = typeof opts.leftHtml === "string" && opts.leftHtml
+    ? `<div class="sg-topbar__context">${opts.leftHtml}</div>`
+    : "";
   return `<header class="sg-topbar">
     <div class="sg-topbar__left">
-      <button type="button" class="sg-menu-btn" id="sg-menu-btn" aria-label="Open menu">${icon("menu", 20)}</button>
-      <span class="sg-topbar__email" id="sg-topbar-email">${email}</span>
-      <span class="sg-topbar__dot" aria-hidden="true">&middot;</span>
-      <button type="button" class="sg-linkbtn" id="sg-logout">Sign out</button>
+      <button type="button" class="sg-menu-btn" id="sg-menu-btn" aria-label="Open menu" aria-controls="sg-sidebar" aria-expanded="false">${icon("menu", 20)}</button>
     </div>
+    ${leftHtml}
     <div class="sg-topbar__right">
-      <button type="button" class="sg-linkbtn" id="sg-refresh">${icon("refresh-cw", 14)}<span>Refresh</span></button>
-      <span class="sg-topbar__dot" aria-hidden="true">&middot;</span>
+      <button type="button" class="sg-btn sg-btn--ghost sg-btn--sm sg-topbar__refresh" id="sg-refresh">${icon(
+        "refresh-cw",
+        14,
+      )}<span>Refresh</span></button>
       <span class="sg-topbar__meta" id="sg-topbar-meta">${meta}</span>
     </div>
   </header>`;
@@ -168,23 +188,49 @@ export function pageHeader(opts) {
   </div>`;
 }
 
+/**
+ * Shared top-level order-builder mode switch.
+ * Keeps Manual remote-order workflow distinct from Walk-in sale workflow.
+ * @param {"manual"|"walk-in"} activeMode
+ * @param {{ location?: "page"|"topbar", showLabel?: boolean }} [opts]
+ */
+export function orderBuilderModeSwitch(activeMode, opts = {}) {
+  const isWalkIn = activeMode === "walk-in";
+  const isTopbar = opts.location === "topbar";
+  const showLabel = opts.showLabel ?? !isTopbar;
+  const manualClass = isWalkIn ? "" : " is-active";
+  const walkInClass = isWalkIn ? " is-active" : "";
+  const manualCurrent = isWalkIn ? "" : ` aria-current="page"`;
+  const walkInCurrent = isWalkIn ? ` aria-current="page"` : "";
+  const modeClass = isTopbar ? " sg-order-mode--topbar" : "";
+  const labelHtml = showLabel ? `<span class="sg-order-mode__label">Order type</span>` : "";
+  return `<div class="sg-order-mode${modeClass}" aria-label="Order type">
+    ${labelHtml}
+    <div class="sg-order-mode__group" role="tablist" aria-label="Order type">
+      <a class="sg-order-mode__option${manualClass}" href="/admin-v2/manual-order"${manualCurrent}>Remote order</a>
+      <a class="sg-order-mode__option${walkInClass}" href="/admin-v2/walk-in-order"${walkInCurrent}>Walk-in sale</a>
+    </div>
+  </div>`;
+}
+
 /* --------------------------------------------------------------- shell */
 
 /**
  * Full dashboard shell. Returns the sidebar + main column skeleton with an
  * empty `#sg-page` node the page controller fills in.
- * @param {{ active: string, email?: string, meta?: string }} opts
+ * @param {{ active: string, email?: string, meta?: string, topbarLeftHtml?: string }} opts
  */
 export function shell(opts) {
-  return `<div class="sg-overlay" id="sg-overlay"></div>
+  return `<a class="sg-skip-link" href="#sg-page">Skip to main content</a>
+  <div class="sg-overlay" id="sg-overlay"></div>
   <div class="sg-shell">
-    ${sidebar(opts.active)}
+    ${sidebar(opts.active, opts.email)}
     <div class="sg-main">
-      ${topbar({ email: opts.email, meta: opts.meta })}
-      <div class="sg-content" id="sg-page"></div>
+      ${topbar({ meta: opts.meta, leftHtml: opts.topbarLeftHtml })}
+      <main class="sg-content" id="sg-page" tabindex="-1"></main>
     </div>
   </div>
-  <div class="sg-toast-region" id="sg-toast-region"></div>`;
+  <div class="sg-toast-region" id="sg-toast-region" role="status" aria-live="polite" aria-atomic="true"></div>`;
 }
 
 /* --------------------------------------------------------------- KPI card */
@@ -211,14 +257,15 @@ export function kpiCard(opts) {
 
 /**
  * Horizontal mini stat card.
- * @param {{ label: string, value: string, sub?: string, iconName?: string }} opts
+ * @param {{ label: string, value: string, sub?: string, iconName?: string, danger?: boolean }} opts
  */
 export function miniCard(opts) {
+  const valueClass = opts.danger ? " sg-minicard__value--danger" : "";
   return `<article class="sg-card sg-minicard">
     <div class="sg-minicard__icon">${icon(opts.iconName || "dollar-sign", 16)}</div>
     <div>
       <p class="sg-minicard__label">${escapeHtml(opts.label)}</p>
-      <p class="sg-minicard__value">${escapeHtml(opts.value)}</p>
+      <p class="sg-minicard__value${valueClass}">${escapeHtml(opts.value)}</p>
       ${opts.sub ? `<p class="sg-minicard__sub">${escapeHtml(opts.sub)}</p>` : ""}
     </div>
   </article>`;
@@ -240,14 +287,14 @@ export function statusChip(label, variant = "neutral") {
 /* --------------------------------------------------------------- card shell */
 
 /**
- * @param {{ title?: string, subtitle?: string, actionHtml?: string, bodyHtml: string, className?: string }} opts
+ * @param {{ title?: string, titleHtml?: string, subtitle?: string, actionHtml?: string, bodyHtml: string, className?: string }} opts
  */
 export function card(opts) {
   const header =
-    opts.title || opts.actionHtml
+    opts.title || opts.titleHtml || opts.actionHtml
       ? `<div class="sg-card__header">
           <div>
-            ${opts.title ? `<h2 class="sg-card__title">${escapeHtml(opts.title)}</h2>` : ""}
+            ${opts.titleHtml ? `<h2 class="sg-card__title">${opts.titleHtml}</h2>` : opts.title ? `<h2 class="sg-card__title">${escapeHtml(opts.title)}</h2>` : ""}
             ${opts.subtitle ? `<p class="sg-card__subtitle">${escapeHtml(opts.subtitle)}</p>` : ""}
           </div>
           ${opts.actionHtml || ""}
@@ -278,23 +325,225 @@ export function tableShell(opts) {
 
 /* ------------------------------------------------------------ filter toolbar */
 
+export function customSelect(selectSpec) {
+  const options = Array.isArray(selectSpec?.options) ? selectSpec.options : [];
+  const fallback = options[0] || { value: "", label: "Select" };
+  const selected = options.find((option) => option.value === selectSpec.selected) || fallback;
+  const listId = `${selectSpec.id}-listbox`;
+  const wrapperClass = selectSpec.className ? ` ${escapeHtml(selectSpec.className)}` : "";
+  const triggerClass = selectSpec.triggerClass ? ` ${escapeHtml(selectSpec.triggerClass)}` : "";
+  const ariaLabel = escapeHtml(selectSpec.ariaLabel || "Filter");
+  const optionButtons = options
+    .map((option) => {
+      const isSelected = option.value === selected.value;
+      return `<button type="button" class="sg-selectbox__option${isSelected ? " is-selected" : ""}" role="option" data-value="${escapeHtml(
+        option.value,
+      )}" aria-selected="${isSelected ? "true" : "false"}">${escapeHtml(option.label)}</button>`;
+    })
+    .join("");
+
+  return `<div class="sg-selectbox${wrapperClass}" data-selectbox>
+    <input type="hidden" id="${escapeHtml(selectSpec.id)}" value="${escapeHtml(selected.value)}">
+    <button
+      type="button"
+      class="sg-selectbox__trigger${triggerClass}"
+      aria-label="${ariaLabel}"
+      aria-haspopup="listbox"
+      aria-expanded="false"
+      aria-controls="${escapeHtml(listId)}"
+    >
+      <span class="sg-selectbox__label">${escapeHtml(selected.label)}</span>
+      ${icon("chevron-down", 16, "sg-selectbox__caret")}
+    </button>
+    <div class="sg-selectbox__menu" id="${escapeHtml(listId)}" role="listbox" hidden>
+      ${optionButtons}
+    </div>
+  </div>`;
+}
+
 /**
  * @param {{ id: string, options: {value:string,label:string}[], selected?: string }} selectSpec
  * @param {string} [extraHtml] additional controls appended to the toolbar
  */
 export function filterToolbar(selectSpec, extraHtml = "") {
-  const opts = selectSpec.options
-    .map(
-      (o) =>
-        `<option value="${escapeHtml(o.value)}"${o.value === selectSpec.selected ? " selected" : ""}>${escapeHtml(
-          o.label,
-        )}</option>`,
-    )
-    .join("");
   return `<div class="sg-toolbar">
-    <select class="sg-select" id="${escapeHtml(selectSpec.id)}" aria-label="Filter">${opts}</select>
+    ${customSelect(selectSpec)}
     ${extraHtml}
   </div>`;
+}
+
+/* ------------------------------------------------------- custom selectboxes */
+
+let _selectboxDocWired = false;
+
+function selectboxEls(box) {
+  return {
+    input: box.querySelector("input[type='hidden']"),
+    trigger: box.querySelector(".sg-selectbox__trigger"),
+    label: box.querySelector(".sg-selectbox__label"),
+    menu: box.querySelector(".sg-selectbox__menu"),
+    options: [...box.querySelectorAll(".sg-selectbox__option")],
+  };
+}
+
+function closeSelectbox(box, { restoreFocus = false } = {}) {
+  const { trigger, menu } = selectboxEls(box);
+  if (!trigger || !menu) return;
+  box.classList.remove("is-open");
+  trigger.setAttribute("aria-expanded", "false");
+  menu.hidden = true;
+  if (restoreFocus && typeof trigger.focus === "function") {
+    trigger.focus();
+  }
+}
+
+function closeAllSelectboxes(exceptBox = null) {
+  document.querySelectorAll("[data-selectbox].is-open").forEach((box) => {
+    if (box !== exceptBox) closeSelectbox(box);
+  });
+}
+
+function focusSelectboxOption(box, index) {
+  const { options } = selectboxEls(box);
+  if (!options.length) return;
+  const safeIndex = Math.max(0, Math.min(index, options.length - 1));
+  const option = options[safeIndex];
+  if (option && typeof option.focus === "function") {
+    option.focus();
+  }
+}
+
+function openSelectbox(box) {
+  const { trigger, menu, options } = selectboxEls(box);
+  if (!trigger || !menu) return;
+  closeAllSelectboxes(box);
+  box.classList.add("is-open");
+  trigger.setAttribute("aria-expanded", "true");
+  menu.hidden = false;
+  const selectedIndex = options.findIndex((option) => option.classList.contains("is-selected"));
+  focusSelectboxOption(box, selectedIndex >= 0 ? selectedIndex : 0);
+}
+
+function setSelectboxValue(box, value, { dispatch = true } = {}) {
+  const { input, label, options } = selectboxEls(box);
+  if (!input || !label || !options.length) return;
+  const option = options.find((item) => item.dataset.value === value) || options[0];
+  const nextValue = option?.dataset?.value || "";
+  const previous = input.value;
+  input.value = nextValue;
+  label.textContent = option?.textContent?.trim() || "";
+  options.forEach((item) => {
+    const isSelected = item === option;
+    item.classList.toggle("is-selected", isSelected);
+    item.setAttribute("aria-selected", isSelected ? "true" : "false");
+  });
+  if (dispatch && previous !== nextValue) {
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+}
+
+export function setCustomSelectboxValue(target, value, opts = {}) {
+  const input =
+    typeof target === "string"
+      ? document.getElementById(target)
+      : target instanceof HTMLElement
+        ? target
+        : null;
+  if (!input) return;
+  const box = input.closest?.("[data-selectbox]");
+  if (!box) {
+    input.value = value;
+    if (opts.dispatch) {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    return;
+  }
+  setSelectboxValue(box, value, opts);
+}
+
+export function initCustomSelectboxes(root = document) {
+  root.querySelectorAll("[data-selectbox]").forEach((box) => {
+    if (box.dataset.selectboxBound === "1") return;
+    box.dataset.selectboxBound = "1";
+
+    const { trigger, options } = selectboxEls(box);
+    if (!trigger) return;
+
+    trigger.addEventListener("click", () => {
+      if (box.classList.contains("is-open")) {
+        closeSelectbox(box);
+      } else {
+        openSelectbox(box);
+      }
+    });
+
+    trigger.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openSelectbox(box);
+      }
+    });
+
+    box.addEventListener("click", (event) => {
+      const option = event.target.closest(".sg-selectbox__option");
+      if (!option) return;
+      setSelectboxValue(box, option.dataset.value || "");
+      closeSelectbox(box, { restoreFocus: true });
+    });
+
+    options.forEach((option, index) => {
+      option.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          focusSelectboxOption(box, index + 1);
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          focusSelectboxOption(box, index - 1);
+          return;
+        }
+        if (event.key === "Home") {
+          event.preventDefault();
+          focusSelectboxOption(box, 0);
+          return;
+        }
+        if (event.key === "End") {
+          event.preventDefault();
+          focusSelectboxOption(box, options.length - 1);
+          return;
+        }
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          setSelectboxValue(box, option.dataset.value || "");
+          closeSelectbox(box, { restoreFocus: true });
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeSelectbox(box, { restoreFocus: true });
+        }
+      });
+    });
+  });
+
+  if (_selectboxDocWired) return;
+  _selectboxDocWired = true;
+
+  document.addEventListener("click", (event) => {
+    document.querySelectorAll("[data-selectbox].is-open").forEach((box) => {
+      if (!box.contains(event.target)) {
+        closeSelectbox(box);
+      }
+    });
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    document.querySelectorAll("[data-selectbox].is-open").forEach((box) => {
+      closeSelectbox(box, { restoreFocus: true });
+    });
+  });
 }
 
 /* --------------------------------------------------------------- button */
@@ -333,26 +582,79 @@ export function placeholderTag(label = "Placeholder") {
 
 /* ------------------------------------------------------------ interactivity */
 
-/** Wires the mobile sidebar toggle + overlay. Call once after mounting the shell. */
+/** Document Escape handler for mobile sidebar — wired once across remounts. */
+let _shellDocEscapeWired = false;
+/** @type {null | ((opts?: { restoreFocus?: boolean }) => void)} */
+let _shellCloseSidebar = null;
+
+/**
+ * Wires the mobile sidebar toggle + overlay after mounting the shell.
+ * Document-level Escape is attached once; remounts rebind element handlers only.
+ */
 export function initShellInteractions() {
   const sidebarEl = document.getElementById("sg-sidebar");
   const overlay = document.getElementById("sg-overlay");
   const menuBtn = document.getElementById("sg-menu-btn");
   if (!sidebarEl || !overlay || !menuBtn) return;
 
+  const setExpanded = (open) => {
+    menuBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+
   const open = () => {
     sidebarEl.classList.add("is-open");
     overlay.classList.add("is-open");
+    setExpanded(true);
   };
-  const close = () => {
+
+  const close = (opts = {}) => {
+    const wasOpen = sidebarEl.classList.contains("is-open");
     sidebarEl.classList.remove("is-open");
     overlay.classList.remove("is-open");
+    setExpanded(false);
+    if (wasOpen && opts.restoreFocus && typeof menuBtn.focus === "function") {
+      try {
+        menuBtn.focus();
+      } catch {
+        /* menu button may not be focusable */
+      }
+    }
   };
-  menuBtn.addEventListener("click", open);
-  overlay.addEventListener("click", close);
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") close();
+
+  _shellCloseSidebar = close;
+  setExpanded(false);
+
+  if (menuBtn.getAttribute("data-shell-bound") === "1") {
+    return;
+  }
+  menuBtn.setAttribute("data-shell-bound", "1");
+
+  menuBtn.addEventListener("click", () => {
+    if (sidebarEl.classList.contains("is-open")) {
+      close({ restoreFocus: true });
+      return;
+    }
+    open();
   });
+  overlay.addEventListener("click", () => close());
+  sidebarEl.addEventListener("click", (e) => {
+    const navTarget = e.target.closest("a[href], button");
+    if (!navTarget) return;
+    if (typeof window !== "undefined" && window.innerWidth > 768) return;
+    close();
+  });
+
+  if (!_shellDocEscapeWired) {
+    _shellDocEscapeWired = true;
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      const sidebar = document.getElementById("sg-sidebar");
+      if (!sidebar || !sidebar.classList.contains("is-open")) return;
+      if (typeof _shellCloseSidebar === "function") {
+        _shellCloseSidebar({ restoreFocus: true });
+      }
+    });
+  }
 }
 
 /**
@@ -377,8 +679,148 @@ export function toast(message, variant = "default") {
 /*
  * Shared right-side drawer. Lazily creates its own overlay + panel on <body>
  * (separate from the mobile-sidebar overlay). Pages call openDrawer()/closeDrawer().
+ *
+ * Closed state uses hidden + aria-hidden + inert so the dialog leaves the
+ * accessibility/focus tree. Open moves focus to Close; close restores the
+ * opener when it is still connected. Tab is trapped while open.
+ *
+ * Pages may register setDrawerCloseGuard(() => boolean) to block close during
+ * irreversible in-flight operations (return false to prevent close).
  */
 let _drawerEls = null;
+let _drawerOpener = null;
+/** @type {null | (() => boolean)} Return false to block close. */
+let _drawerCloseGuard = null;
+let _drawerDocKeyWired = false;
+const DRAWER_TITLE_ID = "sg-drawer-title";
+
+/**
+ * Optional close guard for irreversible in-flight operations.
+ * @param {null | (() => boolean)} fn Return false to prevent close; null clears.
+ */
+export function setDrawerCloseGuard(fn) {
+  _drawerCloseGuard = typeof fn === "function" ? fn : null;
+}
+
+function setDrawerClosed(aside, overlay) {
+  aside.hidden = true;
+  aside.setAttribute("aria-hidden", "true");
+  aside.inert = true;
+  overlay.hidden = true;
+  overlay.setAttribute("aria-hidden", "true");
+}
+
+function setDrawerOpen(aside, overlay) {
+  aside.hidden = false;
+  aside.removeAttribute("aria-hidden");
+  aside.inert = false;
+  overlay.hidden = false;
+  overlay.removeAttribute("aria-hidden");
+}
+
+function restoreDrawerOpener(opener) {
+  if (!opener || typeof opener.focus !== "function") return;
+  if (opener.isConnected === false) return;
+  if (opener.disabled) return;
+  try {
+    opener.focus();
+  } catch {
+    /* opener may not be focusable anymore */
+  }
+}
+
+/**
+ * True when `element` or any ancestor up through `drawerRoot` is hidden from
+ * AT/interaction. Stops at `drawerRoot`. Uses DOM flags always; uses
+ * getComputedStyle only when `window.getComputedStyle` is available (browsers).
+ * @param {Element|null|undefined} element
+ * @param {Element} drawerRoot
+ */
+function isHiddenWithinDrawer(element, drawerRoot) {
+  if (!element || !drawerRoot) return true;
+
+  const cssHidden = (node) => {
+    try {
+      const win = typeof window !== "undefined" ? window : undefined;
+      if (!win || typeof win.getComputedStyle !== "function") return false;
+      const style = win.getComputedStyle(node);
+      if (!style) return false;
+      const display = String(style.display || "");
+      const visibility = String(style.visibility || "");
+      if (display === "none") return true;
+      if (visibility === "hidden" || visibility === "collapse") return true;
+    } catch {
+      /* Node harness / restricted environments — ignore */
+    }
+    return false;
+  };
+
+  let node = element;
+  while (node) {
+    if (node.hidden === true) return true;
+    if (typeof node.hasAttribute === "function" && node.hasAttribute("hidden")) return true;
+    if (typeof node.getAttribute === "function" && node.getAttribute("aria-hidden") === "true") {
+      return true;
+    }
+    if (node.inert === true) return true;
+    if (typeof node.hasAttribute === "function" && node.hasAttribute("inert")) return true;
+    if (cssHidden(node)) return true;
+    if (node === drawerRoot) break;
+    node = node.parentElement || node.parentNode;
+  }
+  return false;
+}
+
+function drawerFocusableElements(root) {
+  if (!root || typeof root.querySelectorAll !== "function") return [];
+  const nodes = root.querySelectorAll(
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  );
+  const list = Array.from(nodes || []);
+  return list.filter((el) => {
+    if (!el || el.disabled) return false;
+    if (isHiddenWithinDrawer(el, root)) return false;
+    return true;
+  });
+}
+
+function onDrawerDocumentKeydown(e) {
+  if (!_drawerEls) return;
+  const { aside } = _drawerEls;
+  if (!aside.classList.contains("is-open")) return;
+
+  if (e.key === "Escape") {
+    closeDrawer();
+    return;
+  }
+
+  if (e.key !== "Tab") return;
+
+  const focusables = drawerFocusableElements(aside);
+  if (focusables.length === 0) {
+    e.preventDefault();
+    if (typeof aside.focus === "function") aside.focus();
+    return;
+  }
+  if (focusables.length === 1) {
+    e.preventDefault();
+    focusables[0].focus();
+    return;
+  }
+
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  const active = typeof document !== "undefined" ? document.activeElement : null;
+  if (e.shiftKey) {
+    if (active === first || !aside.contains?.(active)) {
+      e.preventDefault();
+      last.focus();
+    }
+  } else if (active === last || !aside.contains?.(active)) {
+    e.preventDefault();
+    first.focus();
+  }
+}
 
 function ensureDrawer() {
   if (_drawerEls) return _drawerEls;
@@ -391,14 +833,18 @@ function ensureDrawer() {
   aside.id = "sg-drawer";
   aside.setAttribute("role", "dialog");
   aside.setAttribute("aria-modal", "true");
+  aside.setAttribute("tabindex", "-1");
+  setDrawerClosed(aside, overlay);
 
   document.body.appendChild(overlay);
   document.body.appendChild(aside);
 
   overlay.addEventListener("click", closeDrawer);
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeDrawer();
-  });
+
+  if (!_drawerDocKeyWired) {
+    _drawerDocKeyWired = true;
+    document.addEventListener("keydown", onDrawerDocumentKeydown);
+  }
 
   _drawerEls = { overlay, aside };
   return _drawerEls;
@@ -409,9 +855,15 @@ function ensureDrawer() {
  */
 export function openDrawer(opts = {}) {
   const { overlay, aside } = ensureDrawer();
-  aside.setAttribute("aria-label", opts.title || "Details");
+  const wasOpen = aside.classList.contains("is-open");
+  if (!wasOpen) {
+    _drawerOpener = typeof document !== "undefined" ? document.activeElement : null;
+  }
+  const titleText = opts.title || "Details";
+  aside.removeAttribute("aria-label");
+  aside.setAttribute("aria-labelledby", DRAWER_TITLE_ID);
   aside.innerHTML = `<div class="sg-drawer__header">
-      <h2 class="sg-card__title">${escapeHtml(opts.title || "")}</h2>
+      <h2 class="sg-card__title" id="${DRAWER_TITLE_ID}">${escapeHtml(titleText)}</h2>
       <button type="button" class="sg-btn sg-btn--icon sg-btn--ghost" id="sg-drawer-close" aria-label="Close">${icon(
         "x",
         16,
@@ -420,12 +872,22 @@ export function openDrawer(opts = {}) {
     <div class="sg-drawer__body">${opts.bodyHtml || ""}</div>`;
   const closeBtn = aside.querySelector("#sg-drawer-close");
   if (closeBtn) closeBtn.addEventListener("click", closeDrawer);
+  setDrawerOpen(aside, overlay);
   overlay.classList.add("is-open");
   aside.classList.add("is-open");
+  if (closeBtn && typeof closeBtn.focus === "function") closeBtn.focus();
 }
 
-export function closeDrawer() {
+export function closeDrawer(opts = {}) {
+  if (!opts.force && _drawerCloseGuard && _drawerCloseGuard() === false) return;
   if (!_drawerEls) return;
-  _drawerEls.overlay.classList.remove("is-open");
-  _drawerEls.aside.classList.remove("is-open");
+  const { overlay, aside } = _drawerEls;
+  const wasOpen = aside.classList.contains("is-open");
+  overlay.classList.remove("is-open");
+  aside.classList.remove("is-open");
+  setDrawerClosed(aside, overlay);
+  if (!wasOpen) return;
+  const opener = _drawerOpener;
+  _drawerOpener = null;
+  restoreDrawerOpener(opener);
 }

@@ -47,6 +47,7 @@ async function refreshQuote() {
 function renderCart() {
   const items = getCart(store.site.sizes);
   const globalOos = Boolean(store?.site?.storefrontGlobalOutOfStock);
+  const packageLimitBlocked = quote?.shippingPackageLimit?.exceeded === true;
 
   if (!items.length) {
     cartRoot.innerHTML = `
@@ -114,10 +115,6 @@ function renderCart() {
         <h2>Order Summary</h2>
         <div class="summary-card__rows">
           <div class="summary-card__row">
-            <span title="Full cases plus boxes, combined into one number for shipping (boxes count toward the next full case).">Shipping units</span>
-            <strong>${quote.totalCases}</strong>
-          </div>
-          <div class="summary-card__row">
             <span>Merchandise total</span>
             <strong>${quote.subtotalFormatted}</strong>
           </div>
@@ -131,8 +128,8 @@ function renderCart() {
           quote.useEmbeddedCheckout
             ? `<a
                 class="button button--primary button--full"
-                href="/checkout.html"
-                ${!quote.squareReady ? 'aria-disabled="true" tabindex="-1" style="pointer-events:none;opacity:0.6"' : ""}
+                ${packageLimitBlocked ? "" : 'href="/checkout.html"'}
+                ${!quote.squareReady || packageLimitBlocked ? 'aria-disabled="true" tabindex="-1" style="pointer-events:none;opacity:0.6"' : ""}
               >
                 Proceed to checkout
               </a>`
@@ -140,7 +137,7 @@ function renderCart() {
                 class="button button--primary button--full"
                 type="button"
                 data-action="checkout"
-                ${!quote.squareReady || isCheckingOut ? "disabled" : ""}
+                ${!quote.squareReady || packageLimitBlocked || isCheckingOut ? "disabled" : ""}
               >
                 Proceed to checkout
               </button>`
@@ -150,6 +147,14 @@ function renderCart() {
           quote.squareReady
             ? ""
             : `<p class="summary-card__note">Checkout is not fully configured yet. Add Square (including <strong>SQUARE_APPLICATION_ID</strong> for on-site pay), Supabase, and related environment variables on the server.</p>`
+        }
+
+        ${
+          packageLimitBlocked
+            ? `<p class="summary-card__note cart-package-limit-message">
+                Orders are limited to 10 shipping packages. Please reduce the quantity or complete your current order before adding more.
+              </p>`
+            : ""
         }
       </aside>
     </section>

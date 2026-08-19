@@ -52,9 +52,9 @@ function maxOrders() {
  */
 function activityChip(orders) {
   const n = Number(orders) || 0;
-  if (n <= 0) return statusChip("No orders", "neutral");
-  if (n >= 0.25 * maxOrders()) return statusChip("Active", "success");
-  return statusChip("Low activity", "warning");
+  if (n <= 0) return statusChip("No recent activity", "neutral");
+  if (n >= 0.25 * maxOrders()) return statusChip("Higher volume", "success");
+  return statusChip("Lower volume", "warning");
 }
 
 /* --------------------------------------------------------------- sections */
@@ -97,11 +97,16 @@ function renderBasisCard() {
   });
 }
 
+function sortedNexusRows() {
+  return [...nexusRows()].sort((a, b) => (Number(b.total_revenue) || 0) - (Number(a.total_revenue) || 0));
+}
+
 function tableRowsHtml() {
-  const rows = [...nexusRows()].sort((a, b) => (Number(b.total_revenue) || 0) - (Number(a.total_revenue) || 0));
-  return rows
+  return sortedNexusRows()
     .map(
-      (r, idx) => `<tr class="sg-clickable" data-idx="${idx}">
+      (r, idx) => `<tr class="sg-clickable" data-idx="${idx}" tabindex="0" aria-haspopup="dialog" aria-label="Open details dialog for ${escapeHtml(
+        String(r.state || ""),
+      )}">
         <td><strong>${escapeHtml(r.state)}</strong></td>
         <td class="sg-table__num">${fmtCents(r.total_revenue)}</td>
         <td class="sg-table__num">${Number(r.total_orders) || 0}</td>
@@ -154,10 +159,23 @@ function openStateDrawer(row) {
   });
 }
 
+function bindDetailRow(tr, open) {
+  tr.addEventListener("click", open);
+  tr.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      open();
+    } else if (e.key === " " || e.key === "Spacebar") {
+      e.preventDefault();
+      open();
+    }
+  });
+}
+
 function wireTableInteractions() {
-  const rows = [...nexusRows()].sort((a, b) => (Number(b.total_revenue) || 0) - (Number(a.total_revenue) || 0));
-  document.querySelectorAll('#sg-nexus-table-host tr[data-idx]').forEach((tr) => {
-    tr.addEventListener("click", () => {
+  const rows = sortedNexusRows();
+  document.querySelectorAll("#sg-nexus-table-host tr[data-idx]").forEach((tr) => {
+    bindDetailRow(tr, () => {
       const idx = Number(tr.getAttribute("data-idx"));
       openStateDrawer(rows[idx]);
     });

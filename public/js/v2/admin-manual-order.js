@@ -1,20 +1,14 @@
 /*
- * SAI Goods admin-v2 — Manual Order (Phase M3: estimate + create unpaid + send payment link).
+ * SAI Goods admin-v2 — Manual Order (Phase 10B-2B: payment-link-only).
  *
- * Connected:
+ * Allowed network:
  *   - GET  /api/products
  *   - POST /api/admin-manual-order-estimate
- *   - POST /api/admin-manual-order-create   (pay_later unpaid OR square_payment_link draft)
- *   - POST /api/admin-manual-order-send-link (after create; Square payment link + email)
+ *   - POST /api/admin-manual-order-create   (paymentFlow always square_payment_link)
+ *   - POST /api/admin-manual-order-send-link
  *
- * Payment-flow matrix (UI):
- *   - carrier         → Square payment link only (Pay later disabled)
- *   - local_delivery  → Square payment link or Pay later
- *   - pickup          → Square payment link or Pay later
- *
- * NOT connected: update-draft, delete-draft, resend-link, record-payment,
- * walk-in mark-paid / quick-pay, shipping labels, buyer shipping notifications.
- * Carrier + pay_later create is blocked.
+ * Out of scope: pay-later / unpaid create, drafts CRUD, record-payment, resend,
+ * Walk-in, force-stock override, labels, cancel/refund, fulfillment actions.
  */
 
 import { formatCurrency } from "../catalog.js";
@@ -25,9 +19,51 @@ import {
   isSizeChannelPurchasable,
 } from "../size-availability.js";
 import { fetchReportPost, ReportPostError } from "../admin-shared.js";
-import { LOCAL_DELIVERY_AREA_ERROR, validateLocalDeliveryServiceArea } from "../hardin-county.js";
-import { card, closeDrawer, escapeHtml, icon, openDrawer, pageHeader, statusChip, toast } from "./ui.js";
+import { LOCAL_DELIVERY_AREA_ERROR, isLocalDeliveryServiceArea } from "../hardin-county.js";
+import {
+  card,
+  closeDrawer,
+  escapeHtml,
+  icon,
+  openDrawer,
+  orderBuilderModeSwitch,
+  pageHeader,
+  setDrawerCloseGuard,
+  statusChip,
+  toast,
+} from "./ui.js";
 import { bootAdminV2Page } from "./page-boot.js";
+import {
+  ManualOrderLocalAuthError,
+  allowCreateAnotherManualOrder,
+  classifyManualOrderCreateFailure,
+  classifyManualOrderSendLinkFailure,
+  classifyManualOrderSendLinkSuccess,
+  formatManualOrderAddressSummary,
+  isManualOrderLocalAuthError,
+  preCreateRejectionControlState,
+  runGuardedManualOrderEstimate,
+} from "./manual-order-safety.js";
+
+/** Strict POST allowlist for Manual Order v2. */
+export const MANUAL_ORDER_V2_POST_ENDPOINTS = new Set([
+  "/api/admin-manual-order-estimate",
+  "/api/admin-manual-order-create",
+  "/api/admin-manual-order-send-link",
+]);
+
+/**
+ * Allowlisted POST helper. Rejects every other endpoint before network.
+ * @param {string} endpoint
+ * @param {string} token
+ * @param {object} [body]
+ */
+export async function fetchManualOrderPost(endpoint, token, body) {
+  if (!MANUAL_ORDER_V2_POST_ENDPOINTS.has(endpoint)) {
+    throw new Error("This action is not available in Admin v2 Manual Order.");
+  }
+  return fetchReportPost(endpoint, token, body);
+}
 
 /** @type {() => Promise<string|undefined>} */
 let getToken = async () => undefined;
@@ -41,14 +77,22 @@ const US_STATES = [
 const PICKUP_NOTE =
   "Pickup uses the stored Savannah pickup address on the server. Staff do not enter a ship-to address.";
 
-const CREATE_UNPAID_PHRASE = "CREATE UNPAID";
-const SEND_LINK_PHRASE = "SEND LINK";
+const SEND_PAYMENT_LINK_PHRASE = "SEND PAYMENT LINK";
+const LEGACY_MANUAL_ORDER_HREF = "/admin/manual-order.html";
+const ORDERS_V2_HREF = "/admin-v2/orders";
+const MANUAL_DISCOUNT_PRESETS = [
+  { type: "none", value: 0, label: "None", detail: "No merchandise discount" },
+  { type: "percent", value: 5, label: "5%", detail: "Take 5% off merchandise" },
+  { type: "percent", value: 10, label: "10%", detail: "Take 10% off merchandise" },
+  { type: "percent", value: 15, label: "15%", detail: "Take 15% off merchandise" },
+  { type: "amount", value: null, label: "Custom amount", detail: "Set a fixed dollar amount" },
+];
 
 /** @type {object[]} */
 let products = [];
 /** @type {string[]} */
 let siteSizes = ["S", "M", "L", "XL"];
-/** @type {Record<string, { bundleQty: Record<string, number>, caseBySize: Record<string, number>, boxBySize: Record<string, number> }>} */
+/** @type {Record<string, { bundleQty: Record<string, number>, caseBySize: Record<string, number>, boxBySize: Record<string, number>, ui: { bundleOpen: boolean, sizeOpen: boolean } }>} */
 let productState = {};
 /** Slugs with expanded product detail. */
 const openProductSlugs = new Set();
@@ -56,19 +100,104 @@ let allocationSubmitAttempted = false;
 /** @type {object|null} */
 let lastQuote = null;
 let estimateStale = false;
-let discountOverrideConfirmed = false;
+let manualDiscountSelection = defaultManualDiscountSelection();
 /** @type {string|null} */
 let selectedRateId = null;
 /** @type {null | { id: string, provider: string, serviceCode: string, serviceLabel: string, amountCents: number|null, parcelCount: number|null, residentialSurchargeCents: number|null }} */
 let selectedShippingRateSnapshot = null;
 let estimateInFlight = false;
-let createUnpaidInFlight = false;
-let sendLinkInFlight = false;
+/** Monotonic revision of quote-relevant form inputs; discarded in-flight estimates when it advances. */
+let estimateInputRevision = 0;
+/** One guard for the entire create + send-link sequence. */
+let paymentLinkInFlight = false;
 /** @type {null | { orderId: string, orderRef: string, totalFormatted: string }} */
 let lastCreatedOrder = null;
+/** @type {"" | "Creating order draft" | "Creating Square payment link" | "Sending customer email"} */
+let paymentLinkStage = "";
 
 function getEl(id) {
   return document.getElementById(id);
+}
+
+function defaultManualDiscountSelection() {
+  return { type: "none", value: 0 };
+}
+
+function normalizeManualDiscountSelection(selection) {
+  const rawType = String(selection?.type || "")
+    .trim()
+    .toLowerCase();
+  if (!rawType || rawType === "none") {
+    return defaultManualDiscountSelection();
+  }
+  if (rawType === "percent") {
+    const percent = Math.round(Number(selection?.value));
+    if (percent === 5 || percent === 10 || percent === 15) {
+      return { type: "percent", value: percent };
+    }
+    return defaultManualDiscountSelection();
+  }
+  if (rawType === "amount") {
+    const amountCents = Math.round(Number(selection?.value));
+    if (Number.isFinite(amountCents) && amountCents > 0) {
+      return { type: "amount", value: amountCents };
+    }
+  }
+  return defaultManualDiscountSelection();
+}
+
+function manualDiscountSelectionsEqual(a, b) {
+  const left = normalizeManualDiscountSelection(a);
+  const right = normalizeManualDiscountSelection(b);
+  return left.type === right.type && left.value === right.value;
+}
+
+function manualDiscountLabel(selection) {
+  const normalized = normalizeManualDiscountSelection(selection);
+  if (normalized.type === "percent") {
+    return `${normalized.value}% off`;
+  }
+  if (normalized.type === "amount") {
+    return `${formatCurrency(normalized.value)} off`;
+  }
+  return "None";
+}
+
+function manualDiscountSelectionSummary(selection) {
+  const normalized = normalizeManualDiscountSelection(selection);
+  if (normalized.type === "percent") {
+    return `${normalized.value}% off merchandise`;
+  }
+  if (normalized.type === "amount") {
+    return `${formatCurrency(normalized.value)} off merchandise`;
+  }
+  return "No merchandise discount";
+}
+
+function manualDiscountButtonMeta(option, currentSelection) {
+  if (option.type === "amount") {
+    if (currentSelection.type === "amount") {
+      return `${formatCurrency(currentSelection.value)} off merchandise`;
+    }
+    return option.detail;
+  }
+  return option.detail;
+}
+
+function manualDiscountPayloadFields() {
+  const normalized = normalizeManualDiscountSelection(manualDiscountSelection);
+  return {
+    manualDiscountType: normalized.type,
+    manualDiscountValue: normalized.value,
+  };
+}
+
+function parseCustomDiscountAmountInput(value) {
+  const cents = Math.round(Number(value) * 100);
+  if (!Number.isFinite(cents) || cents < 1) {
+    return null;
+  }
+  return cents;
 }
 
 function sumChannel(map) {
@@ -114,12 +243,21 @@ function productStockChip(product) {
 
 function ensureProductState(product) {
   const slug = product.slug;
-  if (productState[slug]) return;
+  if (productState[slug]) {
+    if (!productState[slug].ui) {
+      productState[slug].ui = { bundleOpen: true, sizeOpen: false };
+    }
+    return;
+  }
   const bundles = product.bundles || [];
   productState[slug] = {
     bundleQty: Object.fromEntries(bundles.map((b) => [b.id, 0])),
     caseBySize: Object.fromEntries(siteSizes.map((s) => [s, 0])),
     boxBySize: Object.fromEntries(siteSizes.map((s) => [s, 0])),
+    ui: {
+      bundleOpen: true,
+      sizeOpen: false,
+    },
   };
 }
 
@@ -277,12 +415,21 @@ function applyBundleDelta(slug, bundleId, delta) {
   if (!product || isManualProductOutOfStock(product)) return;
   ensureProductState(product);
   const st = productState[slug];
+  const hadSelection = hasAnyBundleSelection(st.bundleQty);
   const prevReq = computeRequiredUnits(product, st.bundleQty);
   const next = Math.max(0, Math.floor(Number(st.bundleQty[bundleId]) || 0) + delta);
   st.bundleQty[bundleId] = next;
   const nextReq = computeRequiredUnits(product, st.bundleQty);
+  const hasSelection = hasAnyBundleSelection(st.bundleQty);
+  if (!hadSelection && hasSelection) {
+    st.ui.bundleOpen = false;
+    st.ui.sizeOpen = true;
+  } else if (hadSelection && !hasSelection) {
+    st.ui.bundleOpen = true;
+    st.ui.sizeOpen = false;
+  }
   applyBundleRequirementDeltas(slug, prevReq, nextReq);
-  markEstimateStale();
+  markEstimateInputsChanged();
   renderProducts();
 }
 
@@ -309,7 +456,8 @@ function handleSizeStep(slug, channel, size, delta) {
     if (req > 0 && total + 1 > req) return;
   }
   map[size] = next;
-  markEstimateStale();
+  if (st.ui) st.ui.sizeOpen = true;
+  markEstimateInputsChanged();
   renderProducts();
 }
 
@@ -319,12 +467,6 @@ function getFulfillment() {
   const v = document.querySelector('input[name="mo_fulfillment"]:checked')?.value;
   if (v === "local_delivery" || v === "pickup" || v === "carrier") return v;
   return "carrier";
-}
-
-function getPaymentIntent() {
-  const v = document.querySelector('input[name="mo_payment"]:checked')?.value;
-  if (v === "pay_later" || v === "square_payment_link") return v;
-  return "square_payment_link";
 }
 
 function readAddress() {
@@ -346,10 +488,6 @@ function readCustomer() {
   };
 }
 
-function readApplyLocalDiscount() {
-  return getEl("mo-apply-discount")?.checked === true;
-}
-
 function readLocalDeliveryNote() {
   return String(getEl("mo-local-note")?.value || "").trim();
 }
@@ -357,6 +495,157 @@ function readLocalDeliveryNote() {
 function readExpectedShipDate() {
   const s = String(getEl("mo-ship-date")?.value || "").trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
+}
+
+function renderDiscountPanel() {
+  const host = getEl("mo-discount-panel");
+  if (!host) return;
+  const current = normalizeManualDiscountSelection(manualDiscountSelection);
+  host.innerHTML = `
+    <div class="mo-discount">
+      <div class="mo-discount__summary">
+        <p class="mo-discount__eyebrow">Current selection</p>
+        <p class="mo-discount__current">${escapeHtml(manualDiscountSelectionSummary(current))}</p>
+        <p class="sg-meta-note" style="margin:0">Manual Order discounts apply to merchandise before tax. ZIP code and delivery location do not affect eligibility.</p>
+      </div>
+      <div class="mo-discount__options" role="group" aria-label="Manual discount options">
+        ${MANUAL_DISCOUNT_PRESETS.map((option) => {
+          const isActive =
+            option.type === current.type &&
+            (option.type !== "amount"
+              ? option.value === current.value
+              : current.type === "amount" && current.value > 0);
+          return `<button
+            type="button"
+            class="mo-discount-option${isActive ? " is-active" : ""}"
+            data-mo-discount-option
+            data-type="${escapeHtml(option.type)}"
+            ${option.value != null ? `data-value="${escapeHtml(String(option.value))}"` : ""}
+            aria-pressed="${isActive ? "true" : "false"}"
+          >
+            <span class="mo-discount-option__title">${escapeHtml(option.label)}</span>
+            <span class="mo-discount-option__meta">${escapeHtml(manualDiscountButtonMeta(option, current))}</span>
+          </button>`;
+        }).join("")}
+      </div>
+    </div>`;
+}
+
+function applyManualDiscountSelection(nextSelection) {
+  const normalized = normalizeManualDiscountSelection(nextSelection);
+  const changed = !manualDiscountSelectionsEqual(manualDiscountSelection, normalized);
+  manualDiscountSelection = normalized;
+  renderDiscountPanel();
+  closeDrawer();
+  if (!changed) return;
+  markEstimateInputsChanged();
+  toast(`Manual discount set to ${manualDiscountSelectionSummary(normalized)}.`, "success");
+}
+
+function openManualDiscountDialog(rawType, rawValue) {
+  const type = String(rawType || "")
+    .trim()
+    .toLowerCase();
+  const baseSelection =
+    type === "amount"
+      ? normalizeManualDiscountSelection(
+          manualDiscountSelection.type === "amount"
+            ? manualDiscountSelection
+            : { type: "amount", value: 2500 },
+        )
+      : normalizeManualDiscountSelection({ type, value: rawValue });
+  const title =
+    baseSelection.type === "none"
+      ? "Clear manual discount?"
+      : baseSelection.type === "percent"
+        ? `Apply ${baseSelection.value}% discount?`
+        : "Apply custom discount?";
+  const customAmountValue =
+    baseSelection.type === "amount" ? (baseSelection.value / 100).toFixed(2) : "";
+  const bodyHtml = `
+    <div class="sg-confirm">
+      <p class="sg-confirm__copy">
+        ${
+          baseSelection.type === "none"
+            ? "This removes any manual merchandise discount from the order."
+            : `This applies <strong>${escapeHtml(manualDiscountSelectionSummary(baseSelection))}</strong> before tax.`
+        }
+      </p>
+      ${
+        baseSelection.type === "amount"
+          ? `<label class="sg-field" style="margin-top:14px">
+              <span class="sg-field__label">Custom amount off merchandise</span>
+              <input type="number" class="sg-input" id="mo-discount-custom-input" min="0.01" step="0.01" inputmode="decimal" value="${escapeHtml(customAmountValue)}" />
+            </label>
+            <p class="sg-error sg-hide" id="mo-discount-custom-error" role="alert" hidden></p>`
+          : ""
+      }
+      <p class="sg-meta-note" style="margin:10px 0 0">Shipping, carrier selection, and delivery location are unchanged. Recalculate totals after the selection is confirmed.</p>
+      <div class="sg-drawer-actions">
+        <button type="button" class="sg-btn sg-btn--ghost" id="mo-discount-cancel">Cancel</button>
+        <button type="button" class="sg-btn sg-btn--primary" id="mo-discount-confirm">${
+          baseSelection.type === "none" ? "Apply no discount" : "Apply discount"
+        }</button>
+      </div>
+    </div>`;
+  setDrawerCloseGuard(null);
+  openDrawer({ title, bodyHtml });
+  document.getElementById("sg-drawer")?.classList.remove("sg-drawer--wide");
+
+  const customInput = getEl("mo-discount-custom-input");
+  const customError = getEl("mo-discount-custom-error");
+  const confirmBtn = getEl("mo-discount-confirm");
+  const setCustomError = (message) => {
+    if (!customError) return;
+    if (message) {
+      customError.textContent = message;
+      customError.hidden = false;
+      customError.classList.remove("sg-hide");
+    } else {
+      customError.textContent = "";
+      customError.hidden = true;
+      customError.classList.add("sg-hide");
+    }
+  };
+  const syncCustomState = () => {
+    if (baseSelection.type !== "amount" || !confirmBtn) return;
+    const amountCents = parseCustomDiscountAmountInput(customInput?.value);
+    confirmBtn.disabled = amountCents == null;
+    if (customInput?.value && amountCents == null) {
+      setCustomError("Enter a custom amount greater than $0.00.");
+      return;
+    }
+    setCustomError("");
+  };
+
+  if (baseSelection.type === "amount") {
+    customInput?.addEventListener("input", syncCustomState);
+    customInput?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || !confirmBtn || confirmBtn.disabled) return;
+      event.preventDefault();
+      confirmBtn.click();
+    });
+    syncCustomState();
+    customInput?.focus();
+  } else {
+    confirmBtn?.focus();
+  }
+
+  getEl("mo-discount-cancel")?.addEventListener("click", () => {
+    closeDrawer();
+  });
+  confirmBtn?.addEventListener("click", () => {
+    if (baseSelection.type === "amount") {
+      const amountCents = parseCustomDiscountAmountInput(customInput?.value);
+      if (amountCents == null) {
+        setCustomError("Enter a custom amount greater than $0.00.");
+        return;
+      }
+      applyManualDiscountSelection({ type: "amount", value: amountCents });
+      return;
+    }
+    applyManualDiscountSelection(baseSelection);
+  });
 }
 
 function setPanelVisible(el, visible) {
@@ -371,59 +660,14 @@ function markEstimateStale() {
     return;
   }
   estimateStale = true;
-  setPanelVisible(getEl("mo-quote-stale"), true);
+  renderQuotePreview(lastQuote);
   syncEstimateButtonState();
 }
 
-function syncPaymentIntentUi() {
-  const fm = getFulfillment();
-  const isCarrier = fm === "carrier";
-  const payLaterInput = document.querySelector('input[name="mo_payment"][value="pay_later"]');
-  const squareInput = document.querySelector('input[name="mo_payment"][value="square_payment_link"]');
-  const payLaterLabel = payLaterInput?.closest(".mo-radio");
-  const helper = getEl("mo-payment-helper");
-  const flowNote = getEl("mo-payment-flow-note");
-
-  // Carrier: Square payment link only. Local delivery / pickup: both Square link and Pay later.
-  if (payLaterInput instanceof HTMLInputElement) {
-    payLaterInput.disabled = isCarrier;
-    if (isCarrier) {
-      payLaterInput.checked = false;
-      if (squareInput instanceof HTMLInputElement) squareInput.checked = true;
-    }
-  }
-  if (payLaterLabel) {
-    payLaterLabel.classList.toggle("is-disabled", isCarrier);
-    payLaterLabel.classList.toggle("mo-radio--deferred", isCarrier);
-    payLaterLabel.setAttribute("aria-disabled", isCarrier ? "true" : "false");
-  }
-
-  if (helper) {
-    if (isCarrier) {
-      helper.textContent = "Carrier orders must be paid through a Square payment link before shipping.";
-    } else if (fm === "local_delivery") {
-      helper.textContent =
-        "Local delivery can use a Square payment link or Pay later if staff will collect payment directly.";
-    } else if (fm === "pickup") {
-      helper.textContent =
-        "Pickup can use a Square payment link or Pay later if staff will collect payment in person.";
-    } else {
-      helper.textContent = "";
-    }
-  }
-
-  if (flowNote) {
-    if (isCarrier) {
-      flowNote.textContent =
-        "Carrier: Calculate totals → select rate → Create order & send payment link → customer pays → fulfill in Orders.";
-    } else if (getPaymentIntent() === "pay_later") {
-      flowNote.textContent =
-        "Pay later: Calculate totals → Create unpaid order → Record payment in Orders when collected. No payment link is sent.";
-    } else {
-      flowNote.textContent =
-        "Square payment link: Calculate totals → Create order & send payment link → customer pays → fulfill in Orders.";
-    }
-  }
+/** Record a quote-relevant form change and invalidate any in-flight estimate result. */
+function markEstimateInputsChanged() {
+  estimateInputRevision += 1;
+  markEstimateStale();
 }
 
 function syncFulfillmentUi() {
@@ -432,24 +676,26 @@ function syncFulfillmentUi() {
   const isLocal = fm === "local_delivery";
   const isPickup = fm === "pickup";
 
-  const helper = getEl("mo-fulfillment-helper");
   const pickupNote = getEl("mo-pickup-note");
   const localNote = getEl("mo-local-note-wrap");
   const addrBlock = getEl("mo-address-block");
   const shipDate = getEl("mo-ship-date-wrap");
   const rates = getEl("mo-rates-wrap");
-
-  if (helper) {
-    if (isCarrier) {
-      helper.textContent = "Full shipping address is required for carrier quotes.";
-    } else if (isLocal) {
-      helper.textContent =
-        "Local delivery is limited to the approved Hardin County / local service area (TN). Out-of-area addresses must use Ship with carrier.";
-    } else {
-      helper.textContent = "";
-    }
-    setPanelVisible(helper, isCarrier || isLocal);
+  const requiredFields = [
+    ["mo-addr-line1", isCarrier],
+    ["mo-addr-city", isCarrier],
+    ["mo-addr-state", isCarrier || isLocal],
+    ["mo-addr-zip", isCarrier || isLocal],
+  ];
+  for (const [id, required] of requiredFields) {
+    const field = getEl(id);
+    if (!field) continue;
+    field.required = required;
+    if (required) field.setAttribute("aria-required", "true");
+    else field.removeAttribute("aria-required");
   }
+
+  syncLocalDeliveryAdvisory();
 
   // Pickup uses a dedicated info callout (not the meta helper).
   setPanelVisible(pickupNote, isPickup);
@@ -463,7 +709,34 @@ function syncFulfillmentUi() {
     isCarrier && Boolean(lastQuote) && !estimateStale && Array.isArray(lastQuote?.shippingRateOptions) && lastQuote.shippingRateOptions.length > 0,
   );
 
-  syncPaymentIntentUi();
+}
+
+function syncLocalDeliveryAdvisory() {
+  const el = getEl("mo-local-area-advisory");
+  if (!el) return;
+  const fm = getFulfillment();
+  if (fm !== "local_delivery") {
+    setPanelVisible(el, false);
+    el.textContent = "";
+    return;
+  }
+  const a = readAddress();
+  const zip = String(a.postalCode || "").replace(/\D/g, "").slice(0, 5);
+  const state = String(a.state || "").trim().toUpperCase();
+  if (!state || zip.length !== 5) {
+    setPanelVisible(el, false);
+    el.textContent = "";
+    return;
+  }
+  if (isLocalDeliveryServiceArea({ state, postalCode: zip })) {
+    setPanelVisible(el, false);
+    el.textContent = "";
+    return;
+  }
+  el.innerHTML = `${icon("alert-triangle", 14)}<span>${escapeHtml(
+    `${LOCAL_DELIVERY_AREA_ERROR} This browser ZIP check is advisory; the backend remains authoritative and will confirm eligibility.`,
+  )}</span>`;
+  setPanelVisible(el, true);
 }
 
 /* --------------------------------------------------------------- quote view */
@@ -630,6 +903,106 @@ function unitWord(kind, n) {
   const isBox = String(kind || "case").toLowerCase() === "box";
   if (Math.abs(n) === 1) return isBox ? "box" : "case";
   return isBox ? "boxes" : "cases";
+}
+
+function currentSelectionEntries() {
+  const entries = [];
+  for (const product of products) {
+    const st = productState[product.slug];
+    if (!st) continue;
+    const bundleBits = bundleLinesPayload(st.bundleQty).map((line) => {
+      const bundle = (product.bundles || []).find((item) => item.id === line.id);
+      return `${bundle?.label || line.id} × ${line.qty}`;
+    });
+    const caseBits = Object.entries(compactQuantities(st.caseBySize, supportedSizesForProduct(product))).map(
+      ([size, qty]) => `${size}: ${qty} ${unitWord("case", qty)}`,
+    );
+    const boxBits = Object.entries(compactQuantities(st.boxBySize, supportedSizesForProduct(product))).map(
+      ([size, qty]) => `${size}: ${qty} ${unitWord("box", qty)}`,
+    );
+    if (!bundleBits.length && !caseBits.length && !boxBits.length) continue;
+
+    const pendingBits = [];
+    if (Array.isArray(product.bundles) && product.bundles.length) {
+      const { reqBox, reqCase } = computeRequiredUnits(product, st.bundleQty);
+      const remainingCase = reqCase - sumChannel(st.caseBySize);
+      const remainingBox = reqBox - sumChannel(st.boxBySize);
+      if (remainingCase > 0) pendingBits.push(`${remainingCase} ${unitWord("case", remainingCase)} awaiting size assignment`);
+      if (remainingBox > 0) pendingBits.push(`${remainingBox} ${unitWord("box", remainingBox)} awaiting size assignment`);
+    }
+
+    entries.push({
+      name: product.name || product.slug,
+      bundleBits,
+      caseBits,
+      boxBits,
+      pendingBits,
+    });
+  }
+  return entries;
+}
+
+function currentSelectionSummaryHtml(opts = {}) {
+  const entries = currentSelectionEntries();
+  const emptyMessage = opts.emptyMessage || "No items selected yet.";
+  const showPending = opts.showPending !== false;
+  const compact = opts.compact === true;
+  if (!entries.length) {
+    return `<p class="sg-muted" style="margin:0">${escapeHtml(emptyMessage)}</p>`;
+  }
+  return `<div class="mo-item-summaries${compact ? " mo-item-summaries--compact" : ""}">
+    ${entries
+      .map((entry) => {
+        const sizeBits = [];
+        if (entry.caseBits.length) sizeBits.push(`Cases: ${entry.caseBits.join(", ")}`);
+        if (entry.boxBits.length) sizeBits.push(`Boxes: ${entry.boxBits.join(", ")}`);
+        const pendingHtml =
+          showPending && entry.pendingBits.length
+            ? `<div class="mo-item-summary__pending">${escapeHtml(entry.pendingBits.join(" · "))}</div>`
+            : "";
+        return `<div class="mo-item-summary">
+          <strong>${escapeHtml(entry.name)}</strong>
+          ${entry.bundleBits.length ? `<div class="sg-muted">${escapeHtml(entry.bundleBits.join(" · "))}</div>` : ""}
+          ${sizeBits.length ? `<div class="sg-muted">${escapeHtml(sizeBits.join(" · "))}</div>` : ""}
+          ${pendingHtml}
+        </div>`;
+      })
+      .join("")}
+  </div>`;
+}
+
+function renderProductsSummary() {
+  const host = getEl("mo-products-summary");
+  if (!host) return;
+  const staleHtml =
+    lastQuote && estimateStale
+      ? `<p class="sg-inline-warn" style="margin:0 0 10px">${icon("alert-triangle", 14)}<span>Current selection changed after the last quote. Recalculate totals.</span></p>`
+      : "";
+  host.innerHTML = `
+    <div class="mo-selection-summary">
+      <p class="mo-selection-summary__title">Current selection</p>
+      ${staleHtml}
+      ${currentSelectionSummaryHtml({ showPending: true })}
+    </div>
+  `;
+}
+
+function renderStepPanel({ slug, stepKey, badge, title, help, bodyHtml, open, extraClass = "" }) {
+  const safeSlug = escapeHtml(slug);
+  const safeStepKey = escapeHtml(stepKey);
+  const bodyId = `mo-step-${safeSlug}-${safeStepKey}`;
+  return `<section class="mo-step${extraClass}${open ? " is-open" : " is-collapsed"}">
+    <button type="button" class="mo-step__toggle" data-mo-step-toggle data-slug="${safeSlug}" data-step="${safeStepKey}" aria-expanded="${open ? "true" : "false"}" aria-controls="${bodyId}">
+      <span class="mo-step__head">
+        <span class="mo-step__badge">${escapeHtml(badge)}</span>
+        <span class="mo-step__title">${escapeHtml(title)}</span>
+      </span>
+      <span class="mo-step__chevron" aria-hidden="true">${icon("chevron-down", 16)}</span>
+    </button>
+    <div class="mo-step__body" id="${bodyId}"${open ? "" : " hidden"}>
+      ${open ? `${help ? `<p class="mo-step__help">${escapeHtml(help)}</p>` : ""}${bodyHtml}` : ""}
+    </div>
+  </section>`;
 }
 
 function sizeStockChip(product, size, channel) {
@@ -813,27 +1186,18 @@ function estimateEligibility() {
     if (!a.state) {
       blockers.push({
         id: "addr-state",
-        message: "Local delivery requires state in the approved local service area",
+        message: "Local delivery requires a state",
         focus: "mo-addr-state",
       });
     }
     if (!a.postalCode || a.postalCode.replace(/\D/g, "").length < 5) {
       blockers.push({
         id: "addr-zip",
-        message: "Local delivery requires ZIP in the approved local service area",
+        message: "Local delivery requires a five-digit ZIP",
         focus: "mo-addr-zip",
       });
     }
-    if (a.state && a.postalCode && a.postalCode.replace(/\D/g, "").length >= 5) {
-      const area = validateLocalDeliveryServiceArea(a);
-      if (!area.ok) {
-        blockers.push({
-          id: "local-area",
-          message: LOCAL_DELIVERY_AREA_ERROR,
-          focus: "mo-addr-zip",
-        });
-      }
-    }
+    // Browser Hardin ZIP membership is advisory only — never a blocker.
   }
 
   for (const p of products) {
@@ -927,7 +1291,7 @@ function syncEstimateButtonState() {
     btn.disabled = !elig.ok;
     btn.title = elig.ok ? "Calculate merchandise, tax, shipping, and discounts." : "Fix the items below, then calculate.";
   }
-  syncCreateUnpaidButtonState();
+
   syncSendLinkButtonState();
 }
 
@@ -967,100 +1331,11 @@ function carrierRateReady() {
 }
 
 /**
- * M2 create-unpaid eligibility.
- * Pay later is only valid for pickup / approved Hardin local delivery — never carrier.
- * @returns {{ ok: boolean, reason: string, items: object[] }}
- */
-function createUnpaidEligibility() {
-  const fm = getFulfillment();
-
-  if (fm === "carrier") {
-    return {
-      ok: false,
-      reason: "Pay later is only available for pickup or approved local delivery.",
-      items: [],
-    };
-  }
-  if (fm !== "local_delivery" && fm !== "pickup") {
-    return { ok: false, reason: "Choose pickup or local delivery for an unpaid order.", items: [] };
-  }
-  if (fm === "local_delivery") {
-    const area = validateLocalDeliveryServiceArea(readAddress());
-    if (!area.ok) {
-      return { ok: false, reason: area.error || LOCAL_DELIVERY_AREA_ERROR, items: [] };
-    }
-  }
-
-  if (getPaymentIntent() !== "pay_later") {
-    return { ok: false, reason: "Switch Future order action to Pay later to create an unpaid order.", items: [] };
-  }
-
-  const cust = readCustomer();
-  if (!cust.name) return { ok: false, reason: "Customer full name is required.", items: [] };
-  if (!cust.email || !cust.email.includes("@")) {
-    return { ok: false, reason: "A valid customer email is required.", items: [] };
-  }
-  if (cust.phone) {
-    const digits = cust.phone.replace(/\D/g, "");
-    if (digits.length < 10) {
-      return { ok: false, reason: "Phone must have at least 10 digits when provided.", items: [] };
-    }
-  }
-
-  for (const p of products) {
-    const issues = productAllocationIssues(p);
-    if (issues.length) {
-      return { ok: false, reason: issues[0].message, items: [] };
-    }
-  }
-
-  const { items, errors: itemErrors } = buildItemsFromState();
-  if (itemErrors.length) return { ok: false, reason: itemErrors[0], items: [] };
-  if (!items.length) return { ok: false, reason: "Add at least one valid product line.", items: [] };
-
-  if (!lastQuote) {
-    return { ok: false, reason: "Calculate totals before creating an unpaid order.", items };
-  }
-  if (estimateStale) {
-    return { ok: false, reason: "Quote is stale. Recalculate totals before creating.", items };
-  }
-  if (lastQuote.canCheckout === false) {
-    return { ok: false, reason: "Quote is not ready for checkout. Resolve estimate issues and recalculate.", items };
-  }
-
-  return { ok: true, reason: "", items };
-}
-
-function syncCreateUnpaidButtonState() {
-  const btn = getEl("mo-create-unpaid-btn");
-  if (!btn) return;
-  if (createUnpaidInFlight || sendLinkInFlight) {
-    btn.disabled = true;
-    return;
-  }
-  const elig = createUnpaidEligibility();
-  btn.disabled = !elig.ok;
-  btn.title = elig.ok
-    ? "Create an unpaid manual order (pay later)."
-    : elig.reason || "Not ready to create an unpaid order.";
-  btn.classList.toggle("sg-btn--primary", elig.ok);
-  btn.classList.toggle("mo-btn-deferred", !elig.ok);
-}
-
-/**
- * M3 create + send payment link eligibility.
+ * Create + send payment link eligibility.
  * Square payment link for carrier (with rate), approved local delivery, or pickup.
  * @returns {{ ok: boolean, reason: string, items: object[] }}
  */
 function createSendLinkEligibility() {
-  if (getPaymentIntent() !== "square_payment_link") {
-    return {
-      ok: false,
-      reason: "Switch Future order action to Square payment link to email a checkout link.",
-      items: [],
-    };
-  }
-
   const fm = getFulfillment();
   if (fm !== "carrier" && fm !== "local_delivery" && fm !== "pickup") {
     return { ok: false, reason: "Choose a fulfillment method.", items: [] };
@@ -1085,10 +1360,15 @@ function createSendLinkEligibility() {
     }
   }
   if (fm === "local_delivery") {
-    const area = validateLocalDeliveryServiceArea(readAddress());
-    if (!area.ok) {
-      return { ok: false, reason: area.error || LOCAL_DELIVERY_AREA_ERROR, items: [] };
+    const a = readAddress();
+    if (!a.state || !a.postalCode || a.postalCode.replace(/\D/g, "").length < 5) {
+      return {
+        ok: false,
+        reason: "Local delivery requires state and a five-digit ZIP for the quote.",
+        items: [],
+      };
     }
+    // Out-of-list Hardin ZIP is advisory only — still eligible to submit.
   }
 
   for (const p of products) {
@@ -1126,8 +1406,9 @@ function createSendLinkEligibility() {
 function syncSendLinkButtonState() {
   const btn = getEl("mo-send-link-btn");
   const helper = getEl("mo-create-helper");
+  const stageEl = getEl("mo-submit-stage");
   if (btn) {
-    if (createUnpaidInFlight || sendLinkInFlight) {
+    if (paymentLinkInFlight || estimateInFlight) {
       btn.disabled = true;
     } else {
       const elig = createSendLinkEligibility();
@@ -1139,40 +1420,47 @@ function syncSendLinkButtonState() {
       btn.classList.toggle("mo-btn-deferred", !elig.ok);
     }
   }
-
-  if (!helper) return;
-  const payment = getPaymentIntent();
-  const unpaidElig = createUnpaidEligibility();
-  const sendElig = createSendLinkEligibility();
-
-  if (sendLinkInFlight) {
-    helper.textContent = "Creating order and sending payment link…";
-    return;
-  }
-  if (createUnpaidInFlight) {
-    helper.textContent = "Creating unpaid order…";
-    return;
-  }
-
-  if (payment === "pay_later") {
-    if (unpaidElig.ok) {
-      helper.textContent =
-        "Ready to create an unpaid order. No payment link will be sent — record payment later in Orders after it is collected.";
-    } else if (getFulfillment() === "carrier") {
-      helper.textContent =
-        "Create unpaid order is for Pay later only. Carrier orders must use Square payment link.";
+  if (stageEl) {
+    if (paymentLinkInFlight && paymentLinkStage) {
+      stageEl.textContent = paymentLinkStage;
+      setPanelVisible(stageEl, true);
     } else {
-      helper.textContent = unpaidElig.reason || "Complete a fresh quote before creating an unpaid order.";
+      stageEl.textContent = "";
+      setPanelVisible(stageEl, false);
     }
+  }
+  if (!helper) return;
+  if (paymentLinkInFlight) {
+    helper.textContent = paymentLinkStage || "Working…";
     return;
   }
-
-  // Square payment link selected
+  const sendElig = createSendLinkEligibility();
   if (sendElig.ok) {
     helper.textContent =
-      "Ready to create the order and email a Square payment link to the customer.";
+      "Ready: confirm to create a draft, create a Square payment link, and attempt to email the customer. Inventory is not reserved or decremented.";
   } else {
-    helper.textContent = sendElig.reason || "Complete a fresh quote before sending a payment link.";
+    helper.textContent = sendElig.reason || "Calculate a fresh estimate before sending a payment link.";
+  }
+}
+
+function setFormLocked(locked) {
+  const page = getEl("sg-page");
+  if (!page) return;
+  const nodes = page.querySelectorAll("input, select, textarea, button");
+  for (const el of nodes) {
+    if (!(el instanceof HTMLElement)) continue;
+    if (el.id === "mo-send-confirm-cancel") continue;
+    if (locked) {
+      if (!el.dataset.moLockPrev) el.dataset.moLockPrev = el.disabled ? "1" : "0";
+      el.disabled = true;
+    } else if (el.dataset.moLockPrev != null) {
+      el.disabled = el.dataset.moLockPrev === "1";
+      delete el.dataset.moLockPrev;
+    }
+  }
+  if (!locked) {
+    syncEstimateButtonState();
+    syncSendLinkButtonState();
   }
 }
 
@@ -1196,16 +1484,7 @@ function applyCarrierRateFieldsToPayload(target) {
 }
 
 function formatAddressSummary(addr) {
-  if (!addr) return "—";
-  const lines = [
-    String(addr.line1 || "").trim(),
-    String(addr.line2 || "").trim(),
-    [String(addr.city || "").trim(), String(addr.state || "").trim(), String(addr.postalCode || "").trim()]
-      .filter(Boolean)
-      .join(", "),
-    String(addr.country || "").trim(),
-  ].filter(Boolean);
-  return lines.length ? lines.join("<br>") : "—";
+  return formatManualOrderAddressSummary(addr);
 }
 
 function addressForCreate(fm) {
@@ -1222,64 +1501,33 @@ function addressForCreate(fm) {
   return readAddress();
 }
 
-function buildCreateUnpaidPayload(items) {
-  const fm = getFulfillment();
-  if (fm === "carrier" || getPaymentIntent() !== "pay_later") {
-    throw new Error("Pay later is only available for pickup or approved local delivery.");
-  }
-  if (fm !== "pickup" && fm !== "local_delivery") {
-    throw new Error("Pay later is only available for pickup or approved local delivery.");
-  }
-  if (fm === "local_delivery") {
-    const area = validateLocalDeliveryServiceArea(readAddress());
-    if (!area.ok) throw new Error(area.error || LOCAL_DELIVERY_AREA_ERROR);
-  }
-  const cust = readCustomer();
-  const applyEligibleLocalDiscount = readApplyLocalDiscount();
-  return {
-    name: cust.name,
-    email: cust.email,
-    phone: cust.phone,
-    address: addressForCreate(fm),
-    items,
-    applyEligibleLocalDiscount,
-    adminLocalDiscountOverride: applyEligibleLocalDiscount && discountOverrideConfirmed,
-    fulfillmentMethod: fm,
-    paymentFlow: "pay_later",
-    localDeliveryNote: fm === "local_delivery" ? readLocalDeliveryNote() : "",
-    shipmentDate: readExpectedShipDate() || null,
-  };
-}
-
 function buildCreateSendLinkPayload(items) {
-  if (getPaymentIntent() !== "square_payment_link") {
-    throw new Error("Switch Future order action to Square payment link to email a checkout link.");
-  }
   const fm = getFulfillment();
   if (fm !== "carrier" && fm !== "local_delivery" && fm !== "pickup") {
     throw new Error("Choose a fulfillment method.");
   }
   if (fm === "local_delivery") {
-    const area = validateLocalDeliveryServiceArea(readAddress());
-    if (!area.ok) throw new Error(area.error || LOCAL_DELIVERY_AREA_ERROR);
+    const a = readAddress();
+    if (!a.state || !a.postalCode || a.postalCode.replace(/\D/g, "").length < 5) {
+      throw new Error("Local delivery requires state and a five-digit ZIP for the quote.");
+    }
+    // Browser ZIP allowlist is advisory; backend remains authoritative.
   }
   if (fm === "carrier" && !carrierRateReady()) {
     throw new Error("Select a shipping rate before creating the order and sending the payment link.");
   }
   const cust = readCustomer();
-  const applyEligibleLocalDiscount = readApplyLocalDiscount();
   const body = {
     name: cust.name,
     email: cust.email,
     phone: cust.phone,
     address: addressForCreate(fm),
     items,
-    applyEligibleLocalDiscount,
-    adminLocalDiscountOverride: applyEligibleLocalDiscount && discountOverrideConfirmed,
     fulfillmentMethod: fm,
-    paymentFlow: "square_payment_link",
+    paymentFlow: "square_payment_link", // fixed — no user-selectable payment flow
     localDeliveryNote: fm === "local_delivery" ? readLocalDeliveryNote() : "",
     shipmentDate: readExpectedShipDate() || null,
+    ...manualDiscountPayloadFields(),
   };
   applyCarrierRateFieldsToPayload(body);
   return body;
@@ -1327,10 +1575,17 @@ function itemsSummaryHtml(items) {
 function quoteSummaryBits() {
   const v = quoteView(lastQuote);
   const discount =
-    v.discountFormatted ||
-    (Number(lastQuote?.merchandise?.discountCents || lastQuote?.merchandiseDiscountCents || 0) > 0
-      ? lastQuote?.merchandise?.discountFormatted || lastQuote?.merchandiseDiscountFormatted
-      : "None");
+    v.discountFormatted
+      ? (() => {
+          const appliedManualDiscount = normalizeManualDiscountSelection(
+            lastQuote?.merchandise?.manualDiscount || lastQuote?.manualDiscount,
+          );
+          if (appliedManualDiscount.type !== "none") {
+            return `${manualDiscountLabel(appliedManualDiscount)} · −${v.discountFormatted}`;
+          }
+          return `−${v.discountFormatted}`;
+        })()
+      : "None";
   const rateLabel =
     getFulfillment() === "carrier"
       ? lastQuote?.shipping?.serviceLabel ||
@@ -1345,194 +1600,6 @@ function quoteSummaryBits() {
     shippingLabel: rateLabel,
     total: v.totalFormatted,
   };
-}
-
-function setCreateConfirmErr(msg) {
-  const el = getEl("mo-create-confirm-err");
-  if (!el) return;
-  if (msg) {
-    el.textContent = msg;
-    el.hidden = false;
-    el.classList.remove("sg-hide");
-  } else {
-    el.textContent = "";
-    el.hidden = true;
-    el.classList.add("sg-hide");
-  }
-}
-
-function openCreateUnpaidConfirm() {
-  const elig = createUnpaidEligibility();
-  if (!elig.ok) {
-    toast(elig.reason || "Cannot create unpaid order yet.", "danger");
-    syncCreateUnpaidButtonState();
-    return;
-  }
-
-  const cust = readCustomer();
-  const fm = getFulfillment();
-  const q = quoteSummaryBits();
-  const localNote = fm === "local_delivery" ? readLocalDeliveryNote() : "";
-  const PHRASE = CREATE_UNPAID_PHRASE;
-
-  const bodyHtml = `
-    <div class="sg-confirm">
-      <div class="sg-warn-banner sg-warn-banner--danger" role="alert">
-        ${icon("alert-triangle", 16)}
-        <span>This will create a manual unpaid order. No payment link will be sent, and no payment will be recorded. Payment should be recorded later in Orders after it is collected.</span>
-      </div>
-      <h3 class="sg-confirm__title">Create unpaid order?</h3>
-      <div class="sg-confirm__summary">
-        ${kvHtml([
-          ["Customer", escapeHtml(cust.name)],
-          ["Email", escapeHtml(cust.email)],
-          ["Phone", escapeHtml(cust.phone || "—")],
-          ["Fulfillment", escapeHtml(fulfillmentLabel(fm))],
-          fm === "local_delivery" && localNote
-            ? ["Local delivery note", escapeHtml(localNote)]
-            : fm === "local_delivery"
-              ? ["Local delivery note", '<span class="sg-muted">None</span>']
-              : null,
-          ["Merchandise", escapeHtml(q.merchandise)],
-          ["Discount", escapeHtml(String(q.discount))],
-          ["Tax", escapeHtml(q.tax)],
-          ["Shipping", escapeHtml(q.shipping)],
-          ["Total", `<strong>${escapeHtml(q.total)}</strong>`],
-          ["Payment flow", "Pay later"],
-        ])}
-        <h4 class="sg-drawer-section__title" style="font-size:13px;margin:14px 0 6px">Items / quantities</h4>
-        ${itemsSummaryHtml(elig.items)}
-      </div>
-      <p class="sg-meta-note">This does not send a Square payment link, email the customer, or record payment.</p>
-      <label class="sg-field" style="margin-top:14px">
-        <span class="sg-field__label">Type <span class="sg-mono">${escapeHtml(PHRASE)}</span> to enable</span>
-        <input type="text" class="sg-input" id="mo-create-type-confirm" autocomplete="off" spellcheck="false" placeholder="${escapeHtml(PHRASE)}" />
-      </label>
-      <p class="sg-error sg-hide" id="mo-create-confirm-err" role="alert" hidden></p>
-      <div class="sg-drawer-actions">
-        <button type="button" class="sg-btn sg-btn--ghost" id="mo-create-confirm-cancel">Cancel</button>
-        <button type="button" class="sg-btn sg-btn--primary" id="mo-create-confirm-btn" disabled>Create unpaid order</button>
-      </div>
-    </div>`;
-
-  openDrawer({ title: "Create unpaid order?", bodyHtml });
-  document.getElementById("sg-drawer")?.classList.remove("sg-drawer--wide");
-
-  const typeInput = getEl("mo-create-type-confirm");
-  const confirmBtn = getEl("mo-create-confirm-btn");
-  const syncConfirmEnabled = () => {
-    if (!confirmBtn || createUnpaidInFlight) return;
-    confirmBtn.disabled = String(typeInput?.value || "") !== PHRASE;
-  };
-  typeInput?.addEventListener("input", () => {
-    setCreateConfirmErr("");
-    syncConfirmEnabled();
-  });
-  typeInput?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (confirmBtn && !confirmBtn.disabled) confirmBtn.click();
-    }
-  });
-  syncConfirmEnabled();
-  typeInput?.focus();
-
-  getEl("mo-create-confirm-cancel")?.addEventListener("click", () => closeDrawer());
-  confirmBtn?.addEventListener("click", () => {
-    if (String(typeInput?.value || "") !== PHRASE) {
-      setCreateConfirmErr(`Type ${PHRASE} exactly to continue.`);
-      syncConfirmEnabled();
-      return;
-    }
-    void submitCreateUnpaid();
-  });
-}
-
-async function submitCreateUnpaid() {
-  if (createUnpaidInFlight) return;
-  const PHRASE = CREATE_UNPAID_PHRASE;
-  const elig = createUnpaidEligibility();
-  if (!elig.ok) {
-    setCreateConfirmErr(elig.reason || "Cannot create unpaid order.");
-    return;
-  }
-  if (String(getEl("mo-create-type-confirm")?.value || "") !== PHRASE) {
-    setCreateConfirmErr(`Type ${PHRASE} exactly to continue.`);
-    return;
-  }
-
-  createUnpaidInFlight = true;
-  const confirmBtn = getEl("mo-create-confirm-btn");
-  const cancelBtn = getEl("mo-create-confirm-cancel");
-  setCreateConfirmErr("");
-  if (confirmBtn) {
-    confirmBtn.disabled = true;
-    confirmBtn.textContent = "Creating…";
-  }
-  if (cancelBtn) cancelBtn.disabled = true;
-  syncCreateUnpaidButtonState();
-  syncSendLinkButtonState();
-
-  try {
-    const token = await getToken();
-    if (!token) throw new Error("Sign in again to create the order.");
-
-    const payload = buildCreateUnpaidPayload(elig.items);
-    if (payload.paymentFlow !== "pay_later" || payload.fulfillmentMethod === "carrier") {
-      throw new Error("Pay later is only available for pickup or approved local delivery.");
-    }
-
-    const data = await fetchReportPost("/api/admin-manual-order-create", token, payload);
-
-    lastCreatedOrder = {
-      orderId: String(data.orderId || ""),
-      orderRef: String(data.orderRef || data.orderId || ""),
-      totalFormatted: String(data.totalFormatted || quoteSummaryBits().total || "—"),
-    };
-
-    closeDrawer();
-    toast(`Unpaid order ${lastCreatedOrder.orderRef} created.`, "success");
-    showCreateSuccess(lastCreatedOrder);
-  } catch (error) {
-    const msg =
-      error instanceof ReportPostError
-        ? error.message
-        : error?.message || "Could not create unpaid order.";
-    setCreateConfirmErr(msg);
-    if (confirmBtn) {
-      confirmBtn.disabled = String(getEl("mo-create-type-confirm")?.value || "") !== PHRASE;
-      confirmBtn.textContent = "Create unpaid order";
-    }
-    if (cancelBtn) cancelBtn.disabled = false;
-  } finally {
-    createUnpaidInFlight = false;
-    syncCreateUnpaidButtonState();
-    syncSendLinkButtonState();
-  }
-}
-
-function showCreateSuccess(created) {
-  const actions = getEl("mo-actions");
-  const result = getEl("mo-create-result");
-  if (actions) setPanelVisible(actions, false);
-  if (!result) return;
-  setPanelVisible(result, true);
-  result.innerHTML = `
-    <div class="mo-success-card">
-      <h3 class="mo-success-card__title">${icon("check", 16)}<span>Unpaid order created</span></h3>
-      <p class="sg-meta-note" style="margin:0 0 12px">No payment link was sent and no payment was recorded.</p>
-      ${kvHtml([
-        ["Reference", `<span class="sg-mono">${escapeHtml(created.orderRef)}</span>`],
-        ["Order ID", `<span class="sg-mono">${escapeHtml(created.orderId)}</span>`],
-        ["Total", escapeHtml(created.totalFormatted)],
-        ["Payment flow", "Pay later"],
-      ])}
-      <div class="sg-ship-to-actions" style="margin-top:14px">
-        <a class="sg-btn sg-btn--primary" href="/admin-v2/orders">Open in Orders</a>
-        <button type="button" class="sg-btn sg-btn--ghost" id="mo-create-another-btn">Create another order</button>
-      </div>
-    </div>`;
-  getEl("mo-create-another-btn")?.addEventListener("click", () => resetForAnotherOrder());
 }
 
 function setSendLinkConfirmErr(msg) {
@@ -1553,7 +1620,6 @@ function openSendLinkConfirm() {
   const elig = createSendLinkEligibility();
   if (!elig.ok) {
     toast(elig.reason || "Cannot send payment link yet.", "danger");
-    syncCreateUnpaidButtonState();
     syncSendLinkButtonState();
     return;
   }
@@ -1563,15 +1629,15 @@ function openSendLinkConfirm() {
   const q = quoteSummaryBits();
   const localNote = fm === "local_delivery" ? readLocalDeliveryNote() : "";
   const addr = addressForCreate(fm);
-  const PHRASE = SEND_LINK_PHRASE;
+  const PHRASE = SEND_PAYMENT_LINK_PHRASE;
 
   const bodyHtml = `
     <div class="sg-confirm">
       <div class="sg-warn-banner sg-warn-banner--danger" role="alert">
         ${icon("alert-triangle", 16)}
-        <span>This will create a manual order, generate a Square payment link, and email it to the customer. Totals, tax, shipping, and discounts may be recalculated before the link is sent.</span>
+        <span>This creates a Manual Order draft, creates a Square payment link, and attempts to email the customer. It does not reserve or decrement inventory. Payment is not collected here. If email fails, a valid order and payment link may still exist — do not automatically retry.</span>
       </div>
-      <h3 class="sg-confirm__title">Create order and send payment link?</h3>
+      <h3 class="sg-confirm__title">Create and send payment link?</h3>
       <div class="sg-confirm__summary">
         ${kvHtml([
           ["Customer", escapeHtml(cust.name)],
@@ -1599,7 +1665,7 @@ function openSendLinkConfirm() {
         <h4 class="sg-drawer-section__title" style="font-size:13px;margin:14px 0 6px">Items / quantities</h4>
         ${itemsSummaryHtml(elig.items)}
       </div>
-      <p class="sg-meta-note">This does not record payment. The customer pays through the emailed Square link.</p>
+      <p class="sg-meta-note">Backend will re-quote shipping, tax, and the selected manual discount before it creates the draft and payment link. Browser totals are preview only.</p>
       <label class="sg-field" style="margin-top:14px">
         <span class="sg-field__label">Type <span class="sg-mono">${escapeHtml(PHRASE)}</span> to enable</span>
         <input type="text" class="sg-input" id="mo-send-type-confirm" autocomplete="off" spellcheck="false" placeholder="${escapeHtml(PHRASE)}" />
@@ -1607,17 +1673,18 @@ function openSendLinkConfirm() {
       <p class="sg-error sg-hide" id="mo-send-confirm-err" role="alert" hidden></p>
       <div class="sg-drawer-actions">
         <button type="button" class="sg-btn sg-btn--ghost" id="mo-send-confirm-cancel">Cancel</button>
-        <button type="button" class="sg-btn sg-btn--primary" id="mo-send-confirm-btn" disabled>Create order and email payment link</button>
+        <button type="button" class="sg-btn sg-btn--primary" id="mo-send-confirm-btn" disabled>Create and send payment link</button>
       </div>
     </div>`;
 
-  openDrawer({ title: "Create order and send payment link?", bodyHtml });
+  setDrawerCloseGuard(() => !paymentLinkInFlight);
+  openDrawer({ title: "Create and send payment link?", bodyHtml });
   document.getElementById("sg-drawer")?.classList.remove("sg-drawer--wide");
 
   const typeInput = getEl("mo-send-type-confirm");
   const confirmBtn = getEl("mo-send-confirm-btn");
   const syncConfirmEnabled = () => {
-    if (!confirmBtn || sendLinkInFlight) return;
+    if (!confirmBtn || paymentLinkInFlight) return;
     confirmBtn.disabled = String(typeInput?.value || "") !== PHRASE;
   };
   typeInput?.addEventListener("input", () => {
@@ -1633,7 +1700,10 @@ function openSendLinkConfirm() {
   syncConfirmEnabled();
   typeInput?.focus();
 
-  getEl("mo-send-confirm-cancel")?.addEventListener("click", () => closeDrawer());
+  getEl("mo-send-confirm-cancel")?.addEventListener("click", () => {
+    if (paymentLinkInFlight) return;
+    closeDrawer();
+  });
   confirmBtn?.addEventListener("click", () => {
     if (String(typeInput?.value || "") !== PHRASE) {
       setSendLinkConfirmErr(`Type ${PHRASE} exactly to continue.`);
@@ -1645,8 +1715,8 @@ function openSendLinkConfirm() {
 }
 
 async function submitCreateAndSendLink() {
-  if (sendLinkInFlight || createUnpaidInFlight) return;
-  const PHRASE = SEND_LINK_PHRASE;
+  if (paymentLinkInFlight) return;
+  const PHRASE = SEND_PAYMENT_LINK_PHRASE;
   const elig = createSendLinkEligibility();
   if (!elig.ok) {
     setSendLinkConfirmErr(elig.reason || "Cannot send payment link.");
@@ -1657,16 +1727,19 @@ async function submitCreateAndSendLink() {
     return;
   }
 
-  sendLinkInFlight = true;
+  paymentLinkInFlight = true;
+  paymentLinkStage = "Creating order draft";
   const confirmBtn = getEl("mo-send-confirm-btn");
   const cancelBtn = getEl("mo-send-confirm-cancel");
+  const drawerCloseBtn = document.getElementById("sg-drawer-close");
+  if (drawerCloseBtn) drawerCloseBtn.disabled = true;
   setSendLinkConfirmErr("");
   if (confirmBtn) {
     confirmBtn.disabled = true;
-    confirmBtn.textContent = "Creating…";
+    confirmBtn.textContent = "Creating order draft…";
   }
   if (cancelBtn) cancelBtn.disabled = true;
-  syncCreateUnpaidButtonState();
+  setFormLocked(true);
   syncSendLinkButtonState();
 
   /** @type {null | { orderId: string, orderRef: string, totalFormatted: string }} */
@@ -1674,51 +1747,87 @@ async function submitCreateAndSendLink() {
 
   try {
     const token = await getToken();
-    if (!token) throw new Error("Sign in again to create the order.");
+    if (!token) throw new ManualOrderLocalAuthError("Sign in again to create the order.");
 
     const createPayload = buildCreateSendLinkPayload(elig.items);
     if (createPayload.paymentFlow !== "square_payment_link") {
-      throw new Error("Switch Future order action to Square payment link to email a checkout link.");
-    }
-    if (createPayload.fulfillmentMethod === "carrier" && getPaymentIntent() === "pay_later") {
-      throw new Error("Pay later is only available for pickup or approved local delivery.");
+      throw new Error("This page only supports Square payment links.");
     }
 
-    if (confirmBtn) confirmBtn.textContent = "Creating order…";
-    const createData = await fetchReportPost("/api/admin-manual-order-create", token, createPayload);
+    const createData = await fetchManualOrderPost("/api/admin-manual-order-create", token, createPayload);
+    const createdOrderId = String(createData?.orderId || "").trim();
+    if (!createdOrderId) {
+      // 2xx without orderId is create_uncertain — do not retry from this page.
+      closeDrawer({ force: true });
+      showSendLinkResult({
+        orderId: "",
+        orderRef: "",
+        totalFormatted: String(createData?.totalFormatted || quoteSummaryBits().total || "—"),
+        checkoutUrl: "",
+        emailed: false,
+        warning:
+          "The order may have been created. Do not submit the form again. Check Orders v2 and Legacy admin.",
+        outcome: "create_uncertain",
+      });
+      return;
+    }
     created = {
-      orderId: String(createData.orderId || ""),
+      orderId: createdOrderId,
       orderRef: String(createData.orderRef || createData.orderId || ""),
       totalFormatted: String(createData.totalFormatted || quoteSummaryBits().total || "—"),
     };
-    if (!created.orderId) {
-      throw new Error("Order was created without an ID. Check Orders before retrying.");
-    }
-
     lastCreatedOrder = created;
-    if (confirmBtn) confirmBtn.textContent = "Sending payment link…";
+
+    paymentLinkStage = "Creating Square payment link";
+    if (confirmBtn) confirmBtn.textContent = "Creating Square payment link…";
+    syncSendLinkButtonState();
 
     const sendPayload = buildSendLinkPayload(created.orderId);
-    const sendData = await fetchReportPost("/api/admin-manual-order-send-link", token, sendPayload);
+    let sendData;
+    try {
+      // send-link persists the Square URL then attempts email server-side.
+      paymentLinkStage = "Sending customer email";
+      if (confirmBtn) confirmBtn.textContent = "Creating link and sending email…";
+      syncSendLinkButtonState();
+      sendData = await fetchManualOrderPost("/api/admin-manual-order-send-link", token, sendPayload);
+    } catch (sendErr) {
+      const classified =
+        sendErr instanceof ReportPostError
+          ? classifyManualOrderSendLinkFailure(
+              sendErr.body || {},
+              sendErr.message || "",
+            )
+          : classifyManualOrderSendLinkFailure({}, "", { transportUncertain: true });
+      closeDrawer({ force: true });
+      showSendLinkResult({
+        ...created,
+        checkoutUrl: classified.checkoutUrl,
+        emailed: classified.emailed,
+        warning: classified.warning,
+        outcome: classified.outcome,
+        squareOutcomeUncertain: classified.squareOutcomeUncertain === true,
+      });
+      return;
+    }
 
-    closeDrawer();
-    const emailed = sendData?.emailed === true;
-    const checkoutUrl = String(sendData?.checkoutUrl || "").trim();
-    const warning = String(sendData?.warning || "").trim();
-    if (emailed) {
+    closeDrawer({ force: true });
+    const classified = classifyManualOrderSendLinkSuccess(sendData);
+    if (classified.outcome === "success") {
       toast(`Payment link emailed for ${created.orderRef}.`, "success");
-    } else {
+    } else if (classified.outcome === "email_failed") {
       toast(
-        warning || `Order ${created.orderRef} created; payment link email was not sent.`,
+        classified.warning || `Order ${created.orderRef} created; payment link email was not sent.`,
         "danger",
       );
+    } else {
+      toast("Payment link confirmation is incomplete. Do not resubmit.", "danger");
     }
     showSendLinkResult({
       ...created,
-      checkoutUrl,
-      emailed,
-      warning,
-      partialFailure: false,
+      checkoutUrl: classified.checkoutUrl,
+      emailed: classified.emailed,
+      warning: classified.warning,
+      outcome: classified.outcome,
     });
   } catch (error) {
     const msg =
@@ -1727,32 +1836,80 @@ async function submitCreateAndSendLink() {
         : error?.message || "Could not create order or send payment link.";
 
     if (created?.orderId) {
-      // Order exists — do not leave staff without a reference; do not auto-retry send.
-      closeDrawer();
-      toast("The order was created, but the payment link was not sent.", "danger");
+      closeDrawer({ force: true });
+      toast("The order was created, but the payment link was not confirmed.", "danger");
       showSendLinkResult({
         ...created,
         checkoutUrl: "",
         emailed: false,
         warning: msg,
-        partialFailure: true,
+        outcome: "draft_only",
       });
-    } else {
+    } else if (isManualOrderLocalAuthError(error)) {
+      // Missing token — definite local auth; no create request was made.
       setSendLinkConfirmErr(msg);
+      const restored = preCreateRejectionControlState({
+        phraseInputValue: getEl("mo-send-type-confirm")?.value,
+        phrase: PHRASE,
+      });
+      setFormLocked(restored.formLocked);
+      if (cancelBtn) cancelBtn.disabled = restored.cancelDisabled;
       if (confirmBtn) {
-        confirmBtn.disabled = String(getEl("mo-send-type-confirm")?.value || "") !== PHRASE;
-        confirmBtn.textContent = "Create order and email payment link";
+        confirmBtn.textContent = restored.confirmText;
+        confirmBtn.disabled = restored.confirmDisabled;
       }
-      if (cancelBtn) cancelBtn.disabled = false;
+      const drawerCloseBtnRestored = document.getElementById("sg-drawer-close");
+      if (drawerCloseBtnRestored) drawerCloseBtnRestored.disabled = false;
+    } else {
+      const createKind = classifyManualOrderCreateFailure(error);
+      if (createKind === "create_uncertain") {
+        closeDrawer({ force: true });
+        toast("Create result is uncertain. Do not submit again.", "danger");
+        showSendLinkResult({
+          orderId: "",
+          orderRef: "",
+          totalFormatted: quoteSummaryBits().total || "—",
+          checkoutUrl: "",
+          emailed: false,
+          warning:
+            "The order may have been created. Do not submit the form again. Check Orders v2 and Legacy admin.",
+          outcome: "create_uncertain",
+        });
+      } else {
+        // Definite pre-insert rejection (verified create-handler 400/401/403/405).
+        setSendLinkConfirmErr(msg);
+        const restored = preCreateRejectionControlState({
+          phraseInputValue: getEl("mo-send-type-confirm")?.value,
+          phrase: PHRASE,
+        });
+        setFormLocked(restored.formLocked);
+        if (cancelBtn) cancelBtn.disabled = restored.cancelDisabled;
+        if (confirmBtn) {
+          confirmBtn.textContent = restored.confirmText;
+          confirmBtn.disabled = restored.confirmDisabled;
+        }
+        const drawerCloseBtnRestored = document.getElementById("sg-drawer-close");
+        if (drawerCloseBtnRestored) drawerCloseBtnRestored.disabled = false;
+      }
     }
   } finally {
-    sendLinkInFlight = false;
-    syncCreateUnpaidButtonState();
+    paymentLinkInFlight = false;
+    paymentLinkStage = "";
+    setDrawerCloseGuard(null);
+    const drawerCloseBtn = document.getElementById("sg-drawer-close");
+    if (drawerCloseBtn) drawerCloseBtn.disabled = false;
     syncSendLinkButtonState();
   }
 }
 
 /**
+ * Result panel outcomes:
+ * - success — Square link persisted + email sent
+ * - email_failed — link persisted; email false/throw; claim kept; Create another allowed
+ * - draft_only — draft exists; link not confirmed; Orders/Legacy only
+ * - link_uncertain — Square may exist / squareOutcomeUncertain; Orders/Legacy only
+ * - create_uncertain — create may have inserted; no same-page retry; Orders/Legacy only
+ *
  * @param {{
  *   orderId: string,
  *   orderRef: string,
@@ -1760,7 +1917,8 @@ async function submitCreateAndSendLink() {
  *   checkoutUrl?: string,
  *   emailed?: boolean,
  *   warning?: string,
- *   partialFailure?: boolean,
+ *   squareOutcomeUncertain?: boolean,
+ *   outcome: "success" | "email_failed" | "draft_only" | "link_uncertain" | "create_uncertain",
  * }} result
  */
 function showSendLinkResult(result) {
@@ -1773,61 +1931,115 @@ function showSendLinkResult(result) {
   const checkoutUrl = String(result.checkoutUrl || "").trim();
   const warning = String(result.warning || "").trim();
   const emailed = result.emailed === true;
-  const partial = result.partialFailure === true;
+  const squareOutcomeUncertain = result.squareOutcomeUncertain === true;
+  const outcome = result.outcome || (emailed ? "success" : checkoutUrl ? "email_failed" : "draft_only");
 
   let statusTitle = "Payment link sent";
   let statusNote = "Square payment link was created and emailed to the customer.";
-  if (partial) {
-    statusTitle = "Order created — payment link not sent";
-    statusNote = "The order was created, but the payment link was not sent.";
-  } else if (!emailed) {
-    statusTitle = "Order created — email not sent";
+  let bannerClass = "";
+  if (outcome === "create_uncertain") {
+    statusTitle = "Create result uncertain — do not retry";
     statusNote =
-      warning ||
-      "Payment link was created but the email was not sent. Share the link manually or fix email settings.";
+      "The order may have been created. Do not submit the form again. Check Orders v2 and Legacy admin.";
+    bannerClass = "sg-warn-banner--danger";
+  } else if (outcome === "draft_only") {
+    statusTitle = "Draft created — payment link not confirmed";
+    statusNote =
+      "Draft order was created. Payment link was not confirmed. Do not submit this form again from this page. Check the order in Legacy admin before taking further action.";
+    bannerClass = "sg-warn-banner--danger";
+  } else if (outcome === "link_uncertain") {
+    statusTitle = squareOutcomeUncertain
+      ? "Payment link outcome uncertain"
+      : "Payment link may exist — do not retry";
+    statusNote = squareOutcomeUncertain
+      ? "Payment link outcome is uncertain. Do not resubmit. Check Orders v2, Square, and Legacy admin before taking further action."
+      : warning ||
+        "Square may have created a payment link, but confirmation failed. Do not retry from this page. Check Legacy admin.";
+    bannerClass = "sg-warn-banner--danger";
+  } else if (outcome === "email_failed") {
+    statusTitle = "Payment link created — email not sent";
+    statusNote =
+      "Order was created. Square payment link was created. Customer email was not sent. Do not create another order or payment link. Copy and send the existing link manually.";
+    bannerClass = "sg-warn-banner--danger";
   }
 
   const warnBanner =
-    partial || warning || !emailed
-      ? `<div class="sg-warn-banner sg-warn-banner--danger" role="alert" style="margin-bottom:12px">
+    outcome !== "success"
+      ? `<div class="sg-warn-banner ${bannerClass}" role="alert" style="margin-bottom:12px">
           ${icon("alert-triangle", 16)}
-          <span>${escapeHtml(partial ? statusNote : warning || statusNote)}</span>
+          <span>${escapeHtml(warning || statusNote)}</span>
         </div>`
       : "";
 
+  const copyBtn = checkoutUrl
+    ? `<button type="button" class="sg-btn sg-btn--ghost" id="mo-copy-link-btn">Copy payment link</button>`
+    : "";
   const openLinkBtn = checkoutUrl
     ? `<a class="sg-btn sg-btn--ghost" href="${escapeHtml(checkoutUrl)}" target="_blank" rel="noopener noreferrer">Open payment link</a>`
     : "";
+  const createAnotherBtn = allowCreateAnotherManualOrder(outcome)
+    ? `<button type="button" class="sg-btn sg-btn--ghost" id="mo-create-another-btn">Create another order</button>`
+    : "";
+
+  const refRows = [
+    result.orderRef
+      ? ["Reference", `<span class="sg-mono">${escapeHtml(result.orderRef)}</span>`]
+      : null,
+    result.orderId
+      ? ["Order ID", `<span class="sg-mono">${escapeHtml(result.orderId)}</span>`]
+      : null,
+    ["Total", escapeHtml(result.totalFormatted || "—")],
+    [
+      "Payment-link status",
+      outcome === "success" || outcome === "email_failed"
+        ? "Created"
+        : outcome === "link_uncertain" || outcome === "create_uncertain"
+          ? "Uncertain"
+          : "Not confirmed",
+    ],
+    ["Email status", emailed ? "Sent" : "Not sent"],
+    checkoutUrl
+      ? [
+          "Payment link",
+          `<a href="${escapeHtml(checkoutUrl)}" target="_blank" rel="noopener noreferrer" class="sg-mono">${escapeHtml(checkoutUrl)}</a>`,
+        ]
+      : null,
+  ];
 
   panel.innerHTML = `
     <div class="mo-success-card">
-      <h3 class="mo-success-card__title">${icon(partial || !emailed ? "alert-triangle" : "check", 16)}<span>${escapeHtml(statusTitle)}</span></h3>
+      <h3 class="mo-success-card__title">${icon(outcome === "success" ? "check" : "alert-triangle", 16)}<span>${escapeHtml(statusTitle)}</span></h3>
       ${warnBanner}
-      ${!partial && emailed ? `<p class="sg-meta-note" style="margin:0 0 12px">${escapeHtml(statusNote)}</p>` : ""}
-      ${kvHtml([
-        ["Reference", `<span class="sg-mono">${escapeHtml(result.orderRef)}</span>`],
-        ["Order ID", `<span class="sg-mono">${escapeHtml(result.orderId)}</span>`],
-        ["Total", escapeHtml(result.totalFormatted)],
-        ["Payment flow", "Square payment link"],
-        ["Email status", emailed ? "Sent" : partial ? "Not sent (send-link failed)" : "Not sent"],
-        checkoutUrl
-          ? ["Payment link", `<a href="${escapeHtml(checkoutUrl)}" target="_blank" rel="noopener noreferrer" class="sg-mono">${escapeHtml(checkoutUrl)}</a>`]
-          : null,
-      ])}
+      ${outcome === "success" ? `<p class="sg-meta-note" style="margin:0 0 12px">${escapeHtml(statusNote)}</p>` : ""}
+      ${outcome === "create_uncertain" || (outcome === "link_uncertain" && squareOutcomeUncertain) ? `<p class="sg-meta-note" style="margin:0 0 12px">${escapeHtml(statusNote)}</p>` : ""}
+      ${kvHtml(refRows)}
+      <p class="sg-meta-note" style="margin:12px 0 0">Creating a draft does not reserve inventory. Creating or emailing a payment link does not decrement inventory. Payment does not itself decrement stock for Manual Order payment links. Fulfillment remains in the existing admin workflow — this page does not mark shipped or purchase labels.</p>
       <div class="sg-ship-to-actions" style="margin-top:14px">
-        <a class="sg-btn sg-btn--primary" href="/admin-v2/orders">Open in Orders</a>
+        <a class="sg-btn sg-btn--primary" href="${ORDERS_V2_HREF}">Open in Orders</a>
+        <a class="sg-btn sg-btn--ghost" href="${LEGACY_MANUAL_ORDER_HREF}">Open Legacy admin</a>
         ${openLinkBtn}
-        <button type="button" class="sg-btn sg-btn--ghost" id="mo-create-another-btn">Create another order</button>
+        ${copyBtn}
+        ${createAnotherBtn}
       </div>
     </div>`;
   getEl("mo-create-another-btn")?.addEventListener("click", () => resetForAnotherOrder());
+  getEl("mo-copy-link-btn")?.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(checkoutUrl);
+      toast("Payment link copied.", "success");
+    } catch {
+      toast("Could not copy link. Select it manually.", "danger");
+    }
+  });
 }
 
 function resetForAnotherOrder() {
   lastCreatedOrder = null;
   lastQuote = null;
   estimateStale = false;
-  discountOverrideConfirmed = false;
+  // Invalidate any prior in-flight estimate so a late response cannot become usable.
+  estimateInputRevision += 1;
+  manualDiscountSelection = defaultManualDiscountSelection();
   selectedRateId = null;
   selectedShippingRateSnapshot = null;
   allocationSubmitAttempted = false;
@@ -1858,18 +2070,8 @@ function resetForAnotherOrder() {
   const country = getEl("mo-addr-country");
   if (country) country.value = "US";
 
-  const applyDisc = getEl("mo-apply-discount");
-  if (applyDisc) applyDisc.checked = false;
-
   const carrier = document.querySelector('input[name="mo_fulfillment"][value="carrier"]');
   if (carrier instanceof HTMLInputElement) carrier.checked = true;
-  const square = document.querySelector('input[name="mo_payment"][value="square_payment_link"]');
-  if (square instanceof HTMLInputElement) square.checked = true;
-  const payLater = document.querySelector('input[name="mo_payment"][value="pay_later"]');
-  if (payLater instanceof HTMLInputElement) {
-    payLater.checked = false;
-    payLater.disabled = true;
-  }
 
   const errEl = getEl("mo-page-error");
   if (errEl) {
@@ -1879,10 +2081,13 @@ function resetForAnotherOrder() {
 
   setPanelVisible(getEl("mo-create-result"), false);
   setPanelVisible(getEl("mo-actions"), true);
+  setFormLocked(false);
+  renderDiscountPanel();
   renderProducts();
   renderQuotePreview(null);
   syncFulfillmentUi();
-  syncCreateUnpaidButtonState();
+
+  syncEstimateButtonState();
   syncSendLinkButtonState();
   toast("Form cleared. Ready for another order.", "success");
   getEl("mo-cust-name")?.focus();
@@ -1891,15 +2096,13 @@ function resetForAnotherOrder() {
 function renderSizeColumn(product, st, channel) {
   const map = channel === "box" ? st.boxBySize : st.caseBySize;
   const progress = allocationProgressForChannel(product, st, channel);
-  const { req, assigned, incomplete, progressLabel, statusHtml, kind } = progress;
+  const { req, assigned, incomplete, kind } = progress;
   const title = kind === "box" ? "Boxes by size" : "Cases by size";
 
   return `<div class="mo-size-col${incomplete ? " is-incomplete" : progress.complete ? " is-complete" : ""}">
     <div class="mo-size-col__head">
       <span class="mo-size-col__title">${escapeHtml(title)}</span>
-      ${progressLabel ? `<span class="mo-size-col__progress">${escapeHtml(progressLabel)}</span>` : ""}
     </div>
-    ${statusHtml}
     <div class="mo-size-rows">
       ${supportedSizesForProduct(product)
         .map((size) => {
@@ -1926,6 +2129,7 @@ function renderSizeColumn(product, st, channel) {
 }
 
 function renderBundleStep(product, st, oos) {
+  const isOpen = st.ui?.bundleOpen !== false;
   const bundlesHtml = (product.bundles || [])
     .map((b) => {
       const qty = Math.floor(st.bundleQty[b.id] || 0);
@@ -1933,7 +2137,6 @@ function renderBundleStep(product, st, oos) {
       const price = b.priceFormatted || formatCurrency(b.priceCents || 0);
       const kind = String(b.kind || "case").toLowerCase() === "box" ? "box" : "case";
       const units = Math.max(0, Math.floor(Number(b.units) || 0));
-      const perPack = units > 0 ? `Adds ${units} ${unitWord(kind, units)}` : "";
       const selectedTotal =
         qty > 0 && units > 0 ? `${qty * units} ${unitWord(kind, qty * units)} selected` : "";
       return `<div class="mo-bundle-row${qty > 0 ? " is-selected" : ""}">
@@ -1941,7 +2144,6 @@ function renderBundleStep(product, st, oos) {
           <div class="mo-bundle-row__name">${escapeHtml(label)}</div>
           <div class="mo-bundle-row__meta">
             <span class="mo-bundle-row__price">${escapeHtml(price)}</span>
-            ${perPack ? `<span class="mo-bundle-row__adds">${escapeHtml(perPack)}</span>` : ""}
             ${selectedTotal ? `<span class="mo-bundle-row__selected-total">${escapeHtml(selectedTotal)}</span>` : ""}
           </div>
         </div>
@@ -1954,61 +2156,51 @@ function renderBundleStep(product, st, oos) {
     })
     .join("");
 
-  return `<div class="mo-step">
-    <div class="mo-step__head">
-      <span class="mo-step__badge">Step 1</span>
-      <h3 class="mo-step__title">Choose package quantity</h3>
-    </div>
-    <p class="mo-step__help">Select how many boxes or cases the customer wants.</p>
-    <div class="mo-bundle-list">${bundlesHtml}</div>
-  </div>`;
+  return renderStepPanel({
+    slug: product.slug,
+    stepKey: "bundle",
+    badge: "Step 1",
+    title: "Choose package quantity",
+    help: "Select the bundle first, then select size in Step 2.",
+    bodyHtml: `<div class="mo-bundle-list">${bundlesHtml}</div>`,
+    open: isOpen,
+  });
 }
 
 function renderAssignSizesStep(product, st) {
   const hasSelection = hasAnyBundleSelection(st.bundleQty);
+  const isOpen = hasSelection ? st.ui?.sizeOpen !== false : st.ui?.sizeOpen === true;
   if (!hasSelection) {
-    return `<div class="mo-step mo-step--sizes mo-step--waiting">
-      <div class="mo-step__head">
-        <span class="mo-step__badge">Step 2</span>
-        <h3 class="mo-step__title">Assign sizes</h3>
-      </div>
-      <p class="mo-step__help">Assign sizes to match the total selected above.</p>
-      <p class="mo-step__empty">Choose a package quantity above to assign sizes.</p>
-    </div>`;
+    return renderStepPanel({
+      slug: product.slug,
+      stepKey: "size",
+      badge: "Step 2",
+      title: "Assign sizes",
+      help: "Match every selected box or case with a size before moving on.",
+      bodyHtml: "",
+      open: isOpen,
+      extraClass: " mo-step--sizes mo-step--waiting",
+    });
   }
 
   const sizeCols = [];
+  const progressWarnings = [];
+  const progressChannels = [];
   if (showCaseColumn(product, st.bundleQty)) sizeCols.push(renderSizeColumn(product, st, "case"));
   if (showBoxColumn(product, st.bundleQty)) sizeCols.push(renderSizeColumn(product, st, "box"));
+  if (showCaseColumn(product, st.bundleQty)) progressChannels.push("case");
+  if (showBoxColumn(product, st.bundleQty)) progressChannels.push("box");
 
-  const { reqBox, reqCase } = computeRequiredUnits(product, st.bundleQty);
-  const sumBox = sumChannel(st.boxBySize);
-  const sumCase = sumChannel(st.caseBySize);
-  const name = product.name || product.slug;
-  const summaryParts = [];
   const warnParts = [];
-
-  if (showBoxColumn(product, st.bundleQty) && reqBox > 0) {
-    const remaining = reqBox - sumBox;
-    summaryParts.push(
-      `Selected: ${reqBox} ${unitWord("box", reqBox)} · Assigned: ${sumBox} ${unitWord("box", sumBox)} · Remaining: ${Math.max(0, remaining)} ${unitWord("box", Math.max(0, remaining))}`,
-    );
-    if (remaining > 0) {
-      warnParts.push(`${name}: Assign ${remaining} more ${unitWord("box", remaining)} to continue.`);
-    } else if (remaining < 0) {
-      warnParts.push(`${name}: Remove ${Math.abs(remaining)} ${unitWord("box", remaining)} to match the package total.`);
+  for (const channel of progressChannels) {
+    const progress = allocationProgressForChannel(product, st, channel);
+    if (progress.req < 1 || progress.complete) continue;
+    const prefix = progressChannels.length > 1 ? `${channel === "box" ? "Boxes" : "Cases"} by size: ` : "";
+    if (progress.remaining > 0) {
+      progressWarnings.push(`${prefix}assign ${progress.remaining} more ${unitWord(channel, progress.remaining)}.`);
+      continue;
     }
-  }
-  if (showCaseColumn(product, st.bundleQty) && reqCase > 0) {
-    const remaining = reqCase - sumCase;
-    summaryParts.push(
-      `Selected: ${reqCase} ${unitWord("case", reqCase)} · Assigned: ${sumCase} ${unitWord("case", sumCase)} · Remaining: ${Math.max(0, remaining)} ${unitWord("case", Math.max(0, remaining))}`,
-    );
-    if (remaining > 0) {
-      warnParts.push(`${name}: Assign ${remaining} more ${unitWord("case", remaining)} to continue.`);
-    } else if (remaining < 0) {
-      warnParts.push(`${name}: Remove ${Math.abs(remaining)} ${unitWord("case", remaining)} to match the package total.`);
-    }
+    progressWarnings.push(`${prefix}remove ${Math.abs(progress.remaining)} ${unitWord(channel, progress.remaining)} to match the selected bundle.`);
   }
 
   const stockIssues = productAllocationIssues(product).filter((i) =>
@@ -2016,6 +2208,7 @@ function renderAssignSizesStep(product, st) {
   );
   const hasOosQty = stockIssues.some((i) => /out-of-stock/i.test(i.message));
   for (const issue of stockIssues) warnParts.push(issue.message);
+  warnParts.push(...progressWarnings);
 
   const allComplete = warnParts.length === 0 && safeIsBundleAllocationValid(
     product,
@@ -2026,11 +2219,8 @@ function renderAssignSizesStep(product, st) {
 
   const stepHelp = hasOosQty
     ? "Remove out-of-stock quantities before calculating totals."
-    : "Assign sizes to match the selected package quantity.";
+    : "Match every selected box or case with a size before moving to the rest of the order.";
 
-  const summaryHtml = summaryParts.length
-    ? `<p class="mo-alloc-summary">${summaryParts.map((s) => escapeHtml(s)).join("<br>")}</p>`
-    : "";
   const warnHtml = warnParts.length
     ? warnParts
         .map(
@@ -2043,16 +2233,16 @@ function renderAssignSizesStep(product, st) {
     ? `<p class="mo-alloc-status mo-alloc-status--ok">${icon("check", 14)}<span>Size allocation complete.</span></p>`
     : "";
 
-  return `<div class="mo-step mo-step--sizes${allComplete ? "" : " is-incomplete"}">
-    <div class="mo-step__head">
-      <span class="mo-step__badge">Step 2</span>
-      <h3 class="mo-step__title">Assign sizes</h3>
-    </div>
-    <p class="mo-step__help">${escapeHtml(stepHelp)}</p>
-    ${summaryHtml}
-    ${okHtml}${warnHtml}
-    <div class="mo-size-grid${sizeCols.length === 1 ? " mo-size-grid--single" : ""}">${sizeCols.join("")}</div>
-  </div>`;
+  return renderStepPanel({
+    slug: product.slug,
+    stepKey: "size",
+    badge: "Step 2",
+    title: "Assign sizes",
+    help: stepHelp,
+    bodyHtml: `${okHtml}${warnHtml}<div class="mo-size-grid${sizeCols.length === 1 ? " mo-size-grid--single" : ""}">${sizeCols.join("")}</div>`,
+    open: isOpen,
+    extraClass: ` mo-step--sizes${allComplete ? "" : " is-incomplete"}`,
+  });
 }
 
 function renderProductCard(product) {
@@ -2098,10 +2288,12 @@ function renderProducts() {
   if (!host) return;
   if (!products.length) {
     host.innerHTML = `<p class="sg-muted">No products loaded.</p>`;
+    renderProductsSummary();
     syncEstimateButtonState();
     return;
   }
   host.innerHTML = products.map((p) => renderProductCard(p)).join("");
+  renderProductsSummary();
   syncEstimateButtonState();
 }
 
@@ -2144,6 +2336,7 @@ function renderQuotePreview(data) {
   if (!data) {
     host.innerHTML = `<p class="sg-muted" style="margin:0">Run Calculate totals to preview merchandise, tax, shipping, and discounts.</p>`;
     setPanelVisible(stale, false);
+    renderProductsSummary();
     return;
   }
   const v = quoteView(data);
@@ -2156,13 +2349,13 @@ function renderQuotePreview(data) {
          <div class="mo-quote-row"><span>Residential surcharge</span><span>${escapeHtml(v.residentialSurchargeFormatted || "—")}</span></div>`
       : `<div class="mo-quote-row"><span>Shipping</span><span>${escapeHtml(shippingStatusLabel(v))}</span></div>`;
 
-  const hardinBits = [];
-  if (data.hardinDiscountApplied) hardinBits.push(statusChip("Local discount applied", "success"));
-  if (data.adminLocalDiscountForced) hardinBits.push(statusChip("Staff override", "warning"));
-  if (data.adminLocalDiscountNeedsOverride && !data.hardinDiscountApplied) {
-    hardinBits.push(statusChip("Not eligible", "warning"));
+  const quoteChips = [];
+  const appliedManualDiscount = normalizeManualDiscountSelection(
+    data?.merchandise?.manualDiscount || data?.manualDiscount || manualDiscountSelection,
+  );
+  if (appliedManualDiscount.type !== "none" && v.discountFormatted) {
+    quoteChips.push(statusChip(manualDiscountLabel(appliedManualDiscount), "success"));
   }
-  if (data.adminLocalDiscountDeclined) hardinBits.push(statusChip("Declined by ZIP", "neutral"));
 
   const warnings = (v.warnings || [])
     .map((w) => `<div class="sg-inline-warn" style="margin-top:8px">${icon("alert-triangle", 14)}<span>${escapeHtml(String(w))}</span></div>`)
@@ -2173,32 +2366,40 @@ function renderQuotePreview(data) {
   const checkoutNote = v.canCheckout
     ? ""
     : `<p class="sg-meta-note" style="margin:10px 0 0">Quote is not ready for checkout. Resolve issues above and recalculate.</p>`;
+  const itemsHtml = currentSelectionSummaryHtml({
+    emptyMessage: "No items selected yet.",
+    showPending: false,
+    compact: true,
+  });
+  const itemNames = currentSelectionEntries()
+    .map((entry) => entry.name)
+    .join(" · ");
 
   host.innerHTML = `
     <div class="mo-quote-rows">
-      <div class="mo-quote-row"><span>Merchandise</span><strong>${escapeHtml(v.merchandiseFormatted)}</strong></div>
+      <div class="mo-quote-row">
+        <span class="mo-quote-row__stack">
+          <span>Merchandise</span>
+          ${itemNames ? `<span class="mo-quote-row__detail">${escapeHtml(itemNames)}</span>` : ""}
+        </span>
+        <strong>${escapeHtml(v.merchandiseFormatted)}</strong>
+      </div>
       ${discountLine}
       ${shipLine}
       <div class="mo-quote-row"><span>Tax</span><strong>${escapeHtml(v.taxFormatted)}</strong></div>
       <div class="mo-quote-row mo-quote-row--meta"><span></span><span class="sg-muted">Destination: ${escapeHtml(v.destinationState || "—")} · Source: ${escapeHtml(taxSourceLabel(v.taxSource))}</span></div>
       <div class="mo-quote-row mo-quote-row--total"><span>Total</span><strong>${escapeHtml(v.totalFormatted)}</strong></div>
     </div>
-    ${hardinBits.length ? `<div class="mo-quote-chips" style="margin-top:10px">${hardinBits.join(" ")}</div>` : ""}
+    <div class="mo-quote-items">
+      <p class="mo-quote-items__label">Items in this order</p>
+      ${itemsHtml}
+    </div>
+    ${quoteChips.length ? `<div class="mo-quote-chips" style="margin-top:10px">${quoteChips.join(" ")}</div>` : ""}
     ${err}${warnings}${checkoutNote}
   `;
   setPanelVisible(stale, Boolean(lastQuote) && estimateStale);
   renderRates(data);
-  syncDiscountOverridePanel(data);
-}
-
-function syncDiscountOverridePanel(data) {
-  const panel = getEl("mo-discount-override");
-  if (!panel) return;
-  const show =
-    readApplyLocalDiscount() &&
-    data?.adminLocalDiscountNeedsOverride === true &&
-    data?.hardinDiscountApplied !== true;
-  setPanelVisible(panel, show);
+  renderProductsSummary();
 }
 
 function validateBeforeEstimate() {
@@ -2230,10 +2431,9 @@ function buildEstimatePayload(items) {
   const body = {
     items,
     address,
-    applyEligibleLocalDiscount: readApplyLocalDiscount(),
-    forceApplyEligibleLocalDiscount: discountOverrideConfirmed,
     fulfillmentMethod: fm,
     localDeliveryNote: fm === "local_delivery" ? readLocalDeliveryNote() : "",
+    ...manualDiscountPayloadFields(),
   };
 
   if (fm === "carrier") {
@@ -2254,7 +2454,7 @@ async function runEstimate() {
     errEl.hidden = true;
     errEl.textContent = "";
   }
-  if (estimateInFlight) return;
+  if (paymentLinkInFlight) return;
 
   const { ok, errors, items, blockers } = validateBeforeEstimate();
   renderEstimateChecklist(ok ? [] : blockers);
@@ -2269,26 +2469,74 @@ async function runEstimate() {
     return;
   }
 
-  const token = await getToken();
-  if (!token) {
-    toast("Sign in again to calculate totals.", "danger");
-    return;
-  }
+  // Capture revision + immutable payload before any await (token or network).
+  const capturedRevision = estimateInputRevision;
+  const capturedPayload = buildEstimatePayload(items);
 
-  estimateInFlight = true;
   const btn = getEl("mo-estimate-btn");
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "Calculating…";
-  }
+  // Production helper sets in-flight before the first await (token).
+  const result = await runGuardedManualOrderEstimate({
+    get inFlight() {
+      return estimateInFlight;
+    },
+    setInFlight(v) {
+      estimateInFlight = v;
+      if (v) {
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = "Calculating…";
+        }
+        syncEstimateButtonState();
+      } else if (btn) {
+        btn.textContent = "Calculate totals";
+      }
+    },
+    capturedRevision,
+    getCurrentRevision: () => estimateInputRevision,
+    validate: () => ({ ok: true, payload: capturedPayload }),
+    getToken,
+    post: async (token, payload) =>
+      fetchManualOrderPost("/api/admin-manual-order-estimate", token, payload),
+  });
 
   try {
-    const payload = buildEstimatePayload(items);
-    // First carrier estimate does not require a pre-selected rate; rates come back from this call.
-    const data = await fetchReportPost("/api/admin-manual-order-estimate", token, payload);
+    if (!result.started) return;
+    if (result.reason === "auth") {
+      toast("Sign in again to calculate totals.", "danger");
+      return;
+    }
+    if (result.reason === "inputs_changed") {
+      // Discard stale response — keep any prior quote only as stale; never enable submit.
+      if (lastQuote) {
+        estimateStale = true;
+        setPanelVisible(getEl("mo-quote-stale"), true);
+      }
+      const msg =
+        "Order details changed while totals were calculating. Recalculate before creating the order.";
+      if (errEl) {
+        errEl.textContent = msg;
+        errEl.hidden = false;
+      }
+      toast(msg, "danger");
+      return;
+    }
+    if (!result.ok) {
+      const error = result.error;
+      const msg =
+        error instanceof ReportPostError
+          ? error.message
+          : error?.message || "Estimate failed.";
+      if (errEl) {
+        errEl.textContent = msg;
+        errEl.hidden = false;
+      }
+      toast(msg, "danger");
+      return;
+    }
+
+    const data = result.data;
     lastQuote = data;
     estimateStale = false;
-    if (data?.adminLocalDiscountForced) discountOverrideConfirmed = true;
 
     const providerRateId = String(data?.shipping?.providerQuoteId || "").trim();
     if (getFulfillment() === "carrier") {
@@ -2305,23 +2553,8 @@ async function runEstimate() {
 
     renderQuotePreview(data);
     syncFulfillmentUi();
-    syncEstimateButtonState();
     toast("Quote updated.", "success");
-  } catch (error) {
-    const msg =
-      error instanceof ReportPostError
-        ? error.message
-        : error?.message || "Estimate failed.";
-    if (errEl) {
-      errEl.textContent = msg;
-      errEl.hidden = false;
-    }
-    toast(msg, "danger");
   } finally {
-    estimateInFlight = false;
-    if (btn) {
-      btn.textContent = "Calculate totals";
-    }
     syncEstimateButtonState();
   }
 }
@@ -2329,17 +2562,22 @@ async function runEstimate() {
 async function onRateSelected(rateId) {
   selectedRateId = String(rateId || "").trim() || null;
   captureRateSnapshotFromQuote(lastQuote, selectedRateId);
-  markEstimateStale();
+  markEstimateInputsChanged();
   // Re-estimate with selected rate so totals match selection.
   await runEstimate();
 }
 
+function sectionTitleHtml(iconName, label) {
+  return `${icon(iconName, 16)}<span>${escapeHtml(label)}</span>`;
+}
+
 function pageHtml() {
-  const stateOpts = US_STATES.map((s) => `<option value="${s}">${s}</option>`).join("");
+  const stateOpts =
+    `<option value="">Select state</option>` + US_STATES.map((s) => `<option value="${s}">${s}</option>`).join("");
 
   const customer = card({
-    title: "Customer",
-    bodyHtml: `<div class="mo-grid">
+    titleHtml: sectionTitleHtml("user", "Customer"),
+    bodyHtml: `<div class="mo-grid mo-grid--compact-y">
       <label class="sg-field"><span class="sg-field__label">Full name</span><input class="sg-input" id="mo-cust-name" type="text" autocomplete="name" required /></label>
       <label class="sg-field"><span class="sg-field__label">Email</span><input class="sg-input" id="mo-cust-email" type="email" autocomplete="email" required /></label>
       <label class="sg-field"><span class="sg-field__label">Phone <span class="sg-field__optional">(optional)</span></span><input class="sg-input" id="mo-cust-phone" type="tel" autocomplete="tel" /></label>
@@ -2347,27 +2585,20 @@ function pageHtml() {
   });
 
   const productsCard = card({
-    title: "Products / line items",
-    bodyHtml: `<p class="sg-meta-note" style="margin:0 0 12px">For each product: choose a package quantity, then assign sizes until the totals match.</p>
-      <div id="mo-products" class="mo-products"><p class="sg-muted">Loading products…</p></div>
-      <div class="mo-deferred" style="margin-top:14px">
-        <label class="mo-check mo-check--disabled">
-          <input type="checkbox" disabled tabindex="-1" />
-          <span>Force stock override</span>
-        </label>
-        <p class="sg-meta-note" style="margin:6px 0 0">Out-of-stock sizes are blocked in M1. Staff force-stock override (supported by estimate) is deferred to a later phase.</p>
-      </div>`,
+    titleHtml: sectionTitleHtml("package", "Products / line items"),
+    bodyHtml: `<div id="mo-products" class="mo-products"><p class="sg-muted">Loading products…</p></div>
+      <div id="mo-products-summary" style="margin-top:12px"></div>`,
   });
 
   const fulfillment = card({
-    title: "Fulfillment",
+    titleHtml: sectionTitleHtml("truck", "Fulfillment"),
     bodyHtml: `
       <div class="mo-radio-row" role="radiogroup" aria-label="Fulfillment method">
-        <label class="mo-radio"><input type="radio" name="mo_fulfillment" value="carrier" checked /><span>Ship with carrier</span></label>
-        <label class="mo-radio"><input type="radio" name="mo_fulfillment" value="local_delivery" /><span>Local delivery</span></label>
-        <label class="mo-radio"><input type="radio" name="mo_fulfillment" value="pickup" /><span>Pickup</span></label>
+        <label class="mo-radio"><input type="radio" name="mo_fulfillment" value="carrier" checked /><span class="mo-radio__label">${icon("truck", 16)}<span>Ship with carrier</span></span></label>
+        <label class="mo-radio"><input type="radio" name="mo_fulfillment" value="local_delivery" /><span class="mo-radio__label">${icon("map-pin", 16)}<span>Local delivery</span></span></label>
+        <label class="mo-radio"><input type="radio" name="mo_fulfillment" value="pickup" /><span class="mo-radio__label">${icon("store", 16)}<span>Pickup</span></span></label>
       </div>
-      <p class="sg-meta-note mo-fulfillment-helper" id="mo-fulfillment-helper">Full shipping address is required for carrier quotes.</p>
+      <div id="mo-local-area-advisory" class="sg-warn-banner sg-hide" hidden role="status" style="margin:10px 0 0"></div>
       <div id="mo-pickup-note" class="sg-inline-warn mo-fulfillment-callout sg-hide" hidden>${icon("info", 14)}<span>${escapeHtml(PICKUP_NOTE)}</span></div>
       <div id="mo-local-note-wrap" class="mo-fulfillment-panel sg-hide" hidden>
         <label class="sg-field mo-field-full" style="margin-bottom:0">
@@ -2376,7 +2607,7 @@ function pageHtml() {
         </label>
       </div>
       <div id="mo-address-block" class="mo-address mo-fulfillment-panel">
-        <div class="mo-grid">
+        <div class="mo-grid mo-grid--compact-y">
           <label class="sg-field mo-grid__full"><span class="sg-field__label">Street address</span><input class="sg-input" id="mo-addr-line1" type="text" autocomplete="address-line1" /></label>
           <label class="sg-field mo-grid__full"><span class="sg-field__label">Apt, suite <span class="sg-field__optional">(optional)</span></span><input class="sg-input" id="mo-addr-line2" type="text" autocomplete="address-line2" /></label>
           <label class="sg-field"><span class="sg-field__label">City</span><input class="sg-input" id="mo-addr-city" type="text" autocomplete="address-level2" /></label>
@@ -2394,39 +2625,17 @@ function pageHtml() {
       <div id="mo-rates-wrap" class="mo-fulfillment-panel sg-hide" hidden>
         <p class="sg-drawer-section__title" style="margin-bottom:8px">Carrier service</p>
         <div id="mo-rates" class="mo-rates"></div>
-        <p class="sg-meta-note" style="margin:8px 0 0">Selecting a rate recalculates the quote. Nothing is saved in M1.</p>
+        <p class="sg-meta-note" style="margin:8px 0 0">Selecting a rate recalculates the quote. Totals are not saved until you create and send a payment link.</p>
       </div>`,
   });
 
   const discount = card({
-    title: "Discount",
-    bodyHtml: `
-      <label class="mo-check">
-        <input type="checkbox" id="mo-apply-discount" />
-        <span>Apply eligible local discount (Hardin County, TN delivery — verified from ZIP)</span>
-      </label>
-      <p class="sg-meta-note" style="margin:8px 0 0">Checking this requests local pricing. It only applies when the address qualifies, unless you use the staff override after estimate.</p>
-      <div id="mo-discount-override" class="mo-override sg-hide" hidden>
-        <p class="mo-override__text">This order does not meet discount eligibility rules (shipping ZIP is outside the eligible local area).</p>
-        <button type="button" class="sg-btn sg-btn--primary sg-btn--sm" id="mo-discount-override-btn">Continue — apply discount anyway</button>
-        <p class="sg-meta-note" style="margin:8px 0 0">Override is sent on the next estimate only. Creating the unpaid order uses the same override flag.</p>
-      </div>`,
-  });
-
-  const payment = card({
-    title: "Future order action",
-    bodyHtml: `
-      <p class="sg-meta-note" id="mo-payment-helper" style="margin:0 0 10px">Carrier orders must be paid through a Square payment link before shipping.</p>
-      <div class="mo-radio-row" role="radiogroup" aria-label="Future order action">
-        <label class="mo-radio"><input type="radio" name="mo_payment" value="square_payment_link" checked /><span>Square payment link</span></label>
-        <label class="mo-radio mo-radio--deferred is-disabled" aria-disabled="true"><input type="radio" name="mo_payment" value="pay_later" disabled /><span>Pay later</span></label>
-      </div>
-      <p class="sg-meta-note" id="mo-payment-flow-note" style="margin:10px 0 0">Carrier: Calculate totals → select rate → Create order &amp; send payment link → customer pays → fulfill in Orders.</p>
-      <p class="sg-meta-note" style="margin:8px 0 0">Create unpaid order is for Pay later + pickup or approved local delivery. Create order &amp; send payment link is for Square payment link on carrier, pickup, or approved local delivery.</p>`,
+    titleHtml: sectionTitleHtml("tag", "Discount"),
+    bodyHtml: `<div id="mo-discount-panel"></div>`,
   });
 
   const quote = card({
-    title: "Estimate / quote preview",
+    titleHtml: sectionTitleHtml("receipt", "Estimate / quote preview"),
     bodyHtml: `
       <div class="mo-estimate-actions" id="mo-estimate-wrap">
         <div class="mo-estimate-actions__btnrow">
@@ -2440,10 +2649,10 @@ function pageHtml() {
   });
 
   const actions = `<div class="mo-future-actions" id="mo-actions">
-    <p class="sg-meta-note" id="mo-create-helper" style="margin:0 0 10px">Choose Square payment link or Pay later, calculate totals, then use the matching action below.</p>
+    <p class="sg-meta-note" id="mo-create-helper" style="margin:0 0 10px">Calculate totals, then create and send a Square payment link.</p>
+    <p class="sg-meta-note sg-hide" id="mo-submit-stage" hidden style="margin:0 0 10px"></p>
     <div class="mo-future-actions__btns">
-      <button type="button" class="sg-btn mo-btn-deferred" id="mo-create-unpaid-btn" disabled title="Complete a fresh pay-later quote for pickup or approved local delivery.">Create unpaid order</button>
-      <button type="button" class="sg-btn mo-btn-deferred" id="mo-send-link-btn" disabled title="Complete a fresh Square payment link quote.">Create order &amp; send payment link</button>
+      <button type="button" class="sg-btn mo-btn-deferred" id="mo-send-link-btn" disabled title="Complete a fresh estimate first.">Create and send payment link</button>
     </div>
   </div>
   <div id="mo-create-result" class="sg-hide" hidden></div>`;
@@ -2451,7 +2660,7 @@ function pageHtml() {
   return `${pageHeader({
     title: "Manual Order",
     subtitle:
-      "Estimate totals, create unpaid pay-later orders for pickup or approved local delivery, or create an order and email a Square payment link for carrier, pickup, or local delivery.",
+      "Create a Manual Order draft and email a Square payment link for carrier shipping, local delivery, or pickup. Payment collection and fulfillment stay outside this page.",
   })}
   <p id="mo-page-error" class="sg-error" role="alert" hidden style="white-space:pre-wrap"></p>
   <div class="mo-stack">
@@ -2459,7 +2668,6 @@ function pageHtml() {
     ${productsCard}
     ${fulfillment}
     ${discount}
-    ${payment}
     ${quote}
     ${actions}
   </div>`;
@@ -2470,6 +2678,34 @@ function wirePage() {
   if (!page) return;
 
   page.addEventListener("click", (e) => {
+    const discountOption = e.target.closest("[data-mo-discount-option]");
+    if (discountOption) {
+      openManualDiscountDialog(
+        discountOption.getAttribute("data-type"),
+        discountOption.getAttribute("data-value"),
+      );
+      return;
+    }
+    const stepToggle = e.target.closest("[data-mo-step-toggle]");
+    if (stepToggle) {
+      const slug = stepToggle.getAttribute("data-slug");
+      const step = stepToggle.getAttribute("data-step");
+      const product = products.find((item) => item.slug === slug);
+      if (!product) return;
+      ensureProductState(product);
+      if (step === "bundle") {
+        const next = !productState[slug].ui.bundleOpen;
+        productState[slug].ui.bundleOpen = next;
+        if (next) productState[slug].ui.sizeOpen = false;
+      }
+      if (step === "size") {
+        const next = !productState[slug].ui.sizeOpen;
+        productState[slug].ui.sizeOpen = next;
+        if (next) productState[slug].ui.bundleOpen = false;
+      }
+      renderProducts();
+      return;
+    }
     const toggle = e.target.closest("[data-mo-toggle-product]");
     if (toggle) {
       const slug = toggle.getAttribute("data-mo-toggle-product");
@@ -2502,19 +2738,13 @@ function wirePage() {
     const t = e.target;
     if (!(t instanceof HTMLElement)) return;
     if (t.getAttribute("name") === "mo_fulfillment") {
-      markEstimateStale();
+      markEstimateInputsChanged();
       syncFulfillmentUi();
       syncEstimateButtonState();
       return;
     }
     if (t.getAttribute("name") === "mo_ship_rate" && t instanceof HTMLInputElement) {
       void onRateSelected(t.value);
-      return;
-    }
-    if (t.id === "mo-apply-discount") {
-      discountOverrideConfirmed = false;
-      markEstimateStale();
-      syncDiscountOverridePanel(lastQuote);
       return;
     }
     if (
@@ -2525,12 +2755,9 @@ function wirePage() {
       t.id === "mo-cust-email" ||
       t.id === "mo-cust-phone"
     ) {
-      markEstimateStale();
+      markEstimateInputsChanged();
+      if (t.id?.startsWith("mo-addr-")) syncLocalDeliveryAdvisory();
       return;
-    }
-    if (t.getAttribute("name") === "mo_payment") {
-      syncPaymentIntentUi();
-      syncEstimateButtonState();
     }
   });
 
@@ -2545,7 +2772,9 @@ function wirePage() {
       t.id === "mo-local-note" ||
       t.id === "mo-ship-date"
     ) {
-      syncEstimateButtonState();
+      // Typing while an estimate is pending must invalidate the revision immediately.
+      markEstimateInputsChanged();
+      if (t.id?.startsWith("mo-addr-")) syncLocalDeliveryAdvisory();
     }
   });
 
@@ -2558,16 +2787,8 @@ function wirePage() {
     focusEstimateBlocker(elig.blockers[0]);
     toast(elig.blockers[0]?.message || "Fix the checklist items before calculating.", "danger");
   });
-  getEl("mo-discount-override-btn")?.addEventListener("click", () => {
-    discountOverrideConfirmed = true;
-    void runEstimate();
-  });
-  getEl("mo-create-unpaid-btn")?.addEventListener("click", () => {
-    if (createUnpaidInFlight || sendLinkInFlight) return;
-    openCreateUnpaidConfirm();
-  });
   getEl("mo-send-link-btn")?.addEventListener("click", () => {
-    if (sendLinkInFlight || createUnpaidInFlight) return;
+    if (paymentLinkInFlight) return;
     openSendLinkConfirm();
   });
 
@@ -2590,28 +2811,33 @@ function renderPage() {
   const page = getEl("sg-page");
   if (!page) return;
   page.innerHTML = pageHtml();
+  renderDiscountPanel();
   wirePage();
 }
 
-bootAdminV2Page({
-  activeNav: "manual-order",
-  onEnter: async (_session, ctx) => {
-    getToken = ctx.getAccessToken;
-    renderPage();
-    try {
-      await loadProducts();
-    } catch (error) {
-      toast(error?.message || "Could not load products.", "danger");
-      const host = getEl("mo-products");
-      if (host) host.innerHTML = `<p class="sg-error">${escapeHtml(error?.message || "Could not load products.")}</p>`;
-    }
-  },
-  onRefresh: async () => {
-    try {
-      await loadProducts();
-      toast("Catalog refreshed.", "success");
-    } catch (error) {
-      toast(error?.message || "Could not refresh products.", "danger");
-    }
-  },
-});
+/** Browser-only boot. Skipped under Node harness imports. */
+if (typeof document !== "undefined") {
+  bootAdminV2Page({
+    activeNav: "order-builder",
+    topbarLeftHtml: orderBuilderModeSwitch("manual", { location: "topbar" }),
+    onEnter: async (_session, ctx) => {
+      getToken = ctx.getAccessToken;
+      renderPage();
+      try {
+        await loadProducts();
+      } catch (error) {
+        toast(error?.message || "Could not load products.", "danger");
+        const host = getEl("mo-products");
+        if (host) host.innerHTML = `<p class="sg-error">${escapeHtml(error?.message || "Could not load products.")}</p>`;
+      }
+    },
+    onRefresh: async () => {
+      try {
+        await loadProducts();
+        toast("Catalog refreshed.", "success");
+      } catch (error) {
+        toast(error?.message || "Could not refresh products.", "danger");
+      }
+    },
+  });
+}

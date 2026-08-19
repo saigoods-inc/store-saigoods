@@ -1,6 +1,5 @@
 import { formatShippingAddressForOrder } from "../lib/checkout-totals.js";
 import { computeCheckoutEstimate, checkoutFlowErrorJsonFields } from "../lib/checkout-estimate-logic.js";
-import { isHardinCountyTnDelivery, validateLocalDeliveryServiceArea } from "../lib/hardin-county.js";
 import {
   PICKUP_ADDRESS_FOR_ORDER,
   buildLocalOrCarrierAddressForQuote,
@@ -54,12 +53,10 @@ function parseBody(body) {
   if (!items.length) {
     return { error: "Add at least one line item." };
   }
-  const applyEligibleLocalDiscount = body?.applyEligibleLocalDiscount === true;
-  const adminLocalDiscountOverride = applyEligibleLocalDiscount && body?.adminLocalDiscountOverride === true;
   const fulfillmentMethod = normalizeFulfillmentMethod(body?.fulfillmentMethod);
   const paymentFlow = normalizePaymentFlow(body?.paymentFlow);
   const addr = body?.address;
-  if (fulfillmentMethod === "carrier") {
+  if (fulfillmentMethod === "carrier" || fulfillmentMethod === "b2b_shipping") {
     if (!addr || typeof addr !== "object") {
       return { error: "Shipping address is required for ship-with-carrier." };
     }
@@ -73,7 +70,7 @@ function parseBody(body) {
   }
 
   let address;
-  if (fulfillmentMethod === "carrier") {
+  if (fulfillmentMethod === "carrier" || fulfillmentMethod === "b2b_shipping") {
     address = {
       line1: String(addr.line1 || "").trim(),
       line2: String(addr.line2 || "").trim(),
@@ -85,23 +82,15 @@ function parseBody(body) {
   } else if (fulfillmentMethod === "pickup") {
     address = { ...PICKUP_ADDRESS_FOR_ORDER };
   } else {
-    if (!addr || typeof addr !== "object" || !hasAnyAddressFields(addr)) {
-      return { error: "Local delivery requires a delivery address in the approved local service area." };
-    }
-    const state = String(addr.state || "").trim();
-    const zip = String(addr.postalCode || "").replace(/\D/g, "").slice(0, 5);
-    if (!state || zip.length !== 5) {
-      return { error: "Local delivery requires state and ZIP in the approved local service area." };
-    }
-    address = buildLocalOrCarrierAddressForQuote(addr);
-    const area = validateLocalDeliveryServiceArea(address);
-    if (!area.ok) {
-      return { error: area.error };
-    }
-  }
-
-  if (fulfillmentMethod === "carrier" && paymentFlow === "pay_later") {
-    return { error: "Pay later is only available for pickup or local delivery." };
+    address = addr && typeof addr === "object" && hasAnyAddressFields(addr)
+      ? buildLocalOrCarrierAddressForQuote(addr)
+      : buildLocalOrCarrierAddressForQuote({
+          line1: "Local delivery (address to be confirmed)",
+          city: "Savannah",
+          state: "TN",
+          postalCode: "38372",
+          country: "US",
+        });
   }
 
   const localDeliveryNote =
@@ -116,11 +105,24 @@ function parseBody(body) {
     address,
     localDeliveryNote,
     items,
-    applyEligibleLocalDiscount,
-    adminLocalDiscountOverride,
     fulfillmentMethod,
     paymentFlow,
   };
+}
+
+function invalidCarrierQuoteMessage(quote) {
+  const shipping = quote?.shipping && typeof quote.shipping === "object" ? quote.shipping : {};
+  const quoteStatus = String(shipping.quoteStatus || "").trim();
+  const service = String(shipping.serviceLabel || shipping.serviceCode || "").trim();
+  const providerQuoteId = String(shipping.providerQuoteId || "").trim();
+  const shippingCents = Math.max(0, Math.round(Number(quote?.shippingCents ?? shipping.amountCents) || 0));
+  if (!quote?.canCheckout || quote?.userFacingError) {
+    return quote?.userFacingError || "Carrier shipping is not ready. Get and confirm a carrier rate before updating this order.";
+  }
+  if (quoteStatus !== "rated" || !providerQuoteId || !service || shippingCents <= 0) {
+    return "Carrier shipping is missing a confirmed paid rate. Get and confirm a carrier rate before updating this order.";
+  }
+  return "";
 }
 
 export default async function handler(req, res) {
@@ -142,9 +144,12 @@ export default async function handler(req, res) {
     const estimateBody = {
       items: parsed.items,
       address: parsed.address,
-      applyEligibleLocalDiscount: parsed.applyEligibleLocalDiscount,
-      forceApplyEligibleLocalDiscount: parsed.adminLocalDiscountOverride,
+      manualDiscountType: rawBody.manualDiscountType,
+      manualDiscountValue: rawBody.manualDiscountValue,
       fulfillmentMethod: parsed.fulfillmentMethod,
+      ...(parsed.fulfillmentMethod === "b2b_shipping"
+        ? { manualB2bShippingCents: rawBody.manualB2bShippingCents }
+        : {}),
       ...(rawBody.forceStockOverride === true ? { forceStockOverride: true } : {}),
       ...(rateId ? { selectedShippingRateObjectId: rateId } : {}),
       ...(String(rawBody.selectedShippingServiceCode || "").trim()
@@ -174,23 +179,21 @@ export default async function handler(req, res) {
     };
 
     const isCarrier = parsed.fulfillmentMethod === "carrier";
+    const isB2b = parsed.fulfillmentMethod === "b2b_shipping";
     const quote = await computeCheckoutEstimate(estimateBody, {
-      requireCompleteAddress: isCarrier,
-      adminLocalDiscount: true,
+      requireCompleteAddress: isCarrier || isB2b,
+      manualOrderDiscount: true,
       strictShippo: isCarrier,
       allowForceStockOverride: true,
+      allowManualB2bShipping: true,
     });
-
-    const zipOk = isHardinCountyTnDelivery(parsed.address);
-    const hardinDiscount =
-      quote.hardinDiscountApplied === true
-        ? {
-            applied: true,
-            code: null,
-            adminAddressVerified: zipOk,
-            adminOverride: quote.adminLocalDiscountForced === true,
-          }
-        : null;
+    if (isCarrier) {
+      const carrierQuoteError = invalidCarrierQuoteMessage(quote);
+      if (carrierQuoteError) {
+        res.status(400).json({ error: carrierQuoteError });
+        return;
+      }
+    }
 
     let addrText = formatShippingAddressForOrder(parsed.address);
     if (parsed.fulfillmentMethod === "local_delivery" && parsed.localDeliveryNote) {
@@ -209,7 +212,7 @@ export default async function handler(req, res) {
       {
         quote,
         customer,
-        hardinDiscount,
+        hardinDiscount: null,
         shippingAddress: parsed.address,
       },
       {

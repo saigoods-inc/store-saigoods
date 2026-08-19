@@ -1,6 +1,7 @@
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
 import { getOrderByIdForService } from "../lib/orders.js";
 import { getWarehouseShipFromLines } from "../lib/warehouse-address.js";
+import { withRuntimeWarehouseAddress } from "../lib/warehouse-settings.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -14,11 +15,12 @@ export default async function handler(req, res) {
       res.status(400).json({ error: "orderId is required." });
       return;
     }
-    const order = await getOrderByIdForService(orderId);
+    let order = await getOrderByIdForService(orderId);
     if (!order) {
       res.status(404).json({ error: "Order not found." });
       return;
     }
+    order = await withRuntimeWarehouseAddress(order);
     const lines = getWarehouseShipFromLines(order);
     res.status(200).json({
       ok: true,

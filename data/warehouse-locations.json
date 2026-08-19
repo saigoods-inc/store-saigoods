@@ -1,0 +1,18 @@
+{
+  "locations": [
+    {
+      "key": "savannah",
+      "name": "Savannah warehouse",
+      "address1": "275 Eureka Street",
+      "address2": "",
+      "city": "Savannah",
+      "state": "TN",
+      "zip": "38372",
+      "country": "US",
+      "email": "sales@saigoods.com",
+      "phone": "5555555555",
+      "roles": ["Default ship-from", "Returns", "Inventory"],
+      "active": true
+    }
+  ]
+}

@@ -11,20 +11,20 @@ const currentUrl = new URL(window.location.href);
 let activeQuery = currentUrl.searchParams.get("search")?.trim() || "";
 let store;
 
-/** Index catalog only — mirrors the 1-case bundle (`case_1`); PDP uses full bundle + size selection. */
+/** Index catalog only — mirrors the 1-carton bundle (`case_1`); PDP uses full bundle + size selection. */
 function catalogCardPriceLabel(product) {
   const case1 = product.bundles?.find((b) => b.id === "case_1");
   const cents = Number(case1?.priceCents);
   if (case1 && Number.isFinite(cents) && cents > 0) {
-    return `${formatCurrency(cents)} per case`;
+    return `${formatCurrency(cents)} per carton`;
   }
-  return `${formatCurrency(product.priceCents)} per case`;
+  return `${formatCurrency(product.priceCents)} per carton`;
 }
 
 document.addEventListener("DOMContentLoaded", init);
 
 /** Persists for this tab only: survives refresh, clears when the tab is closed. */
-const ANNOUNCEMENT_SESSION_KEY = "saigoods-announcement-dismissed";
+const ANNOUNCEMENT_SESSION_KEY = "saigoods-free-delivery-announcement-v1";
 
 function initAnnouncementBar() {
   const bar = document.querySelector("[data-announcement-bar]");

@@ -1,6 +1,5 @@
 import { formatShippingAddressForOrder } from "../lib/checkout-totals.js";
 import { computeCheckoutEstimate, checkoutFlowErrorJsonFields } from "../lib/checkout-estimate-logic.js";
-import { isHardinCountyTnDelivery, validateLocalDeliveryServiceArea } from "../lib/hardin-county.js";
 import {
   PICKUP_ADDRESS_FOR_ORDER,
   buildLocalOrCarrierAddressForQuote,
@@ -10,6 +9,15 @@ import {
 } from "../lib/manual-order-fulfillment.js";
 import { createManualOrderDraft } from "../lib/orders.js";
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
+import {
+  selectManualOrderRateFromToken,
+  verifyManualOrderQuoteToken,
+} from "../lib/manual-order-quote-token.js";
+import { primeRuntimeStoreForItems } from "../lib/runtime-store.js";
+
+export async function prepareManualOrderItems(items, prime = primeRuntimeStoreForItems) {
+  await prime(items);
+}
 
 function parseOptionalYmd(input) {
   if (input === null || input === undefined || input === "") {
@@ -50,12 +58,12 @@ function parseCreateBody(body) {
   if (!items.length) {
     return { error: "Add at least one line item." };
   }
-  const applyEligibleLocalDiscount = body?.applyEligibleLocalDiscount === true;
-  const adminLocalDiscountOverride = applyEligibleLocalDiscount && body?.adminLocalDiscountOverride === true;
   const fulfillmentMethod = normalizeFulfillmentMethod(body?.fulfillmentMethod);
   const paymentFlow = normalizePaymentFlow(body?.paymentFlow);
+  const rawManualPaymentMethod = String(body?.manualPaymentMethod || "").trim().toLowerCase();
+  const manualPaymentMethod = rawManualPaymentMethod === "arrival_payment_link" ? "arrival_payment_link" : null;
   const addr = body?.address;
-  if (fulfillmentMethod === "carrier") {
+  if (fulfillmentMethod === "carrier" || fulfillmentMethod === "b2b_shipping") {
     if (!addr || typeof addr !== "object") {
       return { error: "Shipping address is required for ship-with-carrier." };
     }
@@ -69,7 +77,7 @@ function parseCreateBody(body) {
   }
 
   let address;
-  if (fulfillmentMethod === "carrier") {
+  if (fulfillmentMethod === "carrier" || fulfillmentMethod === "b2b_shipping") {
     address = {
       line1: String(addr.line1 || "").trim(),
       line2: String(addr.line2 || "").trim(),
@@ -81,24 +89,15 @@ function parseCreateBody(body) {
   } else if (fulfillmentMethod === "pickup") {
     address = { ...PICKUP_ADDRESS_FOR_ORDER };
   } else {
-    // local_delivery — approved Hardin/local service area only (no Savannah fallback for blank address).
-    if (!addr || typeof addr !== "object" || !hasAnyAddressFields(addr)) {
-      return { error: "Local delivery requires a delivery address in the approved local service area." };
-    }
-    const state = String(addr.state || "").trim();
-    const zip = String(addr.postalCode || "").replace(/\D/g, "").slice(0, 5);
-    if (!state || zip.length !== 5) {
-      return { error: "Local delivery requires state and ZIP in the approved local service area." };
-    }
-    address = buildLocalOrCarrierAddressForQuote(addr);
-    const area = validateLocalDeliveryServiceArea(address);
-    if (!area.ok) {
-      return { error: area.error };
-    }
-  }
-
-  if (fulfillmentMethod === "carrier" && paymentFlow === "pay_later") {
-    return { error: "Pay later is only available for pickup or local delivery." };
+    address = addr && typeof addr === "object" && hasAnyAddressFields(addr)
+      ? buildLocalOrCarrierAddressForQuote(addr)
+      : buildLocalOrCarrierAddressForQuote({
+          line1: "Local delivery (address to be confirmed)",
+          city: "Savannah",
+          state: "TN",
+          postalCode: "38372",
+          country: "US",
+        });
   }
 
   const localDeliveryNote =
@@ -112,11 +111,25 @@ function parseCreateBody(body) {
     address,
     localDeliveryNote,
     items,
-    applyEligibleLocalDiscount,
-    adminLocalDiscountOverride,
     fulfillmentMethod,
     paymentFlow,
+    manualPaymentMethod,
   };
+}
+
+function invalidCarrierQuoteMessage(quote) {
+  const shipping = quote?.shipping && typeof quote.shipping === "object" ? quote.shipping : {};
+  const quoteStatus = String(shipping.quoteStatus || "").trim();
+  const service = String(shipping.serviceLabel || shipping.serviceCode || "").trim();
+  const providerQuoteId = String(shipping.providerQuoteId || "").trim();
+  const shippingCents = Math.max(0, Math.round(Number(quote?.shippingCents ?? shipping.amountCents) || 0));
+  if (!quote?.canCheckout || quote?.userFacingError) {
+    return quote?.userFacingError || "Carrier shipping is not ready. Get and confirm a carrier rate before creating this order.";
+  }
+  if (quoteStatus !== "rated" || !providerQuoteId || !service || shippingCents <= 0) {
+    return "Carrier shipping is missing a confirmed paid rate. Get and confirm a carrier rate before creating this order.";
+  }
+  return "";
 }
 
 export default async function handler(req, res) {
@@ -133,14 +146,26 @@ export default async function handler(req, res) {
       return;
     }
 
+    // Carrier drafts reuse a signed estimate instead of recomputing it in this
+    // serverless invocation. Prime the live catalog here so newly added bundle
+    // IDs are also available to the synchronous economics snapshot below.
+    await prepareManualOrderItems(parsed.items);
+
     const rawBody = req.body || {};
     const rateId = String(rawBody.selectedShippingRateObjectId || "").trim();
+    if (parsed.fulfillmentMethod === "carrier" && !rateId) {
+      res.status(400).json({ error: "Select and confirm a carrier rate before creating this order." });
+      return;
+    }
     const estimateBody = {
       items: parsed.items,
       address: parsed.address,
-      applyEligibleLocalDiscount: parsed.applyEligibleLocalDiscount,
-      forceApplyEligibleLocalDiscount: parsed.adminLocalDiscountOverride,
+      manualDiscountType: rawBody.manualDiscountType,
+      manualDiscountValue: rawBody.manualDiscountValue,
       fulfillmentMethod: parsed.fulfillmentMethod,
+      ...(parsed.fulfillmentMethod === "b2b_shipping"
+        ? { manualB2bShippingCents: rawBody.manualB2bShippingCents }
+        : {}),
       ...(rawBody.forceStockOverride === true ? { forceStockOverride: true } : {}),
       ...(rateId ? { selectedShippingRateObjectId: rateId } : {}),
       ...(String(rawBody.selectedShippingServiceCode || "").trim()
@@ -170,23 +195,26 @@ export default async function handler(req, res) {
     };
 
     const isCarrier = parsed.fulfillmentMethod === "carrier";
-    const quote = await computeCheckoutEstimate(estimateBody, {
-      requireCompleteAddress: isCarrier,
-      adminLocalDiscount: true,
-      strictShippo: isCarrier,
-      allowForceStockOverride: true,
-    });
-
-    const zipOk = isHardinCountyTnDelivery(parsed.address);
-    const hardinDiscount =
-      quote.hardinDiscountApplied === true
-        ? {
-            applied: true,
-            code: null,
-            adminAddressVerified: zipOk,
-            adminOverride: quote.adminLocalDiscountForced === true,
-          }
-        : null;
+    const isB2b = parsed.fulfillmentMethod === "b2b_shipping";
+    const quote = isCarrier
+      ? selectManualOrderRateFromToken(
+          verifyManualOrderQuoteToken(rawBody.quoteToken, rawBody),
+          rawBody,
+        )
+      : await computeCheckoutEstimate(estimateBody, {
+          requireCompleteAddress: isB2b,
+          manualOrderDiscount: true,
+          strictShippo: false,
+          allowForceStockOverride: true,
+          allowManualB2bShipping: true,
+        });
+    if (isCarrier) {
+      const carrierQuoteError = invalidCarrierQuoteMessage(quote);
+      if (carrierQuoteError) {
+        res.status(400).json({ error: carrierQuoteError });
+        return;
+      }
+    }
 
     let addrText = formatShippingAddressForOrder(parsed.address);
     if (parsed.fulfillmentMethod === "local_delivery" && parsed.localDeliveryNote) {
@@ -204,12 +232,13 @@ export default async function handler(req, res) {
       {
         quote,
         customer,
-        hardinDiscount,
+        hardinDiscount: null,
         shippingAddress: parsed.address,
       },
       {
         fulfillmentMethod: parsed.fulfillmentMethod,
         paymentFlow: parsed.paymentFlow,
+        manualPaymentMethod: parsed.manualPaymentMethod,
         shipmentDate: parsed.shipmentDate,
       },
     );
