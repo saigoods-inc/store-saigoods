@@ -57,7 +57,6 @@
         height: auto;
       }
       .announcement-bar {
-        display: none; /* hidden for now; matches styles.css */
         position: sticky;
         top: 0.75rem;
         z-index: 21;
@@ -66,8 +65,7 @@
         min-height: 2.75rem;
       }
       .announcement-bar__marquee {
-        display: none;
-        background: #2d2d2d;
+        background: linear-gradient(90deg, #1f2937 0%, #8f3f32 52%, #1f2937 100%);
       }
       .announcement-bar__text,
       .announcement-bar__text::after {
@@ -86,11 +84,11 @@
         <div class="announcement-bar__marquee" aria-hidden="true">
           <!-- No whitespace between spans: avoids stray flex gaps that break the seamless loop -->
           <div class="announcement-bar__track">
-            <span class="announcement-bar__text">Live in Hardin County, TN? Give us a call for special local pricing at (901) 279-9888!</span><span class="announcement-bar__text">Live in Hardin County, TN? Give us a call for special local pricing at (901) 279-9888!</span><span class="announcement-bar__text">Live in Hardin County, TN? Give us a call for special local pricing at (901) 279-9888!</span><span class="announcement-bar__text">Live in Hardin County, TN? Give us a call for special local pricing at (901) 279-9888!</span><span class="announcement-bar__text">Live in Hardin County, TN? Give us a call for special local pricing at (901) 279-9888!</span><span class="announcement-bar__text">Live in Hardin County, TN? Give us a call for special local pricing at (901) 279-9888!</span>
+            <span class="announcement-bar__text">Tennessee neighbors: you may qualify for free delivery on eligible orders — ZIP code and minimum purchase apply.</span><span class="announcement-bar__text">Tennessee neighbors: you may qualify for free delivery on eligible orders — ZIP code and minimum purchase apply.</span><span class="announcement-bar__text">Tennessee neighbors: you may qualify for free delivery on eligible orders — ZIP code and minimum purchase apply.</span><span class="announcement-bar__text">Tennessee neighbors: you may qualify for free delivery on eligible orders — ZIP code and minimum purchase apply.</span><span class="announcement-bar__text">Tennessee neighbors: you may qualify for free delivery on eligible orders — ZIP code and minimum purchase apply.</span><span class="announcement-bar__text">Tennessee neighbors: you may qualify for free delivery on eligible orders — ZIP code and minimum purchase apply.</span>
           </div>
         </div>
         <p class="announcement-bar__sr-only">
-          Live in Hardin County, TN? Give us a call for special local pricing at (901) 279-9888!
+          Tennessee neighbors: you may qualify for free delivery on eligible orders. ZIP code and minimum purchase apply.
         </p>
         <button
           type="button"

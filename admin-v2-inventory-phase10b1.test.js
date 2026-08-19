@@ -15,7 +15,7 @@ const PHASE10A_ROUTES = [
   { route: "/admin-v2/discount-codes", script: "/js/v2/admin-discount-codes.js" },
 ];
 
-const UNRELEASED_V2_HREFS = ["/admin-v2/walk-in-order"];
+const RELEASED_WALK_IN_ROUTE = "/admin-v2/walk-in-order";
 
 const PRIVATE_SECRET_MARKERS = [
   "INTERNAL_REPORTS_SECRET",
@@ -161,9 +161,7 @@ test("Phase 10B-1 server.js serves inventory and keeps Phase 10A + legacy invent
   assert.match(serverSource, /\/admin\/inventory/);
   assert.match(serverSource, /admin",\s*"inventory\.html"/);
 
-  for (const href of UNRELEASED_V2_HREFS) {
-    assert.doesNotMatch(serverSource, new RegExp(href.replace(/\//g, "\\/")));
-  }
+  assert.match(serverSource, /\/admin-v2\/walk-in-order/);
 });
 
 test("Phase 10B-1 vercel.json adds inventory rewrite without removing Phase 10A or legacy", () => {
@@ -177,25 +175,25 @@ test("Phase 10B-1 vercel.json adds inventory rewrite without removing Phase 10A 
   assert.equal(bySource.get("/admin-v2/discount-codes"), "/admin-v2/discount-codes.html");
   assert.equal(bySource.get("/admin/inventory"), "/admin/inventory.html");
 
-  for (const href of UNRELEASED_V2_HREFS) {
-    assert.equal(bySource.has(href), false, `unexpected rewrite for ${href}`);
-  }
+  assert.equal(bySource.get(RELEASED_WALK_IN_ROUTE), "/admin-v2/walk-in-order.html");
+  assert.equal(bySource.get(`${RELEASED_WALK_IN_ROUTE}/`), "/admin-v2/walk-in-order.html");
 });
 
-test("Phase 10B-1 navigation includes Inventory and excludes unreleased routes", () => {
+test("Phase 10B-1 navigation includes Inventory and the combined Order Builder", () => {
   const ui = read("public/js/v2/ui.js");
   assert.match(ui, /href:\s*"\/admin-v2\/inventory"/);
   assert.match(ui, /id:\s*"inventory"/);
+  assert.match(ui, /href:\s*"\/admin-v2\/manual-order"/);
+  assert.match(ui, /id:\s*"order-builder"/);
+  assert.match(ui, /label:\s*"Order Builder"/);
+  assert.match(ui, /iconName:\s*"clipboard-list"/);
+  assert.doesNotMatch(ui, /id:\s*"walk-in-order"/);
   assert.match(ui, /href:\s*"\/admin-v2\/summary"/);
   assert.match(ui, /href:\s*"\/admin-v2\/discount-codes"/);
   assert.match(ui, /href:\s*"\/admin-v2\/tax"/);
   assert.match(ui, /href:\s*"\/admin-v2\/nexus"/);
   assert.match(ui, /href="\/admin\/summary\.html"/);
   assert.match(ui, /Legacy admin/);
-
-  for (const href of UNRELEASED_V2_HREFS) {
-    assert.doesNotMatch(ui, new RegExp(href.replace(/\//g, "\\/")));
-  }
 });
 
 test("Phase 10B-1 Summary inventory CTA points at admin-v2 inventory", () => {
@@ -588,12 +586,11 @@ test("Phase 10B-1 local server serves inventory and coexistence routes", async (
       assert.match(res.body, new RegExp(page.script.replace(/\./g, "\\.")));
     }
 
-    // Orders is released in 10B-2A; Manual/Walk-in stay 404 (checked via UNRELEASED_V2_HREFS below when present).
+    // Orders and Walk-in are both available in the integrated Admin v2 surface.
     const ordersRes = await httpGet(`${base}/admin-v2/orders`);
     assert.equal(ordersRes.statusCode, 200);
-    for (const href of UNRELEASED_V2_HREFS) {
-      const missing = await httpGet(`${base}${href}`);
-      assert.equal(missing.statusCode, 404, href);
-    }
+    const walkInRes = await httpGet(`${base}${RELEASED_WALK_IN_ROUTE}`);
+    assert.equal(walkInRes.statusCode, 200);
+    assert.match(walkInRes.body, /admin-walk-in-order\.js/);
   });
 });

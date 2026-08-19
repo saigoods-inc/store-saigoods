@@ -141,12 +141,12 @@ function tableCard() {
     </table>
   </div>`;
 
-  return card({ title: "Discount codes", bodyHtml: toolbarHtml() + table });
+  return card({ titleHtml: `${icon("tag", 16)}<span>Discount codes</span>`, bodyHtml: toolbarHtml() + table });
 }
 
 function infoCard() {
   return card({
-    title: "How these codes work",
+    titleHtml: `${icon("info", 16)}<span>How these codes work</span>`,
     bodyHtml: `<p class="sg-meta-note" style="margin-top:0">One-time <code>HC-XXXXX</code> codes for eligible Hardin County (TN) customers. Each code applies once at checkout and is marked used automatically when its order is paid.</p>`,
   });
 }

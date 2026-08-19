@@ -1,16 +1,10 @@
 /*
- * SAI Goods admin-v2 — Orders page controller (Phase 10B-2A).
+ * SAI Goods admin-v2 — Orders page controller.
  *
- * Strictly READ-ONLY: list + detail viewing only.
- * Fulfillment, shipping, payment, and notification mutations stay on Legacy admin.
- *
- * Allowed network:
- *   - Supabase SELECT on public.orders and public.order_shippo_labels
- *   - GET /api/products (best-effort catalog labels)
- *   - POST /api/admin-order-ship-from-display
- *   - POST /api/admin-order-fulfillment-doc-links
- *
- * All POSTs go through fetchReadOnlyOrderPost (allowlist). Mutation endpoints are rejected.
+ * Supabase provides the order list + label rows; admin actions use the existing
+ * authenticated report POST endpoints so this page can manage payment,
+ * fulfillment, shipping, and buyer notification without falling back to the
+ * legacy dashboard.
  */
 
 import { fetchReportPost } from "../admin-shared.js";
@@ -29,7 +23,19 @@ import {
 } from "../admin-fulfillment-workflow.js";
 
 import { bootAdminV2Page } from "./page-boot.js";
-import { card, escapeHtml, icon, kpiCard, openDrawer, statusChip, toast } from "./ui.js";
+import {
+  card,
+  customSelect,
+  escapeHtml,
+  icon,
+  initCustomSelectboxes,
+  kpiCard,
+  openDrawer,
+  setCustomSelectboxValue,
+  setDrawerCloseGuard,
+  statusChip,
+  toast,
+} from "./ui.js";
 
 /** @type {(() => object|null)} Shared admin-v2 Supabase client accessor from page-boot. */
 let getSupabase = () => null;
@@ -49,29 +55,11 @@ let drawerGen = 0;
 let ordersLoadGen = 0;
 
 const LEGACY_ORDERS_HREF = "/admin/orders.html";
-const READ_ONLY_NOTICE =
-  "Orders v2 is currently read-only. Use Legacy admin for fulfillment, shipping, payment, and notification actions.";
+let currentDrawerOrderId = null;
+let drawerActionDepth = 0;
 
-/* -------------------------------------------------- runtime request boundary */
-
-export const ORDERS_V2_READ_ONLY = true;
-
-export const READ_ONLY_ORDER_POST_ENDPOINTS = new Set([
-  "/api/admin-order-ship-from-display",
-  "/api/admin-order-fulfillment-doc-links",
-]);
-
-/**
- * Allowlisted POST helper for Orders v2. Rejects every other endpoint before network.
- * @param {string} endpoint
- * @param {string} token
- * @param {object} [body]
- */
-export async function fetchReadOnlyOrderPost(endpoint, token, body) {
-  if (!READ_ONLY_ORDER_POST_ENDPOINTS.has(endpoint)) {
-    throw new Error("Orders mutations are disabled in admin v2.");
-  }
-  return fetchReportPost(endpoint, token, body);
+function sectionTitleHtml(iconName, label) {
+  return `${icon(iconName, 16)}<span>${escapeHtml(label)}</span>`;
 }
 
 /**
@@ -106,6 +94,38 @@ export async function fetchOrdersAndLabelsReadOnly(supabase) {
   return { orders: nextOrders, labels: nextLabels };
 }
 
+async function postOrderAction(endpoint, body) {
+  const token = await getToken();
+  if (!token) {
+    throw new Error("Sign in again to continue.");
+  }
+  return fetchReportPost(endpoint, token, body);
+}
+
+function mergeOrderIntoCache(order) {
+  if (!order || order.id == null) return null;
+  const id = String(order.id);
+  const next = ordersCache.slice();
+  const idx = next.findIndex((row) => String(row.id) === id);
+  if (idx >= 0) next[idx] = order;
+  else next.unshift(order);
+  ordersCache = next;
+  return order;
+}
+
+function orderById(orderId) {
+  return ordersCache.find((row) => String(row.id) === String(orderId)) || null;
+}
+
+async function reloadOrdersAndReopen(orderId, opts = {}) {
+  await loadOrders();
+  if (!orderId) return;
+  const nextRow = orderById(orderId);
+  if (nextRow && opts.reopen !== false) {
+    openOrderDrawer(nextRow);
+  }
+}
+
 /**
  * Paid · not shipped KPI — factual payment/fulfillment count only (no label readiness).
  * @param {object[]} orders
@@ -131,7 +151,7 @@ function isPickupOrLocalNoCarrier(row) {
 }
 
 /**
- * Stepper step descriptors for list/detail (read-only display).
+ * Stepper step descriptors for list/detail display.
  * Walk-in: Order created → Payment received → Completed (no Label recorded).
  * Pickup/local (shippo_label_required === false): … → Handed off / delivered (no Label recorded).
  * Carrier: … → Label recorded → Shipped.
@@ -177,7 +197,7 @@ export function buildStepperSteps(row) {
 }
 
 /**
- * Main-column section keys for the order drawer (read-only layout contract).
+ * Main-column section keys for the order drawer layout.
  * Pickup/local omits carrier-label sections. Carrier shipped/unshipped retain externalLabel.
  * @param {object} row
  * @returns {string[]}
@@ -228,6 +248,45 @@ function getEl(id) {
 
 function fmtMoneyCents(c) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format((Number(c) || 0) / 100);
+}
+
+function parseJsonObject(value) {
+  if (!value) return null;
+  if (typeof value === "object" && !Array.isArray(value)) return value;
+  if (typeof value !== "string") return null;
+  const raw = value.trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function manualDiscountLabelForRow(row) {
+  const snapshot = parseJsonObject(row?.quoted_address_snapshot_json);
+  const manualDiscount = snapshot?.manualDiscount;
+  if (!manualDiscount || typeof manualDiscount !== "object") {
+    return null;
+  }
+  const type = String(manualDiscount.type || "").trim().toLowerCase();
+  if (!type || type === "none") {
+    return null;
+  }
+  const label = String(manualDiscount.label || "").trim();
+  if (label) {
+    return label;
+  }
+  if (type === "percent") {
+    const percent = Math.round(Number(manualDiscount.percent ?? manualDiscount.value));
+    return Number.isFinite(percent) && percent > 0 ? `${percent}% off` : null;
+  }
+  if (type === "amount") {
+    const amountCents = Math.round(Number(manualDiscount.amountCents ?? manualDiscount.value));
+    return Number.isFinite(amountCents) && amountCents > 0 ? `${fmtMoneyCents(amountCents)} off` : null;
+  }
+  return null;
 }
 
 function fmtDate(iso) {
@@ -315,16 +374,6 @@ function getFilteredOrders() {
     });
   }
   return out;
-}
-
-function readOnlyBannerHtml({ compact = false } = {}) {
-  const cls = compact ? "sg-info-banner sg-info-banner--compact" : "sg-info-banner";
-  return `<div class="${cls}" role="status">
-    ${icon("info", 16)}
-    <span>${escapeHtml(READ_ONLY_NOTICE)}
-      <a href="${LEGACY_ORDERS_HREF}">Open Legacy admin Orders</a>
-    </span>
-  </div>`;
 }
 
 /* ----------------------------------------------- catalog + line items (read) */
@@ -468,6 +517,14 @@ function shippingSummary(row) {
   return `<span class="sg-muted">—</span>`;
 }
 
+function nextActionDisplay(row, wf) {
+  const raw = String(wf?.nextAction ?? "").trim();
+  if (raw && raw !== "—") {
+    return raw;
+  }
+  return isOrderShipped(row) ? "Order completed" : "";
+}
+
 /* --------------------------------------------------------------- list UI */
 
 function renderKpis() {
@@ -500,16 +557,14 @@ function renderKpis() {
 }
 
 function toolbarHtml() {
-  const timeOpts = [
+  const timeOptions = [
     { value: "all", label: "All dates" },
     { value: "today", label: "Today" },
     { value: "week", label: "This week" },
     { value: "month", label: "This month" },
-  ]
-    .map((o) => `<option value="${o.value}">${escapeHtml(o.label)}</option>`)
-    .join("");
+  ];
 
-  const statusOpts = [
+  const statusOptions = [
     { value: "", label: "All orders" },
     { value: "awaiting_payment", label: "Awaiting payment" },
     { value: "manual_draft", label: "Manual · draft" },
@@ -523,15 +578,28 @@ function toolbarHtml() {
     { value: "delivered", label: "Delivered" },
     { value: "issues", label: "Issues / errors" },
     { value: "cancelled", label: "Cancelled" },
-  ]
-    .map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`)
-    .join("");
+  ];
 
-  return `<div class="sg-toolbar" style="margin-bottom:16px">
-    <input class="sg-input" id="sg-orders-search" type="search" placeholder="Search order ID, customer, or email" aria-label="Search orders" />
-    <select class="sg-select" id="sg-orders-time" aria-label="Filter by order date">${timeOpts}</select>
-    <select class="sg-select" id="sg-orders-status" aria-label="Filter by fulfillment stage">${statusOpts}</select>
-    <button type="button" class="sg-btn sg-btn--ghost sg-btn--sm" id="sg-orders-refresh">${icon("refresh-cw", 14)}<span>Refresh</span></button>
+  return `<div class="sg-toolbar sg-orders-toolbar" style="margin-bottom:16px">
+    <input class="sg-input sg-orders-toolbar__search" id="sg-orders-search" type="search" placeholder="Search order ID, customer, or email" aria-label="Search orders" />
+    <div class="sg-orders-toolbar__filters">
+      ${customSelect({
+        id: "sg-orders-time",
+        options: timeOptions,
+        selected: "all",
+        ariaLabel: "Filter by order date",
+      })}
+      ${customSelect({
+        id: "sg-orders-status",
+        options: statusOptions,
+        selected: "",
+        ariaLabel: "Filter by fulfillment stage",
+      })}
+    </div>
+    <button type="button" class="sg-btn sg-btn--ghost sg-btn--sm sg-orders-toolbar__refresh" id="sg-orders-refresh">${icon(
+      "refresh-cw",
+      14,
+    )}<span>Refresh</span></button>
   </div>`;
 }
 
@@ -547,14 +615,14 @@ function tableCard() {
           <th>Shipping</th>
           <th>Fulfillment</th>
           <th class="sg-table__num">Total</th>
-          <th>Suggested next (Legacy)</th>
+          <th>Suggested next</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody id="sg-orders-tbody"></tbody>
     </table>
   </div>`;
-  return card({ title: "Orders", bodyHtml: toolbarHtml() + table });
+  return card({ titleHtml: sectionTitleHtml("shopping-cart", "Orders"), bodyHtml: toolbarHtml() + table });
 }
 
 function emptyRowHtml(message, showClear) {
@@ -591,7 +659,7 @@ function renderTableBody() {
       const created = escapeHtml(fmtDate(r.created_at));
       const name = escapeHtml(String(r.customer_name || "—"));
       const email = r.customer_email ? escapeHtml(String(r.customer_email)) : "";
-      const next = wf.nextAction ? escapeHtml(wf.nextAction) : "—";
+      const next = escapeHtml(nextActionDisplay(r, wf) || "—");
       const oid = escapeHtml(String(r.id ?? ""));
       return `<tr class="sg-orders-row" data-oid="${oid}">
         <td><div class="sg-cell-strong">${ref}</div><div class="sg-muted sg-cell-sub">${created}</div></td>
@@ -627,8 +695,8 @@ function clearFilters() {
   const t = getEl("sg-orders-time");
   const st = getEl("sg-orders-status");
   if (s) s.value = "";
-  if (t) t.value = "all";
-  if (st) st.value = "";
+  if (t) setCustomSelectboxValue(t, "all", { dispatch: false });
+  if (st) setCustomSelectboxValue(st, "", { dispatch: false });
   renderTableBody();
 }
 
@@ -640,14 +708,14 @@ function renderPage() {
     <div class="sg-page-header">
       <div>
         <h1 class="sg-page-header__title">Orders</h1>
-        <p class="sg-page-header__subtitle">View payment status, fulfillment stage, and shipping progress (read-only).</p>
+        <p class="sg-page-header__subtitle">Manage payment status, fulfillment, shipping, and buyer communication.</p>
       </div>
     </div>
-    ${readOnlyBannerHtml()}
     ${renderKpis()}
     ${tableCard()}
   `;
 
+  initCustomSelectboxes(page);
   renderTableBody();
 
   getEl("sg-orders-search")?.addEventListener("input", renderTableBody);
@@ -726,6 +794,14 @@ function hasPurchasedOrExternalLabel(row) {
   return labels.some((l) => String(l.status || "") === "purchased");
 }
 
+function hasPurchasedShippoLabel(row) {
+  return Boolean(String(row?.shippo_label_url || "").trim()) && String(row?.shippo_transaction_status || "").toUpperCase() === "SUCCESS";
+}
+
+function canMarkShippedHere(row) {
+  return isPaymentPaid(row) && canEditOrderWhileOpen(row) && (manualFulfillmentRecordComplete(row) || hasPurchasedShippoLabel(row));
+}
+
 function hasAnyTrackingNumber(row) {
   if (String(row?.shippo_tracking_number || "").trim()) return true;
   const ext = String(row?.admin_external_tracking_number || "").trim();
@@ -734,15 +810,80 @@ function hasAnyTrackingNumber(row) {
   return labels.some((l) => String(l.tracking_number || "").trim());
 }
 
+function canEditOrderWhileOpen(row) {
+  return row && !isOrderCancelled(row) && !isOrderShipped(row);
+}
+
+function canRecordPaymentHere(row) {
+  return (
+    String(row?.order_source || "") === "manual" &&
+    String(row?.order_status || "") === "draft" &&
+    String(row?.payment_flow || "") === "pay_later" &&
+    !isPaymentPaid(row)
+  );
+}
+
+function canSendPaymentLinkHere(row) {
+  return (
+    String(row?.order_source || "") === "manual" &&
+    String(row?.order_status || "") === "draft" &&
+    String(row?.payment_flow || "square_payment_link") !== "pay_later" &&
+    !isPaymentPaid(row)
+  );
+}
+
+function shipFromOverrideValues(row) {
+  return parseShipFromOverride(row) || {};
+}
+
+function moneyDollarsValue(cents) {
+  if (cents == null || !Number.isFinite(Number(cents))) return "";
+  return String((Math.round(Number(cents)) / 100).toFixed(2));
+}
+
+function selectedShippoRateObjectId(row) {
+  return String(row?.shippo_selected_rate_object_id || "").trim();
+}
+
+function shipToFormHtml(row) {
+  const a = normalizeSavedShippingAddress(row);
+  return `<div class="sg-form-grid">
+    <label class="sg-field">Full name<input class="sg-input" name="name" value="${escapeHtml(a.name || row.customer_name || "")}" /></label>
+    <label class="sg-field">Email<input class="sg-input" type="email" name="email" value="${escapeHtml(
+      a.email || row.customer_email || "",
+    )}" /></label>
+    <label class="sg-field">Phone<input class="sg-input" name="phone" value="${escapeHtml(
+      a.phone || row.customer_phone || "",
+    )}" /></label>
+    <label class="sg-field">Street<input class="sg-input" name="line1" value="${escapeHtml(a.line1 || "")}" /></label>
+    <label class="sg-field">Line 2<input class="sg-input" name="line2" value="${escapeHtml(a.line2 || "")}" /></label>
+    <label class="sg-field">City<input class="sg-input" name="city" value="${escapeHtml(a.city || "")}" /></label>
+    <label class="sg-field">State<input class="sg-input" name="state" maxlength="2" value="${escapeHtml(a.state || "")}" /></label>
+    <label class="sg-field">ZIP<input class="sg-input" name="postalCode" value="${escapeHtml(a.postalCode || "")}" /></label>
+    <label class="sg-field">Country<input class="sg-input" name="country" maxlength="2" value="${escapeHtml(
+      a.country || "US",
+    )}" /></label>
+  </div>`;
+}
+
 function shipToHtml(row) {
   const a = normalizeSavedShippingAddress(row);
   const hasCore = a.line1 && a.city && a.state && a.postalCode;
-  if (!hasCore) {
-    return `<div class="sg-inline-warn">${icon("alert-triangle", 14)}<span>No complete ship-to address saved yet. Edit address in Legacy admin.</span></div>
-      <p class="sg-meta-note" style="margin:8px 0 0">Address editing is unavailable in this read-only release.</p>`;
-  }
-  return `${formatShipToBlockHtml(a)}
-    <p class="sg-meta-note" style="margin:8px 0 0">Address editing is unavailable in this read-only release. Use <a href="${LEGACY_ORDERS_HREF}">Legacy admin</a> to change the ship-to address.</p>`;
+  const canEdit = canEditOrderWhileOpen(row);
+  const warning = hasCore
+    ? ""
+    : `<div class="sg-inline-warn">${icon("alert-triangle", 14)}<span>No complete ship-to address is saved yet.</span></div>`;
+  const form = canEdit
+    ? `<form id="sg-od-shipto-form" style="margin-top:12px">
+        ${shipToFormHtml(row)}
+        <div class="sg-pay-link-actions" style="margin-top:12px">
+          <button type="button" class="sg-btn sg-btn--primary sg-btn--sm" data-od-save-ship-to="${escapeHtml(
+            String(row.id),
+          )}">Save recipient</button>
+        </div>
+      </form>`
+    : `<p class="sg-meta-note" style="margin:8px 0 0">Address is locked once the order has shipped or been cancelled.</p>`;
+  return `${warning}${formatShipToBlockHtml(a)}${form}`;
 }
 
 function parseShipFromOverride(row) {
@@ -770,15 +911,49 @@ function shipFromSectionHtml(_row) {
   const sourceChip = hasOv
     ? statusChip("Custom override", "warning")
     : statusChip("Default warehouse", "neutral");
-
+  const canEdit = canEditOrderWhileOpen(_row);
+  const ov = shipFromOverrideValues(_row);
   return `<div class="sg-ship-from-meta" style="margin-bottom:8px">${sourceChip}</div>
     <div id="sg-od-shipfrom"><p class="sg-muted" style="margin:0">Loading warehouse address…</p></div>
-    <p class="sg-meta-note" style="margin:8px 0 0">Ship-from override editing is unavailable in this read-only release. Display only — use <a href="${LEGACY_ORDERS_HREF}">Legacy admin</a> to change it.</p>`;
+    ${
+      canEdit
+        ? `<form id="sg-od-shipfrom-form" style="margin-top:12px">
+            <div class="sg-form-grid">
+              <label class="sg-field">Name<input class="sg-input" name="name" value="${escapeHtml(ov.name || "")}" /></label>
+              <label class="sg-field">Email<input class="sg-input" type="email" name="email" value="${escapeHtml(ov.email || "")}" /></label>
+              <label class="sg-field">Phone<input class="sg-input" name="phone" value="${escapeHtml(ov.phone || "")}" /></label>
+              <label class="sg-field">Street<input class="sg-input" name="line1" value="${escapeHtml(ov.line1 || "")}" /></label>
+              <label class="sg-field">Line 2<input class="sg-input" name="line2" value="${escapeHtml(ov.line2 || "")}" /></label>
+              <label class="sg-field">City<input class="sg-input" name="city" value="${escapeHtml(ov.city || "")}" /></label>
+              <label class="sg-field">State<input class="sg-input" maxlength="2" name="state" value="${escapeHtml(ov.state || "")}" /></label>
+              <label class="sg-field">ZIP<input class="sg-input" name="postalCode" value="${escapeHtml(ov.postalCode || "")}" /></label>
+              <label class="sg-field">Country<input class="sg-input" maxlength="2" name="country" value="${escapeHtml(
+                ov.country || "US",
+              )}" /></label>
+            </div>
+            <div class="sg-pay-link-actions" style="margin-top:12px">
+              <button type="button" class="sg-btn sg-btn--primary sg-btn--sm" data-od-save-ship-from="${escapeHtml(
+                String(_row.id),
+              )}">Save sender</button>
+              <button type="button" class="sg-btn sg-btn--ghost sg-btn--sm" data-od-clear-ship-from="${escapeHtml(
+                String(_row.id),
+              )}">Use default warehouse</button>
+            </div>
+          </form>`
+        : `<p class="sg-meta-note" style="margin:8px 0 0">Ship-from override is locked once the order has shipped or been cancelled.</p>`
+    }`;
 }
 
 function labelRecordsHtml(row) {
   const labels = (labelsCache.get(String(row.id)) || []).slice().sort((a, b) => (Number(a.parcel_index) || 0) - (Number(b.parcel_index) || 0));
-  if (!labels.length) return `<p class="sg-muted" style="margin:0">No label record yet.</p>`;
+  if (!labels.length) {
+    return `<p class="sg-muted" style="margin:0">No label record yet.</p>
+      <div class="sg-pay-link-actions" style="margin-top:12px">
+        <button type="button" class="sg-btn sg-btn--primary sg-btn--sm" data-od-mark-shipped="${escapeHtml(
+          String(row.id),
+        )}" ${canMarkShippedHere(row) ? "" : "disabled"}>Mark as shipped</button>
+      </div>`;
+  }
   const n = labels[0]?.parcel_count != null ? Number(labels[0].parcel_count) : labels.length;
   const rows = labels
     .map((l) => {
@@ -805,7 +980,11 @@ function labelRecordsHtml(row) {
   return `<div class="sg-table-wrap"><table class="sg-table sg-table--tight">
     <thead><tr><th>Package</th><th>Status</th><th>Carrier / tracking</th><th class="sg-table__num">Cost</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table></div>
-    <p class="sg-meta-note" style="margin:8px 0 0">Package-label status is display-only. Completeness here does not by itself mean the order is eligible for handoff or buyer notification.</p>`;
+    <div class="sg-pay-link-actions" style="margin-top:12px">
+      <button type="button" class="sg-btn sg-btn--primary sg-btn--sm" data-od-mark-shipped="${escapeHtml(
+        String(row.id),
+      )}" ${canMarkShippedHere(row) ? "" : "disabled"}>Mark as shipped</button>
+    </div>`;
 }
 
 function storagePathCount(col) {
@@ -869,11 +1048,79 @@ function externalLabelRecordDisplayHtml(row) {
     ])}`;
 }
 
+function uploadFieldHtml({ fieldId, fieldName, label, description }) {
+  return `<label class="sg-field sg-upload-field">
+    <span class="sg-field__label">${escapeHtml(label)}</span>
+    <div class="sg-upload" data-upload-field>
+      <div class="sg-upload__content">
+        <span class="sg-upload__icon">${icon("inbox", 18)}</span>
+        <div class="sg-upload__copy">
+          <strong>Drop files here</strong>
+          <span>${escapeHtml(description)}</span>
+        </div>
+        <span class="sg-upload__summary" data-upload-summary>No files selected</span>
+      </div>
+      <input
+        class="sg-upload__input"
+        id="${escapeHtml(fieldId)}"
+        name="${escapeHtml(fieldName)}"
+        type="file"
+        multiple
+        accept="application/pdf,image/*"
+      />
+    </div>
+  </label>`;
+}
+
 function externalLabelSectionHtml(row) {
+  const canSave = isPaymentPaid(row) && canEditOrderWhileOpen(row);
+  const canNotify = Boolean(String(row?.shippo_label_url || "").trim()) && String(row?.shippo_transaction_status || "").toUpperCase() === "SUCCESS";
   return sectionHtml(
     "External label record",
     `${externalLabelRecordDisplayHtml(row)}
-    <p class="sg-meta-note" style="margin:8px 0 0">Display only. Recording or uploading an external label is unavailable here. External/package labels do not unlock buyer notification from this page — use <a href="${LEGACY_ORDERS_HREF}">Legacy admin</a>.</p>`,
+    <form id="sg-od-external-label-form" style="margin-top:12px">
+      <div class="sg-form-grid">
+        <label class="sg-field">Carrier / agent<input class="sg-input" name="carrier" value="${escapeHtml(
+          row.admin_external_carrier || "",
+        )}" placeholder="UPS, USPS, courier, freight" /></label>
+        <label class="sg-field">Service<input class="sg-input" name="service" value="${escapeHtml(
+          row.admin_external_service || "",
+        )}" placeholder="Ground, Express, etc." /></label>
+        <label class="sg-field">Label cost (USD)<input class="sg-input" name="labelCost" type="number" min="0" step="0.01" value="${escapeHtml(
+          moneyDollarsValue(row.admin_external_label_cost_cents),
+        )}" placeholder="0.00" /></label>
+        <label class="sg-field">Shipment date<input class="sg-input" name="shippedDate" type="date" value="${escapeHtml(
+          row.admin_external_shipped_date || "",
+        )}" /></label>
+        <label class="sg-field" style="grid-column:1/-1">Tracking number(s)<textarea class="sg-input" name="trackingNumbers" rows="4" placeholder="One tracking number per line">${escapeHtml(
+          String(row.admin_external_tracking_number || ""),
+        )}</textarea></label>
+        ${uploadFieldHtml({
+          fieldId: "sg-od-label-files",
+          fieldName: "labelFiles",
+          label: "Shipping label files",
+          description: "PDF or image files · multiple allowed",
+        })}
+        ${uploadFieldHtml({
+          fieldId: "sg-od-slip-files",
+          fieldName: "packingSlipFiles",
+          label: "Packing slip files",
+          description: "PDF or image files · multiple allowed",
+        })}
+      </div>
+      <div class="sg-pay-link-actions" style="margin-top:12px">
+        <button type="button" class="sg-btn sg-btn--primary sg-btn--sm" data-od-record-external-label="${escapeHtml(
+          String(row.id),
+        )}" ${canSave ? "" : "disabled"}>Save label records</button>
+        <button type="button" class="sg-btn sg-btn--ghost sg-btn--sm" data-od-open-packing-slip="${escapeHtml(
+          String(row.id),
+        )}">Generate packing slip</button>
+        <button type="button" class="sg-btn sg-btn--ghost sg-btn--sm" data-od-buyer-notify="${escapeHtml(
+          String(row.id),
+        )}" ${canNotify ? "" : "disabled"}>Email buyer</button>
+      </div>
+    </form>
+    <p class="sg-meta-note" style="margin:8px 0 0">External label records are for manual or third-party fulfillment. Buyer notification still requires a purchased Shippo label.</p>`,
   );
 }
 
@@ -913,10 +1160,41 @@ function paymentLinkDisplayHtml(url) {
   const u = String(url || "").trim();
   if (!u) return "";
   return `<div class="sg-pay-link-display" style="margin-top:10px">
-    <p class="sg-meta-note" style="margin:0 0 6px">Payment link URL (display only — sending a link is unavailable here):</p>
+    <p class="sg-meta-note" style="margin:0 0 6px">Payment link URL:</p>
     <p class="sg-mono" style="margin:0 0 8px;word-break:break-all">${escapeHtml(u)}</p>
     <a class="sg-btn sg-btn--ghost sg-btn--sm" href="${escapeHtml(u)}" target="_blank" rel="noopener noreferrer">${icon("external-link", 14)}<span>Open payment link</span></a>
   </div>`;
+}
+
+function paymentActionsHtml(row) {
+  const actions = [];
+  if (canRecordPaymentHere(row)) {
+    actions.push(`<div class="sg-pay-method" id="sg-od-pay-method">
+      <span class="sg-pay-method__label">Manual payment method</span>
+      <div class="sg-pay-method__options">
+        <label class="sg-pay-method__option"><input type="radio" name="sg-od-pay-method" value="cash" checked /><span class="sg-pay-method__text">Cash</span></label>
+        <label class="sg-pay-method__option"><input type="radio" name="sg-od-pay-method" value="check" /><span class="sg-pay-method__text">Check</span></label>
+        <label class="sg-pay-method__option"><input type="radio" name="sg-od-pay-method" value="other" /><span class="sg-pay-method__text">Other</span></label>
+      </div>
+      <label class="sg-record-pay-note">
+        <span class="sg-field__label">Payment note</span>
+        <textarea class="sg-input" id="sg-od-pay-note" rows="3" placeholder="Optional note for internal records"></textarea>
+      </label>
+      <div class="sg-pay-link-actions">
+        <button type="button" class="sg-btn sg-btn--primary sg-btn--sm" data-od-record-payment="${escapeHtml(
+          String(row.id),
+        )}">Record payment</button>
+      </div>
+    </div>`);
+  }
+  if (canSendPaymentLinkHere(row)) {
+    actions.push(`<div class="sg-pay-link-actions" style="margin-top:${actions.length ? "12px" : "0"}">
+      <button type="button" class="sg-btn sg-btn--ghost sg-btn--sm" data-od-send-payment-link="${escapeHtml(
+        String(row.id),
+      )}">Send payment link</button>
+    </div>`);
+  }
+  return actions.join("");
 }
 
 function paymentDetailsHtml(row) {
@@ -957,22 +1235,27 @@ function paymentDetailsHtml(row) {
     row.subtotal_cents != null ? ["Merchandise", escapeHtml(fmtMoneyCents(row.subtotal_cents))] : null,
     row.tax_cents != null ? ["Tax", escapeHtml(fmtMoneyCents(row.tax_cents))] : null,
     ship != null ? ["Shipping", escapeHtml(fmtMoneyCents(ship))] : null,
-    row.is_hardin_discount
-      ? ["Discount", `Applied${row.discount_code_used ? ` · ${escapeHtml(String(row.discount_code_used))}` : ""}`]
-      : null,
+    manualDiscountLabelForRow(row)
+      ? ["Discount", `Applied · ${escapeHtml(String(manualDiscountLabelForRow(row)))}`]
+      : row.is_hardin_discount
+        ? ["Discount", `Applied${row.discount_code_used ? ` · ${escapeHtml(String(row.discount_code_used))}` : ""}`]
+        : null,
   ];
 
   let linkNotes = "";
   if (showLinkBlock && linkKey === "expired") {
-    linkNotes += `<div class="sg-inline-warn" style="margin-top:10px">${icon("alert-triangle", 14)}<span>This payment link appears expired. Resend / send payment link is unavailable in this read-only release.</span></div>`;
+    linkNotes += `<div class="sg-inline-warn" style="margin-top:10px">${icon("alert-triangle", 14)}<span>This payment link appears expired.</span></div>`;
   }
   if (showLinkBlock && linkKey === "missing") {
     linkNotes += `<div class="sg-inline-warn" style="margin-top:10px">${icon("alert-triangle", 14)}<span>Payment link status is sent, but no checkout URL is stored.</span></div>`;
   }
   if (url) linkNotes += paymentLinkDisplayHtml(url);
-  linkNotes += `<p class="sg-meta-note" style="margin:10px 0 0">Record payment and send payment link are unavailable here. Use <a href="${LEGACY_ORDERS_HREF}">Legacy admin</a>.</p>`;
+  const actions = paymentActionsHtml(row);
+  if (!actions && !paid) {
+    linkNotes += `<p class="sg-meta-note" style="margin:10px 0 0">Payment actions here are only available for manual draft orders.</p>`;
+  }
 
-  return `${kvHtml(pairs)}${linkNotes}`;
+  return `${kvHtml(pairs)}${linkNotes}${actions ? `<div style="margin-top:12px">${actions}</div>` : ""}`;
 }
 
 /* ------------------------------------------- shipping readiness + Shippo display */
@@ -1128,12 +1411,25 @@ function plannedShipDateSectionHtml(row) {
   const current = ymd
     ? `<p class="sg-ship-date-current"><strong>${escapeHtml(fmtPlannedShipDateDisplay(ymd))}</strong> <span class="sg-mono sg-muted">(${escapeHtml(ymd)})</span></p>`
     : `<p class="sg-muted" style="margin:0">No planned ship date set.</p>`;
+  const canEdit = canEditOrderWhileOpen(row);
 
   return sectionHtml(
     "Planned shipment date",
     `${current}
     ${plannedShipQueueHint(row)}
-    <p class="sg-meta-note" style="margin:8px 0 0">Display only. Setting or clearing the planned ship date is unavailable in this read-only release. Use <a href="${LEGACY_ORDERS_HREF}">Legacy admin</a>.</p>`,
+    ${
+      canEdit
+        ? `<div class="sg-ship-date-actions" style="margin-top:12px">
+            <input class="sg-input" id="sg-od-ship-date-input" type="date" value="${escapeHtml(ymd || "")}" />
+            <button type="button" class="sg-btn sg-btn--primary sg-btn--sm" data-od-set-ship-date="${escapeHtml(
+              String(row.id),
+            )}">Save</button>
+            <button type="button" class="sg-btn sg-btn--ghost sg-btn--sm" data-od-clear-ship-date="${escapeHtml(
+              String(row.id),
+            )}">Clear</button>
+          </div>`
+        : `<p class="sg-meta-note" style="margin:8px 0 0">Planned ship date is locked once the order has shipped or been cancelled.</p>`
+    }`,
   );
 }
 
@@ -1271,13 +1567,11 @@ function shippingReadinessSectionHtml(row) {
   } else if (ready) {
     title = "Shipping Readiness";
     headline = statusChip("Ready for label planning", "success");
-    note =
-      "Readiness checklist only. Shippo sync, rate refresh, preview, and label purchase are unavailable in this read-only release — use Legacy admin.";
+    note = "Address, parcel, and label prerequisites are in place. You can continue with Shippo actions below.";
   } else {
     title = "Shipping Readiness";
     headline = statusChip("Not ready for label planning", "warning");
-    note =
-      "Readiness checklist only. Shippo sync, rate refresh, preview, and label purchase are unavailable in this read-only release — use Legacy admin.";
+    note = "Resolve the missing items below before syncing or purchasing labels.";
   }
   return sectionHtml(
     title,
@@ -1317,6 +1611,21 @@ function shippingWorkflowSectionHtml(row) {
   const hasLabel = hasPurchasedOrExternalLabel(row);
   const lastErr = String(row?.shippo_last_error || row?.shippo_sync_error || "").trim();
   const selected = String(row?.shippo_selected_rate_object_id || "").trim();
+  const { missing } = missingShippoAddressFields(row);
+  const canAct = isPaymentPaid(row) && canEditOrderWhileOpen(row);
+  const actions = canAct
+    ? `<div class="sg-pay-link-actions" style="margin-top:10px">
+        <button type="button" class="sg-btn sg-btn--ghost sg-btn--sm" data-od-shippo-sync="${escapeHtml(
+          String(row.id),
+        )}">Sync to Shippo</button>
+        <button type="button" class="sg-btn sg-btn--ghost sg-btn--sm" data-od-shippo-refresh="${escapeHtml(
+          String(row.id),
+        )}">Refresh Shippo</button>
+        <button type="button" class="sg-btn sg-btn--primary sg-btn--sm" data-od-buy-all-labels="${escapeHtml(
+          String(row.id),
+        )}" ${missing.length ? "disabled" : ""}>Buy all labels</button>
+      </div>`
+    : `<p class="sg-meta-note" style="margin:10px 0 0">Shippo actions unlock for paid orders that are still open.</p>`;
 
   return sectionHtml(
     "Shipping workflow (Shippo status)",
@@ -1330,7 +1639,7 @@ function shippingWorkflowSectionHtml(row) {
         ["Order shipped", isOrderShipped(row) ? statusChip("Shipped", "success") : statusChip("Not shipped", "neutral")],
       ])}
       ${lastErr ? `<div class="sg-inline-warn" style="margin-top:8px">${icon("alert-triangle", 14)}<span>${escapeHtml(lastErr)}</span></div>` : ""}
-      <p class="sg-meta-note" style="margin:10px 0 0">Display only. Sync to Shippo, refresh rates/status, and validate parcel are unavailable in this read-only release. Label purchase can charge the connected Shippo account and is also unavailable here. Use <a href="${LEGACY_ORDERS_HREF}">Legacy admin</a>.</p>
+      ${actions}
     </div>`,
   );
 }
@@ -1362,13 +1671,38 @@ function ratesTableDisplayHtml(rates) {
 
 function availableShippoRatesSectionHtml(row) {
   const rates = shippoRatesList(row);
+  const selected = selectedShippoRateObjectId(row);
   const body = rates.length
-    ? ratesTableDisplayHtml(rates)
-    : `<p class="sg-muted" style="margin:0">No stored rates yet.</p>`;
+    ? `<div class="mo-rates">${rates
+        .map((r) => {
+          const rateId = String(r?.object_id || "").trim();
+          const checked = rateId && rateId === selected ? "checked" : !selected && r === rates[0] ? "checked" : "";
+          return `<label class="mo-rate-option">
+            <input type="radio" name="sg-od-rate-pick" value="${escapeHtml(rateId)}" ${checked} />
+            <span class="mo-rate-option__body">
+              <strong>${escapeHtml(rateCarrierLabel(r))} · ${escapeHtml(rateServiceLabel(r))}</strong>
+              <span>${escapeHtml(formatShippoMoney(r?.amount, r?.currency))} · ${escapeHtml(
+                rateDeliveryEstimate(r),
+              )} · ${escapeHtml(rateParcelLabel(r))}</span>
+            </span>
+          </label>`;
+        })
+        .join("")}</div>`
+    : `<p class="sg-muted" style="margin:0">No stored rates yet. Sync or refresh Shippo to generate them.</p>`;
+  const canBuySelected = isPaymentPaid(row) && canEditOrderWhileOpen(row) && rates.length;
   return sectionHtml(
     "Available Shippo Rates",
-    `<p class="sg-meta-note" style="margin:0 0 10px">Stored rates from prior Shippo sync/refresh — display only. Selecting a rate or buying a label is unavailable here.</p>
-    ${body}`,
+    `<p class="sg-meta-note" style="margin:0 0 10px">Choose a stored rate to purchase a single label, or use Buy all labels in the workflow section for multi-package orders.</p>
+    ${body}
+    ${
+      canBuySelected
+        ? `<div class="sg-pay-link-actions" style="margin-top:12px">
+            <button type="button" class="sg-btn sg-btn--primary sg-btn--sm" data-od-buy-label="${escapeHtml(
+              String(row.id),
+            )}">Buy selected label</button>
+          </div>`
+        : ""
+    }`,
   );
 }
 
@@ -1379,8 +1713,7 @@ function buildActionNeededPanel(row, wf) {
   const paid = isPaymentPaid(row);
   const shipped = isOrderShipped(row);
   const walkIn = isWalkInOrder(row);
-  const legacyLink = `<p style="margin:12px 0 0"><a class="sg-btn sg-btn--primary sg-btn--sm" href="${LEGACY_ORDERS_HREF}">${icon("external-link", 14)}<span>Open in Legacy admin</span></a></p>`;
-  const unavailableNote = `<p class="sg-meta-note" style="margin:10px 0 0">Shippo sync/refresh/buy, mark shipped, record payment, send payment link, and buyer notification are unavailable in this read-only release.</p>`;
+  const walkInLink = `<p style="margin:12px 0 0"><a class="sg-btn sg-btn--primary sg-btn--sm" href="/admin-v2/walk-in-order">${icon("store", 14)}<span>Open in Admin v2 Walk-in</span></a></p>`;
 
   if (cancelled) {
     return {
@@ -1388,7 +1721,6 @@ function buildActionNeededPanel(row, wf) {
       body: `<div class="sg-action-needed">
         <div class="sg-action-needed__head">${statusChip("Cancelled", "danger")}</div>
         <p class="sg-action-needed__copy">This order is cancelled and locked. No fulfillment actions apply.</p>
-        ${legacyLink}
       </div>`,
     };
   }
@@ -1399,9 +1731,8 @@ function buildActionNeededPanel(row, wf) {
         title: "Walk-in Order",
         body: `<div class="sg-action-needed">
           <div class="sg-action-needed__head">${statusChip("Payment needed", "warning")}</div>
-          <p class="sg-action-needed__copy">Operational next step: collect payment in person, then record it in Legacy admin. Shipping and Shippo do not apply to walk-in orders.</p>
-          ${unavailableNote}
-          ${legacyLink}
+          <p class="sg-action-needed__copy">Operational next step: collect payment in person, then complete the order from the Admin v2 Walk-in page. Shipping and Shippo do not apply to walk-in orders.</p>
+          ${walkInLink}
         </div>`,
       };
     }
@@ -1411,7 +1742,6 @@ function buildActionNeededPanel(row, wf) {
         body: `<div class="sg-action-needed">
           <div class="sg-action-needed__head">${statusChip("Completed", "success")}</div>
           <p class="sg-action-needed__copy">This walk-in order has been completed (fulfilled in person). No shipping label is required.</p>
-          ${legacyLink}
         </div>`,
       };
     }
@@ -1419,14 +1749,14 @@ function buildActionNeededPanel(row, wf) {
       title: "Walk-in Order",
       body: `<div class="sg-action-needed">
         <div class="sg-action-needed__head">${statusChip("Paid · not completed", "info")}</div>
-        <p class="sg-action-needed__copy">Operational next step: confirm physical handoff in Legacy admin. Walk-in completion is not available here.</p>
-        ${unavailableNote}
-        ${legacyLink}
+        <p class="sg-action-needed__copy">Operational next step: confirm physical handoff from the Admin v2 Walk-in page.</p>
+        ${walkInLink}
       </div>`,
     };
   }
 
-  const next = wf?.nextAction ? String(wf.nextAction) : "";
+  const next = nextActionDisplay(row, wf);
+  const nextDisplay = next || "";
   const stage = wf?.label ? String(wf.label) : "—";
   let copy;
   if (!paid) {
@@ -1438,7 +1768,7 @@ function buildActionNeededPanel(row, wf) {
   } else {
     copy = next
       ? `Fulfillment stage: ${stage}. Suggested next operational step: ${next}.`
-      : `Fulfillment stage: ${stage}. Review shipping details, then complete actions in Legacy admin.`;
+      : `Fulfillment stage: ${stage}. Review shipping details, then continue with the actions on this page.`;
   }
 
   const facts = kvHtml([
@@ -1446,18 +1776,16 @@ function buildActionNeededPanel(row, wf) {
     ["Fulfillment", escapeHtml(stage)],
     ["Label purchased / on file", hasPurchasedOrExternalLabel(row) ? statusChip("Yes", "success") : statusChip("No", "neutral")],
     ["Order shipped", shipped ? statusChip("Yes", "success") : statusChip("No", "neutral")],
-    next ? ["Suggested next step", escapeHtml(next)] : null,
+    nextDisplay ? ["Suggested next step", escapeHtml(nextDisplay)] : null,
     wf?.blockingIssue ? ["Blocking issue", escapeHtml(String(wf.blockingIssue))] : null,
   ]);
 
   return {
     title: "Action Needed",
     body: `<div class="sg-action-needed">
-      <div class="sg-action-needed__head">${statusChip("Read-only", "info")} ${fulfillmentChip(wf)}</div>
+      <div class="sg-action-needed__head">${fulfillmentChip(wf)}</div>
       <p class="sg-action-needed__copy">${escapeHtml(copy)}</p>
       <div class="sg-action-needed__facts">${facts}</div>
-      ${unavailableNote}
-      ${legacyLink}
     </div>`,
   };
 }
@@ -1467,11 +1795,389 @@ function actionNeededSectionHtml(row, wf) {
   return sectionHtml(panel.title, panel.body);
 }
 
+function setButtonBusy(button, busy, label) {
+  if (!button) return;
+  if (busy) {
+    if (button.dataset.busyLabel == null) {
+      button.dataset.prevHtml = button.innerHTML;
+    }
+    button.disabled = true;
+    if (label) {
+      button.textContent = label;
+      button.dataset.busyLabel = label;
+    }
+    return;
+  }
+  if (button.dataset.prevHtml) {
+    button.innerHTML = button.dataset.prevHtml;
+    delete button.dataset.prevHtml;
+  }
+  delete button.dataset.busyLabel;
+  button.disabled = false;
+}
+
+async function withButtonAction(button, busyLabel, work) {
+  drawerActionDepth += 1;
+  setButtonBusy(button, true, busyLabel);
+  try {
+    return await work();
+  } finally {
+    drawerActionDepth = Math.max(0, drawerActionDepth - 1);
+    setButtonBusy(button, false);
+  }
+}
+
+function numericDollarsToCents(raw) {
+  if (raw == null || String(raw).trim() === "") return null;
+  const amount = Number.parseFloat(String(raw).trim());
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  return Math.round(amount * 100);
+}
+
+function readTextForm(form) {
+  return Object.fromEntries(
+    [...new FormData(form).entries()].map(([key, value]) => [key, typeof value === "string" ? value : ""]),
+  );
+}
+
+function normalizeAddressPatch(values) {
+  return {
+    name: String(values.name || "").trim(),
+    line1: String(values.line1 || "").trim(),
+    ...(String(values.line2 || "").trim() ? { line2: String(values.line2).trim() } : {}),
+    city: String(values.city || "").trim(),
+    state: String(values.state || "").trim().toUpperCase().slice(0, 2),
+    postalCode: String(values.postalCode || "").trim(),
+    country: String(values.country || "").trim().toUpperCase().slice(0, 2),
+    ...(String(values.email || "").trim() ? { email: String(values.email).trim() } : {}),
+    ...(String(values.phone || "").trim() ? { phone: String(values.phone).trim() } : {}),
+  };
+}
+
+function fileToBase64Spec(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`Could not read ${file?.name || "file"}.`));
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const base64 = result.includes(",") ? result.slice(result.indexOf(",") + 1) : result;
+      resolve({ name: file.name || "upload", base64 });
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function fileListToPayload(fileList) {
+  const files = Array.from(fileList || []).filter((file) => file && file.size >= 0);
+  return Promise.all(files.map((file) => fileToBase64Spec(file)));
+}
+
+function uploadSummaryText(fileList) {
+  const files = Array.from(fileList || []).filter(Boolean);
+  if (!files.length) return "No files selected";
+  if (files.length === 1) return files[0].name || "1 file selected";
+  return `${files.length} files selected`;
+}
+
+function applyDroppedFiles(input, files) {
+  if (!(input instanceof HTMLInputElement) || input.type !== "file") return;
+  const dropped = Array.from(files || []).filter(Boolean);
+  if (!dropped.length) return;
+  const transfer = new DataTransfer();
+  dropped.forEach((file) => transfer.items.add(file));
+  input.files = transfer.files;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function initUploadDropzones(root = document) {
+  root.querySelectorAll("[data-upload-field]").forEach((dropzone) => {
+    if (dropzone.dataset.bound === "1") return;
+    dropzone.dataset.bound = "1";
+    const input = dropzone.querySelector(".sg-upload__input");
+    const summary = dropzone.querySelector("[data-upload-summary]");
+    if (!(input instanceof HTMLInputElement)) return;
+
+    const syncSummary = () => {
+      if (summary) summary.textContent = uploadSummaryText(input.files);
+      dropzone.classList.toggle("has-files", Boolean(input.files?.length));
+    };
+
+    const setDragState = (dragging) => {
+      dropzone.classList.toggle("is-dragover", dragging);
+    };
+
+    input.addEventListener("change", syncSummary);
+    ["dragenter", "dragover"].forEach((eventName) => {
+      dropzone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        setDragState(true);
+      });
+    });
+    ["dragleave", "dragend"].forEach((eventName) => {
+      dropzone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        const related = event.relatedTarget;
+        if (related && dropzone.contains(related)) return;
+        setDragState(false);
+      });
+    });
+    dropzone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      setDragState(false);
+      applyDroppedFiles(input, event.dataTransfer?.files);
+    });
+
+    syncSummary();
+  });
+}
+
+function currentDrawerRow(orderId) {
+  return orderById(orderId) || orderById(currentDrawerOrderId);
+}
+
+async function mutateOrderAndRefresh(orderId, button, busyLabel, endpoint, body, successMessage) {
+  return withButtonAction(button, busyLabel, async () => {
+    const data = await postOrderAction(endpoint, body);
+    if (data?.order) {
+      mergeOrderIntoCache(data.order);
+    }
+    toast(data?.warning || successMessage, data?.warning ? "danger" : "success");
+    await reloadOrdersAndReopen(orderId);
+    return data;
+  });
+}
+
+async function openPackingSlipWindow(orderId, button) {
+  return withButtonAction(button, "Building…", async () => {
+    const data = await postOrderAction("/api/admin-order-packing-slip-html", { orderId });
+    if (!data?.html) {
+      throw new Error("No packing slip content was returned.");
+    }
+    const popup = window.open("", "_blank");
+    if (!popup) {
+      throw new Error("Allow pop-ups for this site to open the packing slip.");
+    }
+    popup.document.open();
+    popup.document.write(String(data.html));
+    popup.document.close();
+    toast("Packing slip opened in a new tab.", "success");
+  });
+}
+
+function bindDrawerClick(drawer, selector, handler) {
+  drawer.querySelectorAll(selector).forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      void handler(button).catch((error) => {
+        toast(error?.message || "Could not complete the order action.", "danger");
+      });
+    });
+  });
+}
+
+function bindDrawerActions(row) {
+  const drawer = document.getElementById("sg-drawer");
+  if (!drawer) return;
+
+  bindDrawerClick(drawer, "[data-od-save-ship-to]", async (button) => {
+    const form = document.getElementById("sg-od-shipto-form");
+    if (!form) throw new Error("Ship-to form is unavailable.");
+    const values = readTextForm(form);
+    const shippingAddress = normalizeAddressPatch(values);
+    await mutateOrderAndRefresh(
+      row.id,
+      button,
+      "Saving…",
+      "/api/admin-order-update-shipping-address",
+      {
+        orderId: row.id,
+        shippingAddress,
+        shippingContact: {
+          name: shippingAddress.name,
+          email: shippingAddress.email || "",
+          phone: shippingAddress.phone || "",
+        },
+      },
+      "Recipient address saved.",
+    );
+  });
+
+  bindDrawerClick(drawer, "[data-od-save-ship-from]", async (button) => {
+    const form = document.getElementById("sg-od-shipfrom-form");
+    if (!form) throw new Error("Ship-from form is unavailable.");
+    const values = readTextForm(form);
+    await mutateOrderAndRefresh(
+      row.id,
+      button,
+      "Saving…",
+      "/api/admin-order-fulfillment-addresses",
+      { orderId: row.id, shipFromOverride: normalizeAddressPatch(values) },
+      "Ship-from override saved.",
+    );
+  });
+
+  bindDrawerClick(drawer, "[data-od-clear-ship-from]", async (button) => {
+    await mutateOrderAndRefresh(
+      row.id,
+      button,
+      "Clearing…",
+      "/api/admin-order-fulfillment-addresses",
+      { orderId: row.id, shipFromOverride: null },
+      "Ship-from override cleared.",
+    );
+  });
+
+  bindDrawerClick(drawer, "[data-od-set-ship-date]", async (button) => {
+    const input = document.getElementById("sg-od-ship-date-input");
+    await mutateOrderAndRefresh(
+      row.id,
+      button,
+      "Saving…",
+      "/api/admin-order-shippo-shipment-date",
+      { orderId: row.id, shipmentDate: input?.value || "" },
+      "Planned shipment date saved.",
+    );
+  });
+
+  bindDrawerClick(drawer, "[data-od-clear-ship-date]", async (button) => {
+    await mutateOrderAndRefresh(
+      row.id,
+      button,
+      "Clearing…",
+      "/api/admin-order-shippo-shipment-date",
+      { orderId: row.id, shipmentDate: "" },
+      "Planned shipment date cleared.",
+    );
+  });
+
+  bindDrawerClick(drawer, "[data-od-record-payment]", async (button) => {
+    const method = drawer.querySelector('input[name="sg-od-pay-method"]:checked')?.value || "";
+    const note = document.getElementById("sg-od-pay-note")?.value || "";
+    await mutateOrderAndRefresh(
+      row.id,
+      button,
+      "Recording…",
+      "/api/admin-manual-order-record-payment",
+      { orderId: row.id, manualPaymentMethod: method, paymentNote: note },
+      "Payment recorded.",
+    );
+  });
+
+  bindDrawerClick(drawer, "[data-od-send-payment-link]", async (button) => {
+    const current = currentDrawerRow(row.id) || row;
+    await withButtonAction(button, "Sending…", async () => {
+      const data = await postOrderAction("/api/admin-manual-order-send-link", {
+        orderId: row.id,
+        shipmentDate: plannedShipDateYmd(current) || undefined,
+      });
+      toast(
+        data?.warning || (data?.emailed ? "Payment link emailed." : "Payment link created."),
+        data?.warning ? "danger" : "success",
+      );
+      await reloadOrdersAndReopen(row.id);
+    });
+  });
+
+  bindDrawerClick(drawer, "[data-od-shippo-sync]", async (button) => {
+    await mutateOrderAndRefresh(row.id, button, "Syncing…", "/api/admin-order-shippo-sync", { orderId: row.id }, "Shippo sync finished.");
+  });
+
+  bindDrawerClick(drawer, "[data-od-shippo-refresh]", async (button) => {
+    await mutateOrderAndRefresh(
+      row.id,
+      button,
+      "Refreshing…",
+      "/api/admin-order-shippo-refresh-status",
+      { orderId: row.id },
+      "Shippo status refreshed.",
+    );
+  });
+
+  bindDrawerClick(drawer, "[data-od-buy-all-labels]", async (button) => {
+    await mutateOrderAndRefresh(
+      row.id,
+      button,
+      "Purchasing…",
+      "/api/admin-order-shippo-buy-all-labels",
+      { orderId: row.id },
+      "Shipping labels purchased.",
+    );
+  });
+
+  bindDrawerClick(drawer, "[data-od-buy-label]", async (button) => {
+    const rateObjectId = drawer.querySelector('input[name="sg-od-rate-pick"]:checked')?.value || "";
+    if (!rateObjectId) {
+      throw new Error("Choose a Shippo rate first.");
+    }
+    await mutateOrderAndRefresh(
+      row.id,
+      button,
+      "Purchasing…",
+      "/api/admin-order-shippo-purchase-label",
+      { orderId: row.id, rateObjectId },
+      "Shipping label purchased.",
+    );
+  });
+
+  bindDrawerClick(drawer, "[data-od-record-external-label]", async (button) => {
+    const form = document.getElementById("sg-od-external-label-form");
+    if (!form) throw new Error("External fulfillment form is unavailable.");
+    const values = readTextForm(form);
+    const labelFiles = await fileListToPayload(form.querySelector("#sg-od-label-files")?.files);
+    const packingSlipFiles = await fileListToPayload(form.querySelector("#sg-od-slip-files")?.files);
+    await mutateOrderAndRefresh(
+      row.id,
+      button,
+      "Saving…",
+      "/api/admin-order-external-fulfillment-save",
+      {
+        orderId: row.id,
+        carrier: values.carrier,
+        service: values.service,
+        trackingNumbers: values.trackingNumbers,
+        shippedDate: values.shippedDate,
+        labelCostCents: numericDollarsToCents(values.labelCost),
+        labelFiles,
+        packingSlipFiles,
+      },
+      "External label record saved.",
+    );
+  });
+
+  bindDrawerClick(drawer, "[data-od-open-packing-slip]", async (button) => {
+    await openPackingSlipWindow(row.id, button);
+  });
+
+  bindDrawerClick(drawer, "[data-od-buyer-notify]", async (button) => {
+    await mutateOrderAndRefresh(
+      row.id,
+      button,
+      "Sending…",
+      "/api/admin-order-buyer-shipping-notify",
+      { orderId: row.id },
+      "Buyer notification sent.",
+    );
+  });
+
+  bindDrawerClick(drawer, "[data-od-mark-shipped]", async (button) => {
+    await mutateOrderAndRefresh(
+      row.id,
+      button,
+      "Saving…",
+      "/api/admin-order-fulfillment-handoff",
+      { orderId: row.id },
+      "Order marked shipped.",
+    );
+  });
+}
+
 /* --------------------------------------------------- detail drawer */
 
 function openOrderDrawer(row) {
   drawerGen += 1;
   const gen = drawerGen;
+  currentDrawerOrderId = String(row.id);
+  setDrawerCloseGuard(() => drawerActionDepth === 0);
   const wf = computeFulfillmentWorkflow(row);
   const ref = escapeHtml(String(row.order_ref || row.id || "—"));
 
@@ -1489,7 +2195,7 @@ function openOrderDrawer(row) {
       ["Type", isWalkInOrder(row) ? "Walk-in" : isManualOrder(row) ? "Manual" : "Online"],
       ["Payment status", isPaymentPaid(row) ? "Paid" : "Unpaid"],
       ["Fulfillment", escapeHtml(wf.label)],
-      ["Next action", wf.nextAction ? escapeHtml(wf.nextAction) : "—"],
+      ["Next action", escapeHtml(nextActionDisplay(row, wf) || "—")],
       ["Planned ship date", escapeHtml(plannedShipDateYmd(row) ? fmtPlannedShipDateDisplay(plannedShipDateYmd(row)) : "Not set")],
     ]),
   );
@@ -1549,12 +2255,14 @@ function openOrderDrawer(row) {
     }
   </div>`;
 
-  const bodyHtml = `${readOnlyBannerHtml({ compact: true })}${headerMeta}${stepperHtml(row)}<div class="sg-od-grid">${mainCol}${sideCol}</div>`;
+  const bodyHtml = `${headerMeta}${stepperHtml(row)}<div class="sg-od-grid">${mainCol}${sideCol}</div>`;
 
   openDrawer({ title: `Order ${row.order_ref || row.id || ""}`.trim(), bodyHtml });
   const aside = document.getElementById("sg-drawer");
   if (aside) aside.classList.add("sg-drawer--wide");
 
+  bindDrawerActions(row);
+  initUploadDropzones(document.getElementById("sg-drawer") || document);
   hydrateDrawerHelpers(row, gen);
 }
 
@@ -1579,7 +2287,7 @@ async function hydrateDrawerHelpers(row, gen) {
 
   // Skip ship-from when the drawer has no ship-from target (walk-in / pickup-local).
   if (sfEl) {
-    fetchReadOnlyOrderPost("/api/admin-order-ship-from-display", token, { orderId })
+    fetchReportPost("/api/admin-order-ship-from-display", token, { orderId })
       .then((sf) => {
         if (gen !== drawerGen) return;
         const el = document.getElementById("sg-od-shipfrom");
@@ -1593,7 +2301,7 @@ async function hydrateDrawerHelpers(row, gen) {
       });
   }
 
-  fetchReadOnlyOrderPost("/api/admin-order-fulfillment-doc-links", token, { orderId })
+  fetchReportPost("/api/admin-order-fulfillment-doc-links", token, { orderId })
     .then((dl) => {
       if (gen !== drawerGen) return;
       const el = document.getElementById("sg-od-docs");
@@ -1670,7 +2378,7 @@ async function loadOrders() {
 
 /* --------------------------------------------------------------- app boot */
 
-/** Browser-only boot. Skipped under Node harness imports (read-only boundary tests). */
+/** Browser-only boot. Skipped under Node harness imports. */
 if (typeof document !== "undefined") {
   bootAdminV2Page({
     activeNav: "orders",

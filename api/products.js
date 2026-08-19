@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { getStorePath } from "../lib/store.js";
 import { mergeInventoryIntoStore } from "../lib/stock.js";
+import { primeRuntimeStore } from "../lib/runtime-store.js";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -9,13 +8,18 @@ export default async function handler(req, res) {
   }
 
   try {
-    const raw = readFileSync(getStorePath(), "utf8");
-    const store = JSON.parse(raw);
+    const { store } = await primeRuntimeStore();
+    const publicStore = {
+      ...store,
+      products: store.products.map((product) => ({
+        ...product,
+        bundles: (product.bundles || []).filter((bundle) => bundle.active !== false),
+      })),
+    };
     res.setHeader("Cache-Control", "no-store");
-    res.status(200).json(await mergeInventoryIntoStore(store));
+    res.status(200).json(await mergeInventoryIntoStore(publicStore));
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Failed to load products." });
   }
 }
-

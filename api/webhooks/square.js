@@ -1,3 +1,4 @@
+import { waitUntil } from "@vercel/functions";
 import { config, handleSquareWebhook } from "../../lib/square-webhook-handler.js";
 
 export { config };
@@ -7,5 +8,7 @@ export default async function handler(req, res) {
   return handleSquareWebhook(req, res, {
     notificationPath: "/api/webhooks/square",
     signatureKey,
+  }, {
+    defer: waitUntil,
   });
 }

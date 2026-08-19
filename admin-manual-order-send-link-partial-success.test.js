@@ -36,7 +36,9 @@ function makeDeps(overrides = {}) {
     },
     persistPaymentLinkFn: async () => {
       calls.persist += 1;
+      return { payment_link_expires_at: "2099-01-01T00:00:00.000Z" };
     },
+    buildCustomerCheckoutUrlFn: () => "https://store.test/signed-payment-link",
     sendEmailFn: async () => {
       calls.email += 1;
       return true;
@@ -144,7 +146,7 @@ test("Phase 10B-2B Square success + persistence failure retains claim and skips 
   const result = await deliverManualOrderPaymentLink(deps);
   assert.equal(result.status, 500);
   assert.equal(result.body.squareLinkCreated, true);
-  assert.equal(result.body.checkoutUrl, "https://square.test/link");
+  assert.equal(result.body.checkoutUrl, "");
   assert.equal(result.body.emailed, false);
   assert.equal(deps.calls.email, 0);
   assert.equal(deps.calls.release, 0);
@@ -226,7 +228,7 @@ test("Phase 10B-2B production sequence is Square → persist → email", async (
   assert.deepEqual(events, [
     "square",
     "persist:https://square.test/ok",
-    "email:https://square.test/ok",
+    "email:https://store.test/signed-payment-link",
   ]);
   assert.equal(result.status, 200);
   assert.equal(deps.calls.release, 0);

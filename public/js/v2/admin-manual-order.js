@@ -20,7 +20,18 @@ import {
 } from "../size-availability.js";
 import { fetchReportPost, ReportPostError } from "../admin-shared.js";
 import { LOCAL_DELIVERY_AREA_ERROR, isLocalDeliveryServiceArea } from "../hardin-county.js";
-import { card, closeDrawer, escapeHtml, icon, openDrawer, pageHeader, setDrawerCloseGuard, statusChip, toast } from "./ui.js";
+import {
+  card,
+  closeDrawer,
+  escapeHtml,
+  icon,
+  openDrawer,
+  orderBuilderModeSwitch,
+  pageHeader,
+  setDrawerCloseGuard,
+  statusChip,
+  toast,
+} from "./ui.js";
 import { bootAdminV2Page } from "./page-boot.js";
 import {
   ManualOrderLocalAuthError,
@@ -69,12 +80,19 @@ const PICKUP_NOTE =
 const SEND_PAYMENT_LINK_PHRASE = "SEND PAYMENT LINK";
 const LEGACY_MANUAL_ORDER_HREF = "/admin/manual-order.html";
 const ORDERS_V2_HREF = "/admin-v2/orders";
+const MANUAL_DISCOUNT_PRESETS = [
+  { type: "none", value: 0, label: "None", detail: "No merchandise discount" },
+  { type: "percent", value: 5, label: "5%", detail: "Take 5% off merchandise" },
+  { type: "percent", value: 10, label: "10%", detail: "Take 10% off merchandise" },
+  { type: "percent", value: 15, label: "15%", detail: "Take 15% off merchandise" },
+  { type: "amount", value: null, label: "Custom amount", detail: "Set a fixed dollar amount" },
+];
 
 /** @type {object[]} */
 let products = [];
 /** @type {string[]} */
 let siteSizes = ["S", "M", "L", "XL"];
-/** @type {Record<string, { bundleQty: Record<string, number>, caseBySize: Record<string, number>, boxBySize: Record<string, number> }>} */
+/** @type {Record<string, { bundleQty: Record<string, number>, caseBySize: Record<string, number>, boxBySize: Record<string, number>, ui: { bundleOpen: boolean, sizeOpen: boolean } }>} */
 let productState = {};
 /** Slugs with expanded product detail. */
 const openProductSlugs = new Set();
@@ -82,7 +100,7 @@ let allocationSubmitAttempted = false;
 /** @type {object|null} */
 let lastQuote = null;
 let estimateStale = false;
-let discountOverrideConfirmed = false;
+let manualDiscountSelection = defaultManualDiscountSelection();
 /** @type {string|null} */
 let selectedRateId = null;
 /** @type {null | { id: string, provider: string, serviceCode: string, serviceLabel: string, amountCents: number|null, parcelCount: number|null, residentialSurchargeCents: number|null }} */
@@ -99,6 +117,87 @@ let paymentLinkStage = "";
 
 function getEl(id) {
   return document.getElementById(id);
+}
+
+function defaultManualDiscountSelection() {
+  return { type: "none", value: 0 };
+}
+
+function normalizeManualDiscountSelection(selection) {
+  const rawType = String(selection?.type || "")
+    .trim()
+    .toLowerCase();
+  if (!rawType || rawType === "none") {
+    return defaultManualDiscountSelection();
+  }
+  if (rawType === "percent") {
+    const percent = Math.round(Number(selection?.value));
+    if (percent === 5 || percent === 10 || percent === 15) {
+      return { type: "percent", value: percent };
+    }
+    return defaultManualDiscountSelection();
+  }
+  if (rawType === "amount") {
+    const amountCents = Math.round(Number(selection?.value));
+    if (Number.isFinite(amountCents) && amountCents > 0) {
+      return { type: "amount", value: amountCents };
+    }
+  }
+  return defaultManualDiscountSelection();
+}
+
+function manualDiscountSelectionsEqual(a, b) {
+  const left = normalizeManualDiscountSelection(a);
+  const right = normalizeManualDiscountSelection(b);
+  return left.type === right.type && left.value === right.value;
+}
+
+function manualDiscountLabel(selection) {
+  const normalized = normalizeManualDiscountSelection(selection);
+  if (normalized.type === "percent") {
+    return `${normalized.value}% off`;
+  }
+  if (normalized.type === "amount") {
+    return `${formatCurrency(normalized.value)} off`;
+  }
+  return "None";
+}
+
+function manualDiscountSelectionSummary(selection) {
+  const normalized = normalizeManualDiscountSelection(selection);
+  if (normalized.type === "percent") {
+    return `${normalized.value}% off merchandise`;
+  }
+  if (normalized.type === "amount") {
+    return `${formatCurrency(normalized.value)} off merchandise`;
+  }
+  return "No merchandise discount";
+}
+
+function manualDiscountButtonMeta(option, currentSelection) {
+  if (option.type === "amount") {
+    if (currentSelection.type === "amount") {
+      return `${formatCurrency(currentSelection.value)} off merchandise`;
+    }
+    return option.detail;
+  }
+  return option.detail;
+}
+
+function manualDiscountPayloadFields() {
+  const normalized = normalizeManualDiscountSelection(manualDiscountSelection);
+  return {
+    manualDiscountType: normalized.type,
+    manualDiscountValue: normalized.value,
+  };
+}
+
+function parseCustomDiscountAmountInput(value) {
+  const cents = Math.round(Number(value) * 100);
+  if (!Number.isFinite(cents) || cents < 1) {
+    return null;
+  }
+  return cents;
 }
 
 function sumChannel(map) {
@@ -144,12 +243,21 @@ function productStockChip(product) {
 
 function ensureProductState(product) {
   const slug = product.slug;
-  if (productState[slug]) return;
+  if (productState[slug]) {
+    if (!productState[slug].ui) {
+      productState[slug].ui = { bundleOpen: true, sizeOpen: false };
+    }
+    return;
+  }
   const bundles = product.bundles || [];
   productState[slug] = {
     bundleQty: Object.fromEntries(bundles.map((b) => [b.id, 0])),
     caseBySize: Object.fromEntries(siteSizes.map((s) => [s, 0])),
     boxBySize: Object.fromEntries(siteSizes.map((s) => [s, 0])),
+    ui: {
+      bundleOpen: true,
+      sizeOpen: false,
+    },
   };
 }
 
@@ -307,10 +415,19 @@ function applyBundleDelta(slug, bundleId, delta) {
   if (!product || isManualProductOutOfStock(product)) return;
   ensureProductState(product);
   const st = productState[slug];
+  const hadSelection = hasAnyBundleSelection(st.bundleQty);
   const prevReq = computeRequiredUnits(product, st.bundleQty);
   const next = Math.max(0, Math.floor(Number(st.bundleQty[bundleId]) || 0) + delta);
   st.bundleQty[bundleId] = next;
   const nextReq = computeRequiredUnits(product, st.bundleQty);
+  const hasSelection = hasAnyBundleSelection(st.bundleQty);
+  if (!hadSelection && hasSelection) {
+    st.ui.bundleOpen = false;
+    st.ui.sizeOpen = true;
+  } else if (hadSelection && !hasSelection) {
+    st.ui.bundleOpen = true;
+    st.ui.sizeOpen = false;
+  }
   applyBundleRequirementDeltas(slug, prevReq, nextReq);
   markEstimateInputsChanged();
   renderProducts();
@@ -339,6 +456,7 @@ function handleSizeStep(slug, channel, size, delta) {
     if (req > 0 && total + 1 > req) return;
   }
   map[size] = next;
+  if (st.ui) st.ui.sizeOpen = true;
   markEstimateInputsChanged();
   renderProducts();
 }
@@ -370,10 +488,6 @@ function readCustomer() {
   };
 }
 
-function readApplyLocalDiscount() {
-  return getEl("mo-apply-discount")?.checked === true;
-}
-
 function readLocalDeliveryNote() {
   return String(getEl("mo-local-note")?.value || "").trim();
 }
@@ -381,6 +495,157 @@ function readLocalDeliveryNote() {
 function readExpectedShipDate() {
   const s = String(getEl("mo-ship-date")?.value || "").trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
+}
+
+function renderDiscountPanel() {
+  const host = getEl("mo-discount-panel");
+  if (!host) return;
+  const current = normalizeManualDiscountSelection(manualDiscountSelection);
+  host.innerHTML = `
+    <div class="mo-discount">
+      <div class="mo-discount__summary">
+        <p class="mo-discount__eyebrow">Current selection</p>
+        <p class="mo-discount__current">${escapeHtml(manualDiscountSelectionSummary(current))}</p>
+        <p class="sg-meta-note" style="margin:0">Manual Order discounts apply to merchandise before tax. ZIP code and delivery location do not affect eligibility.</p>
+      </div>
+      <div class="mo-discount__options" role="group" aria-label="Manual discount options">
+        ${MANUAL_DISCOUNT_PRESETS.map((option) => {
+          const isActive =
+            option.type === current.type &&
+            (option.type !== "amount"
+              ? option.value === current.value
+              : current.type === "amount" && current.value > 0);
+          return `<button
+            type="button"
+            class="mo-discount-option${isActive ? " is-active" : ""}"
+            data-mo-discount-option
+            data-type="${escapeHtml(option.type)}"
+            ${option.value != null ? `data-value="${escapeHtml(String(option.value))}"` : ""}
+            aria-pressed="${isActive ? "true" : "false"}"
+          >
+            <span class="mo-discount-option__title">${escapeHtml(option.label)}</span>
+            <span class="mo-discount-option__meta">${escapeHtml(manualDiscountButtonMeta(option, current))}</span>
+          </button>`;
+        }).join("")}
+      </div>
+    </div>`;
+}
+
+function applyManualDiscountSelection(nextSelection) {
+  const normalized = normalizeManualDiscountSelection(nextSelection);
+  const changed = !manualDiscountSelectionsEqual(manualDiscountSelection, normalized);
+  manualDiscountSelection = normalized;
+  renderDiscountPanel();
+  closeDrawer();
+  if (!changed) return;
+  markEstimateInputsChanged();
+  toast(`Manual discount set to ${manualDiscountSelectionSummary(normalized)}.`, "success");
+}
+
+function openManualDiscountDialog(rawType, rawValue) {
+  const type = String(rawType || "")
+    .trim()
+    .toLowerCase();
+  const baseSelection =
+    type === "amount"
+      ? normalizeManualDiscountSelection(
+          manualDiscountSelection.type === "amount"
+            ? manualDiscountSelection
+            : { type: "amount", value: 2500 },
+        )
+      : normalizeManualDiscountSelection({ type, value: rawValue });
+  const title =
+    baseSelection.type === "none"
+      ? "Clear manual discount?"
+      : baseSelection.type === "percent"
+        ? `Apply ${baseSelection.value}% discount?`
+        : "Apply custom discount?";
+  const customAmountValue =
+    baseSelection.type === "amount" ? (baseSelection.value / 100).toFixed(2) : "";
+  const bodyHtml = `
+    <div class="sg-confirm">
+      <p class="sg-confirm__copy">
+        ${
+          baseSelection.type === "none"
+            ? "This removes any manual merchandise discount from the order."
+            : `This applies <strong>${escapeHtml(manualDiscountSelectionSummary(baseSelection))}</strong> before tax.`
+        }
+      </p>
+      ${
+        baseSelection.type === "amount"
+          ? `<label class="sg-field" style="margin-top:14px">
+              <span class="sg-field__label">Custom amount off merchandise</span>
+              <input type="number" class="sg-input" id="mo-discount-custom-input" min="0.01" step="0.01" inputmode="decimal" value="${escapeHtml(customAmountValue)}" />
+            </label>
+            <p class="sg-error sg-hide" id="mo-discount-custom-error" role="alert" hidden></p>`
+          : ""
+      }
+      <p class="sg-meta-note" style="margin:10px 0 0">Shipping, carrier selection, and delivery location are unchanged. Recalculate totals after the selection is confirmed.</p>
+      <div class="sg-drawer-actions">
+        <button type="button" class="sg-btn sg-btn--ghost" id="mo-discount-cancel">Cancel</button>
+        <button type="button" class="sg-btn sg-btn--primary" id="mo-discount-confirm">${
+          baseSelection.type === "none" ? "Apply no discount" : "Apply discount"
+        }</button>
+      </div>
+    </div>`;
+  setDrawerCloseGuard(null);
+  openDrawer({ title, bodyHtml });
+  document.getElementById("sg-drawer")?.classList.remove("sg-drawer--wide");
+
+  const customInput = getEl("mo-discount-custom-input");
+  const customError = getEl("mo-discount-custom-error");
+  const confirmBtn = getEl("mo-discount-confirm");
+  const setCustomError = (message) => {
+    if (!customError) return;
+    if (message) {
+      customError.textContent = message;
+      customError.hidden = false;
+      customError.classList.remove("sg-hide");
+    } else {
+      customError.textContent = "";
+      customError.hidden = true;
+      customError.classList.add("sg-hide");
+    }
+  };
+  const syncCustomState = () => {
+    if (baseSelection.type !== "amount" || !confirmBtn) return;
+    const amountCents = parseCustomDiscountAmountInput(customInput?.value);
+    confirmBtn.disabled = amountCents == null;
+    if (customInput?.value && amountCents == null) {
+      setCustomError("Enter a custom amount greater than $0.00.");
+      return;
+    }
+    setCustomError("");
+  };
+
+  if (baseSelection.type === "amount") {
+    customInput?.addEventListener("input", syncCustomState);
+    customInput?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || !confirmBtn || confirmBtn.disabled) return;
+      event.preventDefault();
+      confirmBtn.click();
+    });
+    syncCustomState();
+    customInput?.focus();
+  } else {
+    confirmBtn?.focus();
+  }
+
+  getEl("mo-discount-cancel")?.addEventListener("click", () => {
+    closeDrawer();
+  });
+  confirmBtn?.addEventListener("click", () => {
+    if (baseSelection.type === "amount") {
+      const amountCents = parseCustomDiscountAmountInput(customInput?.value);
+      if (amountCents == null) {
+        setCustomError("Enter a custom amount greater than $0.00.");
+        return;
+      }
+      applyManualDiscountSelection({ type: "amount", value: amountCents });
+      return;
+    }
+    applyManualDiscountSelection(baseSelection);
+  });
 }
 
 function setPanelVisible(el, visible) {
@@ -395,7 +660,7 @@ function markEstimateStale() {
     return;
   }
   estimateStale = true;
-  setPanelVisible(getEl("mo-quote-stale"), true);
+  renderQuotePreview(lastQuote);
   syncEstimateButtonState();
 }
 
@@ -411,23 +676,23 @@ function syncFulfillmentUi() {
   const isLocal = fm === "local_delivery";
   const isPickup = fm === "pickup";
 
-  const helper = getEl("mo-fulfillment-helper");
   const pickupNote = getEl("mo-pickup-note");
   const localNote = getEl("mo-local-note-wrap");
   const addrBlock = getEl("mo-address-block");
   const shipDate = getEl("mo-ship-date-wrap");
   const rates = getEl("mo-rates-wrap");
-
-  if (helper) {
-    if (isCarrier) {
-      helper.textContent = "Full shipping address is required for carrier quotes.";
-    } else if (isLocal) {
-      helper.textContent =
-        "Local delivery requires state and a five-digit ZIP for quoting. The browser ZIP check is advisory; the server remains authoritative.";
-    } else {
-      helper.textContent = "";
-    }
-    setPanelVisible(helper, isCarrier || isLocal);
+  const requiredFields = [
+    ["mo-addr-line1", isCarrier],
+    ["mo-addr-city", isCarrier],
+    ["mo-addr-state", isCarrier || isLocal],
+    ["mo-addr-zip", isCarrier || isLocal],
+  ];
+  for (const [id, required] of requiredFields) {
+    const field = getEl(id);
+    if (!field) continue;
+    field.required = required;
+    if (required) field.setAttribute("aria-required", "true");
+    else field.removeAttribute("aria-required");
   }
 
   syncLocalDeliveryAdvisory();
@@ -638,6 +903,106 @@ function unitWord(kind, n) {
   const isBox = String(kind || "case").toLowerCase() === "box";
   if (Math.abs(n) === 1) return isBox ? "box" : "case";
   return isBox ? "boxes" : "cases";
+}
+
+function currentSelectionEntries() {
+  const entries = [];
+  for (const product of products) {
+    const st = productState[product.slug];
+    if (!st) continue;
+    const bundleBits = bundleLinesPayload(st.bundleQty).map((line) => {
+      const bundle = (product.bundles || []).find((item) => item.id === line.id);
+      return `${bundle?.label || line.id} × ${line.qty}`;
+    });
+    const caseBits = Object.entries(compactQuantities(st.caseBySize, supportedSizesForProduct(product))).map(
+      ([size, qty]) => `${size}: ${qty} ${unitWord("case", qty)}`,
+    );
+    const boxBits = Object.entries(compactQuantities(st.boxBySize, supportedSizesForProduct(product))).map(
+      ([size, qty]) => `${size}: ${qty} ${unitWord("box", qty)}`,
+    );
+    if (!bundleBits.length && !caseBits.length && !boxBits.length) continue;
+
+    const pendingBits = [];
+    if (Array.isArray(product.bundles) && product.bundles.length) {
+      const { reqBox, reqCase } = computeRequiredUnits(product, st.bundleQty);
+      const remainingCase = reqCase - sumChannel(st.caseBySize);
+      const remainingBox = reqBox - sumChannel(st.boxBySize);
+      if (remainingCase > 0) pendingBits.push(`${remainingCase} ${unitWord("case", remainingCase)} awaiting size assignment`);
+      if (remainingBox > 0) pendingBits.push(`${remainingBox} ${unitWord("box", remainingBox)} awaiting size assignment`);
+    }
+
+    entries.push({
+      name: product.name || product.slug,
+      bundleBits,
+      caseBits,
+      boxBits,
+      pendingBits,
+    });
+  }
+  return entries;
+}
+
+function currentSelectionSummaryHtml(opts = {}) {
+  const entries = currentSelectionEntries();
+  const emptyMessage = opts.emptyMessage || "No items selected yet.";
+  const showPending = opts.showPending !== false;
+  const compact = opts.compact === true;
+  if (!entries.length) {
+    return `<p class="sg-muted" style="margin:0">${escapeHtml(emptyMessage)}</p>`;
+  }
+  return `<div class="mo-item-summaries${compact ? " mo-item-summaries--compact" : ""}">
+    ${entries
+      .map((entry) => {
+        const sizeBits = [];
+        if (entry.caseBits.length) sizeBits.push(`Cases: ${entry.caseBits.join(", ")}`);
+        if (entry.boxBits.length) sizeBits.push(`Boxes: ${entry.boxBits.join(", ")}`);
+        const pendingHtml =
+          showPending && entry.pendingBits.length
+            ? `<div class="mo-item-summary__pending">${escapeHtml(entry.pendingBits.join(" · "))}</div>`
+            : "";
+        return `<div class="mo-item-summary">
+          <strong>${escapeHtml(entry.name)}</strong>
+          ${entry.bundleBits.length ? `<div class="sg-muted">${escapeHtml(entry.bundleBits.join(" · "))}</div>` : ""}
+          ${sizeBits.length ? `<div class="sg-muted">${escapeHtml(sizeBits.join(" · "))}</div>` : ""}
+          ${pendingHtml}
+        </div>`;
+      })
+      .join("")}
+  </div>`;
+}
+
+function renderProductsSummary() {
+  const host = getEl("mo-products-summary");
+  if (!host) return;
+  const staleHtml =
+    lastQuote && estimateStale
+      ? `<p class="sg-inline-warn" style="margin:0 0 10px">${icon("alert-triangle", 14)}<span>Current selection changed after the last quote. Recalculate totals.</span></p>`
+      : "";
+  host.innerHTML = `
+    <div class="mo-selection-summary">
+      <p class="mo-selection-summary__title">Current selection</p>
+      ${staleHtml}
+      ${currentSelectionSummaryHtml({ showPending: true })}
+    </div>
+  `;
+}
+
+function renderStepPanel({ slug, stepKey, badge, title, help, bodyHtml, open, extraClass = "" }) {
+  const safeSlug = escapeHtml(slug);
+  const safeStepKey = escapeHtml(stepKey);
+  const bodyId = `mo-step-${safeSlug}-${safeStepKey}`;
+  return `<section class="mo-step${extraClass}${open ? " is-open" : " is-collapsed"}">
+    <button type="button" class="mo-step__toggle" data-mo-step-toggle data-slug="${safeSlug}" data-step="${safeStepKey}" aria-expanded="${open ? "true" : "false"}" aria-controls="${bodyId}">
+      <span class="mo-step__head">
+        <span class="mo-step__badge">${escapeHtml(badge)}</span>
+        <span class="mo-step__title">${escapeHtml(title)}</span>
+      </span>
+      <span class="mo-step__chevron" aria-hidden="true">${icon("chevron-down", 16)}</span>
+    </button>
+    <div class="mo-step__body" id="${bodyId}"${open ? "" : " hidden"}>
+      ${open ? `${help ? `<p class="mo-step__help">${escapeHtml(help)}</p>` : ""}${bodyHtml}` : ""}
+    </div>
+  </section>`;
 }
 
 function sizeStockChip(product, size, channel) {
@@ -1152,19 +1517,17 @@ function buildCreateSendLinkPayload(items) {
     throw new Error("Select a shipping rate before creating the order and sending the payment link.");
   }
   const cust = readCustomer();
-  const applyEligibleLocalDiscount = readApplyLocalDiscount();
   const body = {
     name: cust.name,
     email: cust.email,
     phone: cust.phone,
     address: addressForCreate(fm),
     items,
-    applyEligibleLocalDiscount,
-    adminLocalDiscountOverride: applyEligibleLocalDiscount && discountOverrideConfirmed,
     fulfillmentMethod: fm,
     paymentFlow: "square_payment_link", // fixed — no user-selectable payment flow
     localDeliveryNote: fm === "local_delivery" ? readLocalDeliveryNote() : "",
     shipmentDate: readExpectedShipDate() || null,
+    ...manualDiscountPayloadFields(),
   };
   applyCarrierRateFieldsToPayload(body);
   return body;
@@ -1212,10 +1575,17 @@ function itemsSummaryHtml(items) {
 function quoteSummaryBits() {
   const v = quoteView(lastQuote);
   const discount =
-    v.discountFormatted ||
-    (Number(lastQuote?.merchandise?.discountCents || lastQuote?.merchandiseDiscountCents || 0) > 0
-      ? lastQuote?.merchandise?.discountFormatted || lastQuote?.merchandiseDiscountFormatted
-      : "None");
+    v.discountFormatted
+      ? (() => {
+          const appliedManualDiscount = normalizeManualDiscountSelection(
+            lastQuote?.merchandise?.manualDiscount || lastQuote?.manualDiscount,
+          );
+          if (appliedManualDiscount.type !== "none") {
+            return `${manualDiscountLabel(appliedManualDiscount)} · −${v.discountFormatted}`;
+          }
+          return `−${v.discountFormatted}`;
+        })()
+      : "None";
   const rateLabel =
     getFulfillment() === "carrier"
       ? lastQuote?.shipping?.serviceLabel ||
@@ -1295,8 +1665,7 @@ function openSendLinkConfirm() {
         <h4 class="sg-drawer-section__title" style="font-size:13px;margin:14px 0 6px">Items / quantities</h4>
         ${itemsSummaryHtml(elig.items)}
       </div>
-      <p class="sg-meta-note">Backend will re-quote before create and send-link. Browser totals are preview only.</p>
-      <p class="sg-meta-note">Local-delivery ZIP checks in this browser are advisory; the server remains authoritative.</p>
+      <p class="sg-meta-note">Backend will re-quote shipping, tax, and the selected manual discount before it creates the draft and payment link. Browser totals are preview only.</p>
       <label class="sg-field" style="margin-top:14px">
         <span class="sg-field__label">Type <span class="sg-mono">${escapeHtml(PHRASE)}</span> to enable</span>
         <input type="text" class="sg-input" id="mo-send-type-confirm" autocomplete="off" spellcheck="false" placeholder="${escapeHtml(PHRASE)}" />
@@ -1670,7 +2039,7 @@ function resetForAnotherOrder() {
   estimateStale = false;
   // Invalidate any prior in-flight estimate so a late response cannot become usable.
   estimateInputRevision += 1;
-  discountOverrideConfirmed = false;
+  manualDiscountSelection = defaultManualDiscountSelection();
   selectedRateId = null;
   selectedShippingRateSnapshot = null;
   allocationSubmitAttempted = false;
@@ -1701,9 +2070,6 @@ function resetForAnotherOrder() {
   const country = getEl("mo-addr-country");
   if (country) country.value = "US";
 
-  const applyDisc = getEl("mo-apply-discount");
-  if (applyDisc) applyDisc.checked = false;
-
   const carrier = document.querySelector('input[name="mo_fulfillment"][value="carrier"]');
   if (carrier instanceof HTMLInputElement) carrier.checked = true;
 
@@ -1716,6 +2082,7 @@ function resetForAnotherOrder() {
   setPanelVisible(getEl("mo-create-result"), false);
   setPanelVisible(getEl("mo-actions"), true);
   setFormLocked(false);
+  renderDiscountPanel();
   renderProducts();
   renderQuotePreview(null);
   syncFulfillmentUi();
@@ -1729,15 +2096,13 @@ function resetForAnotherOrder() {
 function renderSizeColumn(product, st, channel) {
   const map = channel === "box" ? st.boxBySize : st.caseBySize;
   const progress = allocationProgressForChannel(product, st, channel);
-  const { req, assigned, incomplete, progressLabel, statusHtml, kind } = progress;
+  const { req, assigned, incomplete, kind } = progress;
   const title = kind === "box" ? "Boxes by size" : "Cases by size";
 
   return `<div class="mo-size-col${incomplete ? " is-incomplete" : progress.complete ? " is-complete" : ""}">
     <div class="mo-size-col__head">
       <span class="mo-size-col__title">${escapeHtml(title)}</span>
-      ${progressLabel ? `<span class="mo-size-col__progress">${escapeHtml(progressLabel)}</span>` : ""}
     </div>
-    ${statusHtml}
     <div class="mo-size-rows">
       ${supportedSizesForProduct(product)
         .map((size) => {
@@ -1764,6 +2129,7 @@ function renderSizeColumn(product, st, channel) {
 }
 
 function renderBundleStep(product, st, oos) {
+  const isOpen = st.ui?.bundleOpen !== false;
   const bundlesHtml = (product.bundles || [])
     .map((b) => {
       const qty = Math.floor(st.bundleQty[b.id] || 0);
@@ -1771,7 +2137,6 @@ function renderBundleStep(product, st, oos) {
       const price = b.priceFormatted || formatCurrency(b.priceCents || 0);
       const kind = String(b.kind || "case").toLowerCase() === "box" ? "box" : "case";
       const units = Math.max(0, Math.floor(Number(b.units) || 0));
-      const perPack = units > 0 ? `Adds ${units} ${unitWord(kind, units)}` : "";
       const selectedTotal =
         qty > 0 && units > 0 ? `${qty * units} ${unitWord(kind, qty * units)} selected` : "";
       return `<div class="mo-bundle-row${qty > 0 ? " is-selected" : ""}">
@@ -1779,7 +2144,6 @@ function renderBundleStep(product, st, oos) {
           <div class="mo-bundle-row__name">${escapeHtml(label)}</div>
           <div class="mo-bundle-row__meta">
             <span class="mo-bundle-row__price">${escapeHtml(price)}</span>
-            ${perPack ? `<span class="mo-bundle-row__adds">${escapeHtml(perPack)}</span>` : ""}
             ${selectedTotal ? `<span class="mo-bundle-row__selected-total">${escapeHtml(selectedTotal)}</span>` : ""}
           </div>
         </div>
@@ -1792,61 +2156,51 @@ function renderBundleStep(product, st, oos) {
     })
     .join("");
 
-  return `<div class="mo-step">
-    <div class="mo-step__head">
-      <span class="mo-step__badge">Step 1</span>
-      <h3 class="mo-step__title">Choose package quantity</h3>
-    </div>
-    <p class="mo-step__help">Select how many boxes or cases the customer wants.</p>
-    <div class="mo-bundle-list">${bundlesHtml}</div>
-  </div>`;
+  return renderStepPanel({
+    slug: product.slug,
+    stepKey: "bundle",
+    badge: "Step 1",
+    title: "Choose package quantity",
+    help: "Select the bundle first, then select size in Step 2.",
+    bodyHtml: `<div class="mo-bundle-list">${bundlesHtml}</div>`,
+    open: isOpen,
+  });
 }
 
 function renderAssignSizesStep(product, st) {
   const hasSelection = hasAnyBundleSelection(st.bundleQty);
+  const isOpen = hasSelection ? st.ui?.sizeOpen !== false : st.ui?.sizeOpen === true;
   if (!hasSelection) {
-    return `<div class="mo-step mo-step--sizes mo-step--waiting">
-      <div class="mo-step__head">
-        <span class="mo-step__badge">Step 2</span>
-        <h3 class="mo-step__title">Assign sizes</h3>
-      </div>
-      <p class="mo-step__help">Assign sizes to match the total selected above.</p>
-      <p class="mo-step__empty">Choose a package quantity above to assign sizes.</p>
-    </div>`;
+    return renderStepPanel({
+      slug: product.slug,
+      stepKey: "size",
+      badge: "Step 2",
+      title: "Assign sizes",
+      help: "Match every selected box or case with a size before moving on.",
+      bodyHtml: "",
+      open: isOpen,
+      extraClass: " mo-step--sizes mo-step--waiting",
+    });
   }
 
   const sizeCols = [];
+  const progressWarnings = [];
+  const progressChannels = [];
   if (showCaseColumn(product, st.bundleQty)) sizeCols.push(renderSizeColumn(product, st, "case"));
   if (showBoxColumn(product, st.bundleQty)) sizeCols.push(renderSizeColumn(product, st, "box"));
+  if (showCaseColumn(product, st.bundleQty)) progressChannels.push("case");
+  if (showBoxColumn(product, st.bundleQty)) progressChannels.push("box");
 
-  const { reqBox, reqCase } = computeRequiredUnits(product, st.bundleQty);
-  const sumBox = sumChannel(st.boxBySize);
-  const sumCase = sumChannel(st.caseBySize);
-  const name = product.name || product.slug;
-  const summaryParts = [];
   const warnParts = [];
-
-  if (showBoxColumn(product, st.bundleQty) && reqBox > 0) {
-    const remaining = reqBox - sumBox;
-    summaryParts.push(
-      `Selected: ${reqBox} ${unitWord("box", reqBox)} · Assigned: ${sumBox} ${unitWord("box", sumBox)} · Remaining: ${Math.max(0, remaining)} ${unitWord("box", Math.max(0, remaining))}`,
-    );
-    if (remaining > 0) {
-      warnParts.push(`${name}: Assign ${remaining} more ${unitWord("box", remaining)} to continue.`);
-    } else if (remaining < 0) {
-      warnParts.push(`${name}: Remove ${Math.abs(remaining)} ${unitWord("box", remaining)} to match the package total.`);
+  for (const channel of progressChannels) {
+    const progress = allocationProgressForChannel(product, st, channel);
+    if (progress.req < 1 || progress.complete) continue;
+    const prefix = progressChannels.length > 1 ? `${channel === "box" ? "Boxes" : "Cases"} by size: ` : "";
+    if (progress.remaining > 0) {
+      progressWarnings.push(`${prefix}assign ${progress.remaining} more ${unitWord(channel, progress.remaining)}.`);
+      continue;
     }
-  }
-  if (showCaseColumn(product, st.bundleQty) && reqCase > 0) {
-    const remaining = reqCase - sumCase;
-    summaryParts.push(
-      `Selected: ${reqCase} ${unitWord("case", reqCase)} · Assigned: ${sumCase} ${unitWord("case", sumCase)} · Remaining: ${Math.max(0, remaining)} ${unitWord("case", Math.max(0, remaining))}`,
-    );
-    if (remaining > 0) {
-      warnParts.push(`${name}: Assign ${remaining} more ${unitWord("case", remaining)} to continue.`);
-    } else if (remaining < 0) {
-      warnParts.push(`${name}: Remove ${Math.abs(remaining)} ${unitWord("case", remaining)} to match the package total.`);
-    }
+    progressWarnings.push(`${prefix}remove ${Math.abs(progress.remaining)} ${unitWord(channel, progress.remaining)} to match the selected bundle.`);
   }
 
   const stockIssues = productAllocationIssues(product).filter((i) =>
@@ -1854,6 +2208,7 @@ function renderAssignSizesStep(product, st) {
   );
   const hasOosQty = stockIssues.some((i) => /out-of-stock/i.test(i.message));
   for (const issue of stockIssues) warnParts.push(issue.message);
+  warnParts.push(...progressWarnings);
 
   const allComplete = warnParts.length === 0 && safeIsBundleAllocationValid(
     product,
@@ -1864,11 +2219,8 @@ function renderAssignSizesStep(product, st) {
 
   const stepHelp = hasOosQty
     ? "Remove out-of-stock quantities before calculating totals."
-    : "Assign sizes to match the selected package quantity.";
+    : "Match every selected box or case with a size before moving to the rest of the order.";
 
-  const summaryHtml = summaryParts.length
-    ? `<p class="mo-alloc-summary">${summaryParts.map((s) => escapeHtml(s)).join("<br>")}</p>`
-    : "";
   const warnHtml = warnParts.length
     ? warnParts
         .map(
@@ -1881,16 +2233,16 @@ function renderAssignSizesStep(product, st) {
     ? `<p class="mo-alloc-status mo-alloc-status--ok">${icon("check", 14)}<span>Size allocation complete.</span></p>`
     : "";
 
-  return `<div class="mo-step mo-step--sizes${allComplete ? "" : " is-incomplete"}">
-    <div class="mo-step__head">
-      <span class="mo-step__badge">Step 2</span>
-      <h3 class="mo-step__title">Assign sizes</h3>
-    </div>
-    <p class="mo-step__help">${escapeHtml(stepHelp)}</p>
-    ${summaryHtml}
-    ${okHtml}${warnHtml}
-    <div class="mo-size-grid${sizeCols.length === 1 ? " mo-size-grid--single" : ""}">${sizeCols.join("")}</div>
-  </div>`;
+  return renderStepPanel({
+    slug: product.slug,
+    stepKey: "size",
+    badge: "Step 2",
+    title: "Assign sizes",
+    help: stepHelp,
+    bodyHtml: `${okHtml}${warnHtml}<div class="mo-size-grid${sizeCols.length === 1 ? " mo-size-grid--single" : ""}">${sizeCols.join("")}</div>`,
+    open: isOpen,
+    extraClass: ` mo-step--sizes${allComplete ? "" : " is-incomplete"}`,
+  });
 }
 
 function renderProductCard(product) {
@@ -1936,10 +2288,12 @@ function renderProducts() {
   if (!host) return;
   if (!products.length) {
     host.innerHTML = `<p class="sg-muted">No products loaded.</p>`;
+    renderProductsSummary();
     syncEstimateButtonState();
     return;
   }
   host.innerHTML = products.map((p) => renderProductCard(p)).join("");
+  renderProductsSummary();
   syncEstimateButtonState();
 }
 
@@ -1982,6 +2336,7 @@ function renderQuotePreview(data) {
   if (!data) {
     host.innerHTML = `<p class="sg-muted" style="margin:0">Run Calculate totals to preview merchandise, tax, shipping, and discounts.</p>`;
     setPanelVisible(stale, false);
+    renderProductsSummary();
     return;
   }
   const v = quoteView(data);
@@ -1994,13 +2349,13 @@ function renderQuotePreview(data) {
          <div class="mo-quote-row"><span>Residential surcharge</span><span>${escapeHtml(v.residentialSurchargeFormatted || "—")}</span></div>`
       : `<div class="mo-quote-row"><span>Shipping</span><span>${escapeHtml(shippingStatusLabel(v))}</span></div>`;
 
-  const hardinBits = [];
-  if (data.hardinDiscountApplied) hardinBits.push(statusChip("Local discount applied", "success"));
-  if (data.adminLocalDiscountForced) hardinBits.push(statusChip("Staff override", "warning"));
-  if (data.adminLocalDiscountNeedsOverride && !data.hardinDiscountApplied) {
-    hardinBits.push(statusChip("Not eligible", "warning"));
+  const quoteChips = [];
+  const appliedManualDiscount = normalizeManualDiscountSelection(
+    data?.merchandise?.manualDiscount || data?.manualDiscount || manualDiscountSelection,
+  );
+  if (appliedManualDiscount.type !== "none" && v.discountFormatted) {
+    quoteChips.push(statusChip(manualDiscountLabel(appliedManualDiscount), "success"));
   }
-  if (data.adminLocalDiscountDeclined) hardinBits.push(statusChip("Declined by ZIP", "neutral"));
 
   const warnings = (v.warnings || [])
     .map((w) => `<div class="sg-inline-warn" style="margin-top:8px">${icon("alert-triangle", 14)}<span>${escapeHtml(String(w))}</span></div>`)
@@ -2011,32 +2366,40 @@ function renderQuotePreview(data) {
   const checkoutNote = v.canCheckout
     ? ""
     : `<p class="sg-meta-note" style="margin:10px 0 0">Quote is not ready for checkout. Resolve issues above and recalculate.</p>`;
+  const itemsHtml = currentSelectionSummaryHtml({
+    emptyMessage: "No items selected yet.",
+    showPending: false,
+    compact: true,
+  });
+  const itemNames = currentSelectionEntries()
+    .map((entry) => entry.name)
+    .join(" · ");
 
   host.innerHTML = `
     <div class="mo-quote-rows">
-      <div class="mo-quote-row"><span>Merchandise</span><strong>${escapeHtml(v.merchandiseFormatted)}</strong></div>
+      <div class="mo-quote-row">
+        <span class="mo-quote-row__stack">
+          <span>Merchandise</span>
+          ${itemNames ? `<span class="mo-quote-row__detail">${escapeHtml(itemNames)}</span>` : ""}
+        </span>
+        <strong>${escapeHtml(v.merchandiseFormatted)}</strong>
+      </div>
       ${discountLine}
       ${shipLine}
       <div class="mo-quote-row"><span>Tax</span><strong>${escapeHtml(v.taxFormatted)}</strong></div>
       <div class="mo-quote-row mo-quote-row--meta"><span></span><span class="sg-muted">Destination: ${escapeHtml(v.destinationState || "—")} · Source: ${escapeHtml(taxSourceLabel(v.taxSource))}</span></div>
       <div class="mo-quote-row mo-quote-row--total"><span>Total</span><strong>${escapeHtml(v.totalFormatted)}</strong></div>
     </div>
-    ${hardinBits.length ? `<div class="mo-quote-chips" style="margin-top:10px">${hardinBits.join(" ")}</div>` : ""}
+    <div class="mo-quote-items">
+      <p class="mo-quote-items__label">Items in this order</p>
+      ${itemsHtml}
+    </div>
+    ${quoteChips.length ? `<div class="mo-quote-chips" style="margin-top:10px">${quoteChips.join(" ")}</div>` : ""}
     ${err}${warnings}${checkoutNote}
   `;
   setPanelVisible(stale, Boolean(lastQuote) && estimateStale);
   renderRates(data);
-  syncDiscountOverridePanel(data);
-}
-
-function syncDiscountOverridePanel(data) {
-  const panel = getEl("mo-discount-override");
-  if (!panel) return;
-  const show =
-    readApplyLocalDiscount() &&
-    data?.adminLocalDiscountNeedsOverride === true &&
-    data?.hardinDiscountApplied !== true;
-  setPanelVisible(panel, show);
+  renderProductsSummary();
 }
 
 function validateBeforeEstimate() {
@@ -2068,10 +2431,9 @@ function buildEstimatePayload(items) {
   const body = {
     items,
     address,
-    applyEligibleLocalDiscount: readApplyLocalDiscount(),
-    forceApplyEligibleLocalDiscount: discountOverrideConfirmed,
     fulfillmentMethod: fm,
     localDeliveryNote: fm === "local_delivery" ? readLocalDeliveryNote() : "",
+    ...manualDiscountPayloadFields(),
   };
 
   if (fm === "carrier") {
@@ -2175,7 +2537,6 @@ async function runEstimate() {
     const data = result.data;
     lastQuote = data;
     estimateStale = false;
-    if (data?.adminLocalDiscountForced) discountOverrideConfirmed = true;
 
     const providerRateId = String(data?.shipping?.providerQuoteId || "").trim();
     if (getFulfillment() === "carrier") {
@@ -2206,13 +2567,17 @@ async function onRateSelected(rateId) {
   await runEstimate();
 }
 
+function sectionTitleHtml(iconName, label) {
+  return `${icon(iconName, 16)}<span>${escapeHtml(label)}</span>`;
+}
+
 function pageHtml() {
   const stateOpts =
     `<option value="">Select state</option>` + US_STATES.map((s) => `<option value="${s}">${s}</option>`).join("");
 
   const customer = card({
-    title: "Customer",
-    bodyHtml: `<div class="mo-grid">
+    titleHtml: sectionTitleHtml("user", "Customer"),
+    bodyHtml: `<div class="mo-grid mo-grid--compact-y">
       <label class="sg-field"><span class="sg-field__label">Full name</span><input class="sg-input" id="mo-cust-name" type="text" autocomplete="name" required /></label>
       <label class="sg-field"><span class="sg-field__label">Email</span><input class="sg-input" id="mo-cust-email" type="email" autocomplete="email" required /></label>
       <label class="sg-field"><span class="sg-field__label">Phone <span class="sg-field__optional">(optional)</span></span><input class="sg-input" id="mo-cust-phone" type="tel" autocomplete="tel" /></label>
@@ -2220,21 +2585,19 @@ function pageHtml() {
   });
 
   const productsCard = card({
-    title: "Products / line items",
-    bodyHtml: `<p class="sg-meta-note" style="margin:0 0 12px">For each product: choose a package quantity, then assign sizes until the totals match.</p>
-      <div id="mo-products" class="mo-products"><p class="sg-muted">Loading products…</p></div>
-      <p class="sg-meta-note" style="margin:12px 0 0">Out-of-stock sizes are blocked. Creating a draft or payment link does not reserve or decrement inventory.</p>`,
+    titleHtml: sectionTitleHtml("package", "Products / line items"),
+    bodyHtml: `<div id="mo-products" class="mo-products"><p class="sg-muted">Loading products…</p></div>
+      <div id="mo-products-summary" style="margin-top:12px"></div>`,
   });
 
   const fulfillment = card({
-    title: "Fulfillment",
+    titleHtml: sectionTitleHtml("truck", "Fulfillment"),
     bodyHtml: `
       <div class="mo-radio-row" role="radiogroup" aria-label="Fulfillment method">
-        <label class="mo-radio"><input type="radio" name="mo_fulfillment" value="carrier" checked /><span>Ship with carrier</span></label>
-        <label class="mo-radio"><input type="radio" name="mo_fulfillment" value="local_delivery" /><span>Local delivery</span></label>
-        <label class="mo-radio"><input type="radio" name="mo_fulfillment" value="pickup" /><span>Pickup</span></label>
+        <label class="mo-radio"><input type="radio" name="mo_fulfillment" value="carrier" checked /><span class="mo-radio__label">${icon("truck", 16)}<span>Ship with carrier</span></span></label>
+        <label class="mo-radio"><input type="radio" name="mo_fulfillment" value="local_delivery" /><span class="mo-radio__label">${icon("map-pin", 16)}<span>Local delivery</span></span></label>
+        <label class="mo-radio"><input type="radio" name="mo_fulfillment" value="pickup" /><span class="mo-radio__label">${icon("store", 16)}<span>Pickup</span></span></label>
       </div>
-      <p class="sg-meta-note mo-fulfillment-helper" id="mo-fulfillment-helper">Full shipping address is required for carrier quotes.</p>
       <div id="mo-local-area-advisory" class="sg-warn-banner sg-hide" hidden role="status" style="margin:10px 0 0"></div>
       <div id="mo-pickup-note" class="sg-inline-warn mo-fulfillment-callout sg-hide" hidden>${icon("info", 14)}<span>${escapeHtml(PICKUP_NOTE)}</span></div>
       <div id="mo-local-note-wrap" class="mo-fulfillment-panel sg-hide" hidden>
@@ -2244,7 +2607,7 @@ function pageHtml() {
         </label>
       </div>
       <div id="mo-address-block" class="mo-address mo-fulfillment-panel">
-        <div class="mo-grid">
+        <div class="mo-grid mo-grid--compact-y">
           <label class="sg-field mo-grid__full"><span class="sg-field__label">Street address</span><input class="sg-input" id="mo-addr-line1" type="text" autocomplete="address-line1" /></label>
           <label class="sg-field mo-grid__full"><span class="sg-field__label">Apt, suite <span class="sg-field__optional">(optional)</span></span><input class="sg-input" id="mo-addr-line2" type="text" autocomplete="address-line2" /></label>
           <label class="sg-field"><span class="sg-field__label">City</span><input class="sg-input" id="mo-addr-city" type="text" autocomplete="address-level2" /></label>
@@ -2267,35 +2630,12 @@ function pageHtml() {
   });
 
   const discount = card({
-    title: "Discount",
-    bodyHtml: `
-      <label class="mo-check">
-        <input type="checkbox" id="mo-apply-discount" />
-        <span>Apply eligible local discount (Hardin County, TN delivery — browser ZIP check; eligibility is confirmed by the server)</span>
-      </label>
-      <p class="sg-meta-note" style="margin:8px 0 0">Checking this requests local pricing. It only applies when the address qualifies, unless you use the staff override after estimate.</p>
-      <div id="mo-discount-override" class="mo-override sg-hide" hidden>
-        <p class="mo-override__text">This order does not meet discount eligibility rules (shipping ZIP is outside the eligible local area).</p>
-        <button type="button" class="sg-btn sg-btn--primary sg-btn--sm" id="mo-discount-override-btn">Continue — apply discount anyway</button>
-        <p class="sg-meta-note" style="margin:8px 0 0">Override is sent on the next estimate only. Create and send payment link uses the same override flag. Discount authority remains on the server.</p>
-      </div>`,
-  });
-
-  const inventoryNote = card({
-    title: "Payment link workflow",
-    bodyHtml: `
-      <p class="sg-meta-note" style="margin:0">This page creates a Manual Order draft and a Square payment link, then attempts to email the customer. Payment is collected only when the customer pays the link.</p>
-      <ul class="sg-meta-note" style="margin:10px 0 0;padding-left:18px">
-        <li>Creating a draft does not reserve inventory.</li>
-        <li>Creating or emailing a payment link does not decrement inventory.</li>
-        <li>Stock is revalidated by the backend on estimate, create, and send-link.</li>
-        <li>Payment does not itself decrement stock for this Manual Order path.</li>
-        <li>Fulfillment stays in the existing admin workflow — this page does not mark shipped or purchase labels.</li>
-      </ul>`,
+    titleHtml: sectionTitleHtml("tag", "Discount"),
+    bodyHtml: `<div id="mo-discount-panel"></div>`,
   });
 
   const quote = card({
-    title: "Estimate / quote preview",
+    titleHtml: sectionTitleHtml("receipt", "Estimate / quote preview"),
     bodyHtml: `
       <div class="mo-estimate-actions" id="mo-estimate-wrap">
         <div class="mo-estimate-actions__btnrow">
@@ -2328,7 +2668,6 @@ function pageHtml() {
     ${productsCard}
     ${fulfillment}
     ${discount}
-    ${inventoryNote}
     ${quote}
     ${actions}
   </div>`;
@@ -2339,6 +2678,34 @@ function wirePage() {
   if (!page) return;
 
   page.addEventListener("click", (e) => {
+    const discountOption = e.target.closest("[data-mo-discount-option]");
+    if (discountOption) {
+      openManualDiscountDialog(
+        discountOption.getAttribute("data-type"),
+        discountOption.getAttribute("data-value"),
+      );
+      return;
+    }
+    const stepToggle = e.target.closest("[data-mo-step-toggle]");
+    if (stepToggle) {
+      const slug = stepToggle.getAttribute("data-slug");
+      const step = stepToggle.getAttribute("data-step");
+      const product = products.find((item) => item.slug === slug);
+      if (!product) return;
+      ensureProductState(product);
+      if (step === "bundle") {
+        const next = !productState[slug].ui.bundleOpen;
+        productState[slug].ui.bundleOpen = next;
+        if (next) productState[slug].ui.sizeOpen = false;
+      }
+      if (step === "size") {
+        const next = !productState[slug].ui.sizeOpen;
+        productState[slug].ui.sizeOpen = next;
+        if (next) productState[slug].ui.bundleOpen = false;
+      }
+      renderProducts();
+      return;
+    }
     const toggle = e.target.closest("[data-mo-toggle-product]");
     if (toggle) {
       const slug = toggle.getAttribute("data-mo-toggle-product");
@@ -2378,12 +2745,6 @@ function wirePage() {
     }
     if (t.getAttribute("name") === "mo_ship_rate" && t instanceof HTMLInputElement) {
       void onRateSelected(t.value);
-      return;
-    }
-    if (t.id === "mo-apply-discount") {
-      discountOverrideConfirmed = false;
-      markEstimateInputsChanged();
-      syncDiscountOverridePanel(lastQuote);
       return;
     }
     if (
@@ -2426,11 +2787,6 @@ function wirePage() {
     focusEstimateBlocker(elig.blockers[0]);
     toast(elig.blockers[0]?.message || "Fix the checklist items before calculating.", "danger");
   });
-  getEl("mo-discount-override-btn")?.addEventListener("click", () => {
-    discountOverrideConfirmed = true;
-    markEstimateInputsChanged();
-    void runEstimate();
-  });
   getEl("mo-send-link-btn")?.addEventListener("click", () => {
     if (paymentLinkInFlight) return;
     openSendLinkConfirm();
@@ -2455,13 +2811,15 @@ function renderPage() {
   const page = getEl("sg-page");
   if (!page) return;
   page.innerHTML = pageHtml();
+  renderDiscountPanel();
   wirePage();
 }
 
 /** Browser-only boot. Skipped under Node harness imports. */
 if (typeof document !== "undefined") {
   bootAdminV2Page({
-    activeNav: "manual-order",
+    activeNav: "order-builder",
+    topbarLeftHtml: orderBuilderModeSwitch("manual", { location: "topbar" }),
     onEnter: async (_session, ctx) => {
       getToken = ctx.getAccessToken;
       renderPage();

@@ -76,6 +76,10 @@ let incomingStatusInFlight = false;
 /** Monotonic generation so overlapping stock loads discard stale responses. */
 let stockLoadGen = 0;
 
+function sectionTitleHtml(iconName, label) {
+  return `${icon(iconName, 16)}<span>${escapeHtml(label)}</span>`;
+}
+
 /**
  * True while any irreversible inventory mutation is in flight.
  * Used to block overlapping Refresh and conflicting workflows.
@@ -617,7 +621,7 @@ function renderHealthCard(healthRows) {
   )}<span>Update stock</span></button>`;
   const note = `<p class="sg-note" style="margin-top:var(--sg-space-3)">* Row “Est. available” uses physical on hand minus website line reserved. It does not subtract sales-channel commitments. KPI “Estimated available” subtracts unshipped Amazon FBM commitments only (not wholesale or manual).</p>`;
   return card({
-    title: "Inventory Health",
+    titleHtml: sectionTitleHtml("package", "Inventory Health"),
     subtitle: "Physical on hand by variant. Incoming is expected only until received.",
     actionHtml: `<span class="sg-batch__actions">${updateStock}</span>`,
     bodyHtml: table + note,
@@ -745,7 +749,7 @@ function renderIncomingCard() {
     ${createBtn}
   </span>`;
   return card({
-    title: "Incoming Inventory",
+    titleHtml: sectionTitleHtml("inbox", "Incoming Inventory"),
     subtitle: "Expected inbound records — physical on hand increases only after Receive",
     actionHtml: toolbar,
     bodyHtml: `<div id="sg-inc-list">${incomingListHtml()}</div>`,
@@ -949,7 +953,7 @@ function renderCommitmentsCard() {
     14,
   )}<span>Add external order</span></button>`;
   return card({
-    title: "Sales Channel Commitments",
+    titleHtml: sectionTitleHtml("shopping-cart", "Sales Channel Commitments"),
     subtitle:
       "External sold-not-shipped demand (Amazon FBM, wholesale, manual). Only Amazon FBM unshipped quantities reduce the Estimated available KPI. Wholesale and manual are tracked operationally and do not change that KPI. Commitments do not write physical stock or inventory_levels.reserved. Over-commitment is not blocked by the server.",
     actionHtml: `<span class="sg-batch__actions">${addBtn}</span>`,

@@ -1,9 +1,6 @@
 /**
- * Browser Hardin County / local-delivery ZIP allowlist (advisory UI only).
- *
- * Backend `lib/hardin-county.js` is authoritative for discount eligibility and may
- * include environment-configured ZIPs via HARDIN_COUNTY_ZIPS. Do not treat this
- * browser helper as tax, discount, or create/send validation authority.
+ * Browser copy of lib/hardin-county.js local-delivery / Hardin ZIP allowlist.
+ * Keep in sync with server `DEFAULT_HARDIN_COUNTY_ZIPS` / HARDIN_COUNTY_ZIPS env.
  */
 
 export const DEFAULT_HARDIN_COUNTY_ZIPS = [
@@ -39,7 +36,7 @@ export function isHardinCountyTnDelivery(addr) {
 }
 
 /**
- * Local delivery service area — same Hardin County TN ZIP allowlist (advisory).
+ * Local delivery service area — same Hardin County TN ZIP allowlist.
  * @param {{ state?: string, postalCode?: string }} addr
  */
 export function isLocalDeliveryServiceArea(addr) {

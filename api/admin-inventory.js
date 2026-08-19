@@ -8,6 +8,7 @@ import {
 import {
   createIncomingInventoryBatch,
   createIncomingInventoryBatchLine,
+  buildIncomingInventoryPayloadForAdminStock,
   deleteIncomingInventoryBatch,
   deleteIncomingInventoryBatchLine,
   receiveIncomingInventoryBatch,
@@ -40,7 +41,10 @@ export default async function handler(req, res) {
     const adminUser = actor?.email || (actor?.kind === "service" ? "internal" : null);
 
     if (req.method === "GET") {
-      res.status(200).json(await readInventoryDashboardPayload());
+      res.status(200).json({
+        ...(await readInventoryDashboardPayload()),
+        incomingInventory: await buildIncomingInventoryPayloadForAdminStock(),
+      });
       return;
     }
 

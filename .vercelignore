@@ -1,0 +1,10 @@
+.git
+.vercel
+.env
+.env.*
+node_modules
+_design-reference
+coverage
+**/*.test.js
+**/*.test.mjs
+test-fixtures

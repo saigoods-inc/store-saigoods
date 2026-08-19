@@ -1,16 +1,19 @@
 import { claimDiscountCodeForOrder, normalizeDiscountCode, releaseDiscountCodeForOrder } from "../lib/discount-codes.js";
 import { computeCheckoutEstimate, checkoutFlowErrorJsonFields } from "../lib/checkout-estimate-logic.js";
 import { normalizeFulfillmentMethod } from "../lib/manual-order-fulfillment.js";
+import { isManualOrderDiscountApplied, readManualOrderDiscountFromOrder } from "../lib/manual-order-discount.js";
 import { computeEconomicsSnapshotForOrder } from "../lib/order-economics.js";
 import { sendManualOrderPaymentLinkEmail } from "../lib/manual-order-payment-email.js";
 import {
   buildOrderQuoteSnapshotColumns,
   getOrderByIdForService,
+  resetExpiredManualPaymentLink,
   updateOrderPaymentLinkSent,
 } from "../lib/orders.js";
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
 import { createClient } from "@supabase/supabase-js";
-import { createPaymentLink } from "../lib/square.js";
+import { createPaymentLink, deletePaymentLink } from "../lib/square.js";
+import { manualPaymentAccessUrl } from "../lib/manual-payment-link-access.js";
 
 function parseOptionalYmd(input) {
   if (input === null || input === undefined || input === "") {
@@ -37,6 +40,59 @@ function getServiceClient() {
     throw e;
   }
   return createClient(url, key, { auth: { persistSession: false } });
+}
+
+function formatUsdCents(cents) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
+    Math.max(0, Math.round(Number(cents) || 0)) / 100,
+  );
+}
+
+function quoteFromOrderSnapshot(order) {
+  return {
+    items: Array.isArray(order?.items) ? order.items : [],
+    subtotalCents: Math.max(0, Math.round(Number(order?.subtotal_cents) || 0)),
+    shippingCents: Math.max(0, Math.round(Number(order?.shipping_cents) || 0)),
+    taxCents: Math.max(0, Math.round(Number(order?.tax_cents) || 0)),
+    totalCents: Math.max(0, Math.round(Number(order?.total_cents) || 0)),
+    subtotalFormatted: formatUsdCents(order?.subtotal_cents),
+    shippingFormatted: formatUsdCents(order?.shipping_cents),
+    taxFormatted: formatUsdCents(order?.tax_cents),
+    totalFormatted: formatUsdCents(order?.total_cents),
+  };
+}
+
+function shouldHideLocalDeliveryAddress(fulfillmentMethod, shippingAddress) {
+  if (normalizeFulfillmentMethod(fulfillmentMethod) !== "local_delivery") {
+    return false;
+  }
+  const line1 = String(shippingAddress?.line1 || shippingAddress?.address1 || "").trim().toLowerCase();
+  return !line1 || line1 === "local delivery";
+}
+
+function invalidCarrierQuoteMessage(quote) {
+  const shipping = quote?.shipping && typeof quote.shipping === "object" ? quote.shipping : {};
+  const quoteStatus = String(shipping.quoteStatus || "").trim();
+  const service = String(shipping.serviceLabel || shipping.serviceCode || "").trim();
+  const providerQuoteId = String(shipping.providerQuoteId || "").trim();
+  const shippingCents = Math.max(0, Math.round(Number(quote?.shippingCents ?? shipping.amountCents) || 0));
+  if (!quote?.canCheckout || quote?.userFacingError) {
+    return quote?.userFacingError || "Carrier shipping is not ready. Get and confirm a carrier rate before sending this link.";
+  }
+  if (quoteStatus !== "rated" || !providerQuoteId || !service || shippingCents <= 0) {
+    return "Carrier shipping is missing a confirmed paid rate. Get and confirm a carrier rate before sending this link.";
+  }
+  return "";
+}
+
+function invalidCarrierOrderSnapshotMessage(order) {
+  const service = String(order?.quoted_shipping_service_label || order?.quoted_shipping_service_code || "").trim();
+  const providerQuoteId = String(order?.quoted_shipping_provider_quote_id || "").trim();
+  const shippingCents = Math.max(0, Math.round(Number(order?.shipping_cents) || 0));
+  if (!providerQuoteId || !service || shippingCents <= 0) {
+    return "This payment link was created before a valid carrier rate was saved. Do not resend it; refresh rates and recreate the order.";
+  }
+  return "";
 }
 
 async function syncOrderTotalsFromQuote(client, orderId, quote, shippingAddress, shipmentDateYmd = null) {
@@ -76,7 +132,7 @@ async function syncOrderTotalsFromQuote(client, orderId, quote, shippingAddress,
  * @param {object} order
  * @returns {{ ok: true } | { ok: false, status: number, body: object }}
  */
-export function assertManualOrderEligibleForPaymentLink(order) {
+export function assertManualOrderEligibleForPaymentLink(order, opts = {}) {
   if (!order) {
     return { ok: false, status: 404, body: { error: "Order not found." } };
   }
@@ -98,7 +154,9 @@ export function assertManualOrderEligibleForPaymentLink(order) {
   if (st !== "draft") {
     return { ok: false, status: 400, body: { error: "Order must be a draft to send a payment link." } };
   }
-  if (String(order.payment_flow || "square_payment_link") === "pay_later") {
+  const payLater = String(order.payment_flow || "square_payment_link") === "pay_later";
+  const allowPayLaterLink = opts.allowPayLaterLink === true;
+  if (payLater && !allowPayLaterLink) {
     return {
       ok: false,
       status: 400,
@@ -106,6 +164,13 @@ export function assertManualOrderEligibleForPaymentLink(order) {
         error:
           "This order is Pay later. Use mark-as-paid when the customer pays (or change payment method to Square link before saving if you need to email a link).",
       },
+    };
+  }
+  if (payLater && allowPayLaterLink && String(order.manual_payment_method || "") !== "arrival_payment_link") {
+    return {
+      ok: false,
+      status: 400,
+      body: { error: "This pay-later order was not set up for an arrival payment link." },
     };
   }
   if (String(order.status || "") === "paid") {
@@ -164,6 +229,7 @@ export function classifySquareCreatePaymentLinkError(err) {
  *   orderId: string,
  *   createPaymentLinkFn?: Function,
  *   persistPaymentLinkFn?: Function,
+ *   buildCustomerCheckoutUrlFn?: Function,
  *   sendEmailFn?: Function,
  *   releaseDiscountFn?: Function,
  *   logErrorFn?: Function,
@@ -175,6 +241,8 @@ export function classifySquareCreatePaymentLinkError(err) {
 export async function deliverManualOrderPaymentLink(opts) {
   const createPaymentLinkFn = opts.createPaymentLinkFn || createPaymentLink;
   const persistPaymentLinkFn = opts.persistPaymentLinkFn || updateOrderPaymentLinkSent;
+  const buildCustomerCheckoutUrlFn =
+    opts.buildCustomerCheckoutUrlFn || manualPaymentAccessUrl;
   const sendEmailFn = opts.sendEmailFn || sendManualOrderPaymentLinkEmail;
   const releaseDiscountFn = opts.releaseDiscountFn || releaseDiscountCodeForOrder;
   const logErrorFn = opts.logErrorFn || ((err) => console.error(err));
@@ -184,6 +252,7 @@ export async function deliverManualOrderPaymentLink(opts) {
   let squareLinkCreated = false;
   let persisted = false;
   let checkoutUrl = "";
+  let customerCheckoutUrl = "";
 
   try {
     let created;
@@ -246,8 +315,25 @@ export async function deliverManualOrderPaymentLink(opts) {
     }
 
     try {
-      await persistPaymentLinkFn(orderId, checkoutUrl);
+      const savedOrder = await persistPaymentLinkFn(orderId, checkoutUrl, {
+        paymentLinkId: created?.paymentLinkId || null,
+      });
       persisted = true;
+      customerCheckoutUrl = buildCustomerCheckoutUrlFn({
+        orderId,
+        expiresAt: savedOrder?.payment_link_expires_at,
+      });
+      if (!customerCheckoutUrl) {
+        return {
+          status: 503,
+          body: {
+            ok: false,
+            squareLinkCreated: true,
+            emailed: false,
+            error: "Payment-link expiry protection is not configured. The Square link was saved but was not emailed.",
+          },
+        };
+      }
     } catch (persistErr) {
       logErrorFn(persistErr);
       // Keep discount claim — Square already created a potentially payable link.
@@ -258,7 +344,7 @@ export async function deliverManualOrderPaymentLink(opts) {
           error:
             "Square payment link was created but could not be saved on the order. Do not retry from Admin v2 without checking Legacy admin.",
           squareLinkCreated: true,
-          checkoutUrl,
+          checkoutUrl: "",
           emailed: false,
           warning:
             "Square may have created a payment link that was not persisted. Check Legacy admin before taking further action.",
@@ -268,7 +354,7 @@ export async function deliverManualOrderPaymentLink(opts) {
 
     let emailed = false;
     try {
-      emailed = (await sendEmailFn({ ...opts.sendEmailArgs, checkoutUrl })) === true;
+      emailed = (await sendEmailFn({ ...opts.sendEmailArgs, checkoutUrl: customerCheckoutUrl })) === true;
     } catch (emailErr) {
       logErrorFn(emailErr);
       // Persisted payment_link_sent — keep claim; never mint another link.
@@ -276,7 +362,7 @@ export async function deliverManualOrderPaymentLink(opts) {
         status: 200,
         body: {
           ok: true,
-          checkoutUrl,
+          checkoutUrl: customerCheckoutUrl,
           emailed: false,
           warning:
             "Payment link was created and saved, but the email could not be sent. Configure RESEND_API_KEY and RESEND_FROM, or share the link manually. Do not create another link for this order.",
@@ -289,7 +375,7 @@ export async function deliverManualOrderPaymentLink(opts) {
         status: 200,
         body: {
           ok: true,
-          checkoutUrl,
+          checkoutUrl: customerCheckoutUrl,
           emailed: false,
           warning:
             "Payment link was created and saved, but the email could not be sent. Configure RESEND_API_KEY and RESEND_FROM, or share the link manually. Do not create another link for this order.",
@@ -297,7 +383,7 @@ export async function deliverManualOrderPaymentLink(opts) {
       };
     }
 
-    return { status: 200, body: { ok: true, checkoutUrl, emailed: true } };
+    return { status: 200, body: { ok: true, checkoutUrl: customerCheckoutUrl, emailed: true, expiresInHours: 48 } };
   } catch (err) {
     // Unexpected errors after Square success: never release; never expose provider details.
     if (squareLinkCreated && persisted) {
@@ -305,7 +391,7 @@ export async function deliverManualOrderPaymentLink(opts) {
         status: 200,
         body: {
           ok: true,
-          checkoutUrl,
+          checkoutUrl: customerCheckoutUrl,
           emailed: false,
           warning:
             "Payment link was created and saved, but the email could not be sent. Configure RESEND_API_KEY and RESEND_FROM, or share the link manually. Do not create another link for this order.",
@@ -320,7 +406,7 @@ export async function deliverManualOrderPaymentLink(opts) {
           error:
             "Square payment link was created but could not be saved on the order. Do not retry from Admin v2 without checking Legacy admin.",
           squareLinkCreated: true,
-          checkoutUrl,
+          checkoutUrl: "",
           emailed: false,
           warning:
             "Square may have created a payment link that was not persisted. Check Legacy admin before taking further action.",
@@ -363,81 +449,91 @@ export default async function handler(req, res) {
       return;
     }
 
-    const order = await getOrderByIdForService(orderId);
-    const gate = assertManualOrderEligibleForPaymentLink(order);
+    let order = await getOrderByIdForService(orderId);
+    const existingPaymentLinkUrl = String(order?.payment_link_url || "").trim();
+    let renewingExpiredLink = false;
+    if (String(order?.order_status || "") === "payment_link_sent" && existingPaymentLinkUrl) {
+      if (String(order.order_source || "web") !== "manual") {
+        res.status(400).json({ error: "Only manual orders can receive a payment link from this action." });
+        return;
+      }
+      if (String(order.status || "") === "paid") {
+        res.status(400).json({ error: "This order is already paid." });
+        return;
+      }
+      const expiresAtMs = new Date(order.payment_link_expires_at || 0).getTime();
+      const expired = !Number.isFinite(expiresAtMs) || Date.now() >= expiresAtMs;
+      if (expired) {
+        renewingExpiredLink = true;
+        const paymentLinkId = String(order.payment_link_id || "").trim();
+        if (paymentLinkId) await deletePaymentLink(paymentLinkId);
+        order = await resetExpiredManualPaymentLink(order.id);
+        if (!order) {
+          res.status(409).json({ error: "The expired payment link could not be reset. Refresh the order and try again." });
+          return;
+        }
+      } else {
+      const quote = quoteFromOrderSnapshot(order);
+      const fm = normalizeFulfillmentMethod(order.fulfillment_method);
+      const shipAddr = order.shipping_address && typeof order.shipping_address === "object" ? order.shipping_address : null;
+      if (fm === "carrier") {
+        const carrierSnapshotError = invalidCarrierOrderSnapshotMessage(order);
+        if (carrierSnapshotError) {
+          res.status(400).json({ error: carrierSnapshotError });
+          return;
+        }
+      }
+      const customerUrl = manualPaymentAccessUrl({ orderId: order.id, expiresAt: order.payment_link_expires_at });
+      if (!customerUrl) {
+        res.status(503).json({ error: "Payment link access signing is not configured." });
+        return;
+      }
+      const emailed = await sendManualOrderPaymentLinkEmail({
+        customerEmail: order.customer_email,
+        customerName: order.customer_name,
+        orderRef: order.order_ref,
+        totalFormatted: quote.totalFormatted,
+        checkoutUrl: customerUrl,
+        quote,
+        shippingAddress: shouldHideLocalDeliveryAddress(fm, shipAddr) ? null : shipAddr,
+      });
+      res.status(200).json({
+        ok: true,
+        checkoutUrl: customerUrl,
+        emailed,
+        warning: emailed
+          ? "A payment link had already been sent. The existing link was resent."
+          : "A payment link had already been sent, but the email could not be resent. Share the saved link manually.",
+      });
+      return;
+      }
+    }
+    const gate = assertManualOrderEligibleForPaymentLink(order, {
+      allowPayLaterLink: req.body?.allowPayLaterLink === true,
+    });
     if (!gate.ok) {
       res.status(gate.status).json(gate.body);
       return;
     }
 
     const shipAddr = order.shipping_address;
-    const adminAddressHardin =
-      order.is_hardin_discount === true && !String(order.discount_code_used || "").trim();
     const fm = normalizeFulfillmentMethod(order.fulfillment_method);
     const isCarrier = fm === "carrier";
-
-    const b = req.body || {};
-    const selectedFromBody = String(b?.selectedShippingRateObjectId || "").trim();
-    const selectedFromOrder = String(order.quoted_shipping_provider_quote_id || "").trim();
-    const selectedRateId = selectedFromBody || selectedFromOrder;
-    const estimateBody = {
-      items: order.items,
-      address: shipAddr,
-      discountCode: order.discount_code_used || "",
-      applyEligibleLocalDiscount: adminAddressHardin,
-      forceApplyEligibleLocalDiscount:
-        adminAddressHardin && order.admin_local_discount_override === true,
-      fulfillmentMethod: fm,
-      ...(b.forceStockOverride === true ? { forceStockOverride: true } : {}),
-      ...(selectedRateId ? { selectedShippingRateObjectId: selectedRateId } : {}),
-      ...(String(b?.selectedShippingServiceCode || "").trim()
-        ? { selectedShippingServiceCode: String(b.selectedShippingServiceCode).trim() }
-        : {}),
-      ...(String(b?.selectedShippingServiceLabel || "").trim()
-        ? { selectedShippingServiceLabel: String(b.selectedShippingServiceLabel).trim() }
-        : {}),
-      ...(String(b?.selectedShippingProvider || "").trim()
-        ? { selectedShippingProvider: String(b.selectedShippingProvider).trim() }
-        : {}),
-      ...(b?.selectedShippingAmountCents != null && Number.isFinite(Number(b.selectedShippingAmountCents))
-        ? { selectedShippingAmountCents: Math.max(0, Math.round(Number(b.selectedShippingAmountCents))) }
-        : {}),
-      ...(b?.selectedShippingParcelCount != null && Number.isFinite(Number(b.selectedShippingParcelCount))
-        ? { selectedShippingParcelCount: Math.max(0, Math.floor(Number(b.selectedShippingParcelCount))) }
-        : {}),
-      ...(b?.selectedShippingResidentialSurchargeCents != null &&
-      Number.isFinite(Number(b.selectedShippingResidentialSurchargeCents))
-        ? {
-            selectedShippingResidentialSurchargeCents: Math.max(
-              0,
-              Math.round(Number(b.selectedShippingResidentialSurchargeCents)),
-            ),
-          }
-        : {}),
-    };
-
-    const quote = await computeCheckoutEstimate(estimateBody, {
-      requireCompleteAddress: isCarrier,
-      adminLocalDiscount: adminAddressHardin,
-      strictShippo: isCarrier,
-      allowForceStockOverride: true,
-    });
-
-    const client = getServiceClient();
-    await syncOrderTotalsFromQuote(
-      client,
-      order.id,
-      quote,
-      shipAddr,
-      parsedShipmentDate.value != null ? parsedShipmentDate.value : order.shippo_shipment_date || null,
-    );
+    const quote = quoteFromOrderSnapshot(order);
+    if (isCarrier) {
+      const carrierQuoteError = invalidCarrierOrderSnapshotMessage(order);
+      if (carrierQuoteError) {
+        res.status(400).json({ error: carrierQuoteError });
+        return;
+      }
+    }
 
     const normalizedCode = order.discount_code_used
       ? normalizeDiscountCode(String(order.discount_code_used))
       : null;
     let claimed = false;
 
-    if (String(order.order_status || "") === "draft" && order.is_hardin_discount && normalizedCode) {
+    if (!renewingExpiredLink && String(order.order_status || "") === "draft" && order.is_hardin_discount && normalizedCode) {
       claimed = await claimDiscountCodeForOrder(normalizedCode, order.id);
       if (!claimed) {
         res.status(409).json({
@@ -473,7 +569,7 @@ export default async function handler(req, res) {
         orderRef: order.order_ref,
         totalFormatted: quote.totalFormatted,
         quote,
-        shippingAddress: shipAddr,
+        shippingAddress: shouldHideLocalDeliveryAddress(fm, shipAddr) ? null : shipAddr,
       },
     });
 

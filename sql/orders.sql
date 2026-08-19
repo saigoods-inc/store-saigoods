@@ -48,6 +48,17 @@ create table if not exists public.orders (
   total_cents integer not null default 0,
   provider text not null default 'square',
   payment_id text,
+  estimated_processing_fee_cents integer check (estimated_processing_fee_cents >= 0),
+  actual_processing_fee_cents integer check (actual_processing_fee_cents >= 0),
+  processing_fee_status text not null default 'estimated'
+    check (processing_fee_status in ('estimated', 'awaiting_square', 'actual', 'adjusted', 'reconciliation_failed')),
+  processing_fee_profile text,
+  processing_fee_synced_at timestamptz,
+  processing_fee_details_json jsonb,
+  checkout_attempt_id uuid unique,
+  inventory_committed_at timestamptz,
+  payment_reconciliation_required boolean not null default false,
+  payment_reconciliation_error text,
   vendor_paid_notification_claimed_at timestamptz,
   vendor_paid_notification_sent_at timestamptz,
   vendor_paid_notification_resend_id text,
@@ -87,6 +98,9 @@ comment on column public.orders.vendor_paid_notification_error is
   'Safe, length-limited summary of the last vendor notification failure after a released claim; not secrets or raw provider payloads.';
 comment on column public.orders.state is 'Shipping destination state, 2-letter US.';
 comment on column public.orders.updated_at is 'Last row update (draft saves, payment link, etc.).';
+comment on column public.orders.checkout_attempt_id is 'Browser-generated online checkout attempt id. Unique so payment retries reuse one order and one Square idempotency key.';
+comment on column public.orders.inventory_committed_at is 'When inventory was atomically committed for this order.';
+comment on column public.orders.payment_reconciliation_required is 'True when Square reported payment but local paid-order finalization needs review.';
 
 create index if not exists orders_status_idx on public.orders (status);
 create index if not exists orders_customer_email_idx on public.orders (customer_email);

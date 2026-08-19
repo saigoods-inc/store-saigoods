@@ -135,7 +135,7 @@ test("Phase 10B-2B Manual Order HTML, controller, and hardin helper exist", () =
   assert.equal(existsSync(path.join(__dirname, "public/js/v2/admin-manual-order.js")), true);
   assert.equal(existsSync(path.join(__dirname, "public/js/v2/manual-order-safety.js")), true);
   assert.equal(existsSync(path.join(__dirname, "public/js/hardin-county.js")), true);
-  assert.equal(existsSync(path.join(__dirname, "public/admin-v2/walk-in-order.html")), false);
+  assert.equal(existsSync(path.join(__dirname, "public/admin-v2/walk-in-order.html")), true);
 
   const html = read("public/admin-v2/manual-order.html");
   assert.match(html, /Manual Order/);
@@ -157,7 +157,7 @@ test("Phase 10B-2B Manual Order sources contain no private secrets", () => {
   }
 });
 
-test("Phase 10B-2B routes serve Manual Order and keep Walk-in 404", async () => {
+test("Phase 10B-2B routes serve Manual Order and keep Walk-in available", async () => {
   await withLocalServer(async (base) => {
     for (const pathName of ["/admin-v2/manual-order", "/admin-v2/manual-order/", "/admin-v2/manual-order.html"]) {
       const res = await httpGet(`${base}${pathName}`);
@@ -166,7 +166,8 @@ test("Phase 10B-2B routes serve Manual Order and keep Walk-in 404", async () => 
     }
     for (const href of ["/admin-v2/walk-in-order", "/admin-v2/walk-in-order/", "/admin-v2/walk-in-order.html"]) {
       const res = await httpGet(`${base}${href}`);
-      assert.equal(res.statusCode, 404, href);
+      assert.equal(res.statusCode, 200, href);
+      assert.match(res.body, /admin-walk-in-order\.js/);
     }
   });
 });
@@ -176,13 +177,18 @@ test("Phase 10B-2B vercel rewrites include Manual Order trailing slash", () => {
   const bySource = new Map((vercel.rewrites || []).map((r) => [r.source, r.destination]));
   assert.equal(bySource.get("/admin-v2/manual-order"), "/admin-v2/manual-order.html");
   assert.equal(bySource.get("/admin-v2/manual-order/"), "/admin-v2/manual-order.html");
-  assert.equal(bySource.has("/admin-v2/walk-in-order"), false);
+  assert.equal(bySource.get("/admin-v2/walk-in-order"), "/admin-v2/walk-in-order.html");
+  assert.equal(bySource.get("/admin-v2/walk-in-order/"), "/admin-v2/walk-in-order.html");
 });
 
-test("Phase 10B-2B navigation includes Manual Order once and excludes Walk-in", () => {
+test("Phase 10B-2B navigation uses one combined order-builder entry", () => {
   const ui = read("public/js/v2/ui.js");
-  assert.equal([...ui.matchAll(/id:\s*"manual-order"/g)].length, 1);
-  assert.doesNotMatch(ui, /walk-in-order/);
+  assert.equal([...ui.matchAll(/id:\s*"order-builder"/g)].length, 1);
+  assert.match(ui, /label:\s*"Order Builder"/);
+  assert.match(ui, /href:\s*"\/admin-v2\/manual-order"/);
+  assert.match(ui, /iconName:\s*"clipboard-list"/);
+  assert.equal([...ui.matchAll(/id:\s*"manual-order"/g)].length, 0);
+  assert.equal([...ui.matchAll(/id:\s*"walk-in-order"/g)].length, 0);
 });
 
 test("Phase 10B-2B controller imports production safety helpers and does not mirror them", () => {
@@ -395,6 +401,10 @@ test("Phase 10B-2B Hardin browser ZIP is advisory and does not block estimate/su
   assert.doesNotMatch(estimateFn, /validateLocalDeliveryServiceArea/);
   assert.match(source, /syncLocalDeliveryAdvisory/);
   assert.doesNotMatch(source, /verified from ZIP/);
+  assert.doesNotMatch(source, /Apply eligible local discount/);
+  assert.match(source, /Manual Order discounts apply to merchandise before tax/);
+  assert.match(source, /manualDiscountType/);
+  assert.match(source, /manualDiscountValue/);
 });
 
 test("Phase 10B-2B reset unlocks form, blanks state, and invalidates estimate revision", () => {
@@ -446,7 +456,8 @@ test("Phase 10B-2B estimate revision guard discards stale responses via producti
   assert.match(source, /function applyBundleDelta[\s\S]*markEstimateInputsChanged/);
   assert.match(source, /function handleSizeStep[\s\S]*markEstimateInputsChanged/);
   assert.match(source, /mo_fulfillment[\s\S]*markEstimateInputsChanged/);
-  assert.match(source, /mo-apply-discount[\s\S]*markEstimateInputsChanged/);
+  assert.match(source, /function applyManualDiscountSelection[\s\S]*markEstimateInputsChanged/);
+  assert.match(source, /data-mo-discount-option[\s\S]*openManualDiscountDialog/);
   assert.match(source, /async function onRateSelected[\s\S]*markEstimateInputsChanged/);
 
   let inFlight = false;

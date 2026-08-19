@@ -52,6 +52,7 @@ const VALID_PAY_BODY = {
   phone: "7315550100",
   name: "Test Buyer",
   sourceId: "cnon:card-nonce-ok",
+  checkoutAttemptId: "22222222-2222-4222-8222-222222222222",
 };
 
 const LIVE_OK_SHIPPING = {
@@ -93,6 +94,33 @@ const LIVE_FAIL_SHIPPING = {
 
 /** @type {"ok" | "fail" | "residential"} */
 let liveQuoteMode = "ok";
+
+/** Force the shared stock gate to reject without depending on mutable file inventory. */
+let stockAvailable = true;
+const STOCK_SHORTFALLS = [
+  {
+    slug: "black-nitrile-general",
+    size: "M",
+    requestedBoxes: 1,
+    availableBoxes: 0,
+  },
+];
+
+const assertStockAvailableForItems = mock.fn(async () => {
+  if (stockAvailable) {
+    return;
+  }
+  const error = new Error("Insufficient stock for Black Nitrile - General / M.");
+  error.statusCode = 409;
+  error.stockShortfalls = STOCK_SHORTFALLS;
+  throw error;
+});
+
+mock.module(u("lib/stock.js"), {
+  namedExports: {
+    assertStockAvailableForItems,
+  },
+});
 
 const getLiveShippingQuote = mock.fn(async () => {
   if (liveQuoteMode === "fail") {
@@ -176,7 +204,14 @@ mock.module(u("lib/orders.js"), {
 
 const createCardPayment = mock.fn(async ({ amountCents }) => {
   globalThis.__parityLastSquareAmountCents = amountCents;
-  return { paymentId: "pay_parity_test" };
+  return {
+    paymentId: "pay_parity_test",
+    payment: {
+      status: "COMPLETED",
+      amount_money: { amount: amountCents, currency: "USD" },
+      note: "Order ord_parity_test from SAI Goods",
+    },
+  };
 });
 mock.module(u("lib/square.js"), {
   namedExports: {
@@ -238,6 +273,7 @@ mock.module(u("lib/checkout-totals.js"), {
   namedExports: {
     // Explicit pure exports required by handlers / remocked module consumers.
     buildFullCheckoutQuote,
+    evaluateFreeDeliveryForItems: realTotals.evaluateFreeDeliveryForItems,
     formatShippingAddressForOrder: realTotals.formatShippingAddressForOrder,
     getShippingQuoteMode: realTotals.getShippingQuoteMode,
     getShippingBufferCents: realTotals.getShippingBufferCents,
@@ -253,6 +289,7 @@ CHECKOUT_PAY_NOT_READY_BODY = checkoutPayMod.CHECKOUT_PAY_NOT_READY_BODY;
 const { default: checkoutEstimateHandler } = await import(u("api/checkout-estimate.js"));
 
 const PARITY_ENV = {
+  NODE_ENV: "test",
   ADDRESS_VALIDATION: "off",
   SHIPPING_QUOTE_MODE: "live_ups",
   INVENTORY_BACKEND: "file",
@@ -299,6 +336,7 @@ function withEnv(overrides, fn) {
   return Promise.resolve()
     .then(fn)
     .finally(() => {
+      stockAvailable = true;
       for (const key of keys) {
         if (previous[key] === undefined) {
           delete process.env[key];
@@ -332,6 +370,7 @@ function resetSideEffectMocks() {
   claimDiscountCodeForOrder.mock.resetCalls();
   getLiveShippingQuote.mock.resetCalls();
   buildFullCheckoutQuote.mock.resetCalls();
+  assertStockAvailableForItems.mock.resetCalls();
   globalThis.__parityLastPendingQuote = undefined;
   globalThis.__parityLastSquareAmountCents = undefined;
 }
@@ -479,24 +518,16 @@ test("5. insufficient stock: both reject with shortfalls; pay has no side effect
   await withEnv(PARITY_ENV, async () => {
     liveQuoteMode = "ok";
     forcedQuote = null;
+    stockAvailable = false;
     resetSideEffectMocks();
 
-    const hugeItems = [
-      {
-        slug: "black-nitrile-general",
-        quantities: { M: 9999 },
-        boxQuantities: {},
-        bundleLines: [],
-      },
-    ];
-
-    const estimate = await invokeEstimate({ items: hugeItems, address: TN_ADDRESS });
+    const estimate = await invokeEstimate({ items: VALID_ITEMS, address: TN_ADDRESS });
     assert.equal(estimate.statusCode, 409);
     assert.ok(Array.isArray(estimate.body?.stockShortfalls));
     assert.ok(estimate.body.stockShortfalls.length > 0);
 
     resetSideEffectMocks();
-    const pay = await invokePay({ ...VALID_PAY_BODY, items: hugeItems });
+    const pay = await invokePay(VALID_PAY_BODY);
     assert.equal(pay.statusCode, 409);
     assert.ok(Array.isArray(pay.body?.stockShortfalls));
     assert.ok(pay.body.stockShortfalls.length > 0);

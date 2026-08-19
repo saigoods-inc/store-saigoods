@@ -1,0 +1,45 @@
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: ["./admin-v2.5/index.html", "./admin-v2.5/src/**/*.{ts,tsx}"],
+  theme: {
+    extend: {
+      colors: {
+        "sg-bg": "var(--sg-bg)",
+        "sg-card": "var(--sg-card)",
+        "sg-sidebar": "var(--sg-sidebar)",
+        "sg-text": "var(--sg-text)",
+        "sg-muted": "var(--sg-text-muted)",
+        "sg-faint": "var(--sg-text-faint)",
+        "sg-border": "var(--sg-border)",
+        "sg-border-soft": "var(--sg-border-soft)",
+        "sg-input-bg": "var(--sg-input-bg)",
+        "sg-primary": "var(--sg-primary)",
+        "sg-primary-hover": "var(--sg-primary-hover)",
+        "sg-primary-soft": "var(--sg-primary-soft)",
+        "sg-primary-soft-fg": "var(--sg-primary-soft-fg)",
+        "sg-success": "var(--sg-success)",
+        "sg-success-soft": "var(--sg-success-soft)",
+        "sg-warning": "var(--sg-warning)",
+        "sg-warning-soft": "var(--sg-warning-soft)",
+        "sg-danger": "var(--sg-danger)",
+        "sg-danger-soft": "var(--sg-danger-soft)",
+        "sg-info": "var(--sg-info)",
+        "sg-info-soft": "var(--sg-info-soft)",
+        "sg-chart-1": "var(--sg-chart-1)",
+        "sg-chart-2": "var(--sg-chart-2)",
+        "sg-chart-3": "var(--sg-chart-3)",
+        "sg-chart-4": "var(--sg-chart-4)",
+        "sg-chart-5": "var(--sg-chart-5)",
+      },
+      fontFamily: {
+        sans: ["var(--sg-font)"],
+        mono: ["var(--sg-font-mono)"],
+      },
+      boxShadow: {
+        sg: "var(--sg-shadow)",
+        "sg-md": "var(--sg-shadow-md)",
+      },
+    },
+  },
+  plugins: [],
+};

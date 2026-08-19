@@ -63,6 +63,7 @@ const ICON_PATHS = {
   clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
   check: '<polyline points="20 6 9 17 4 12"/>',
+  user: '<path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/>',
   copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   "external-link":
     '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
@@ -82,11 +83,11 @@ export function icon(name, size = 16, cls = "") {
 
 /* ---------------------------------------------------------------- sidebar */
 
-/* Phase 10A + 10B-1 + 10B-2A + 10B-2B: Manual Order payment-link-only released; Walk-in remains unreleased. */
+/* Admin-v2 navigation: dashboard + operations + one combined order-builder entry for remote and walk-in creation. */
 export const ADMIN_V2_NAV = [
   { id: "summary", label: "Summary", href: "/admin-v2/summary", iconName: "layout-dashboard" },
   { id: "orders", label: "Orders", href: "/admin-v2/orders", iconName: "shopping-cart" },
-  { id: "manual-order", label: "Manual Order", href: "/admin-v2/manual-order", iconName: "clipboard-list" },
+  { id: "order-builder", label: "Order Builder", href: "/admin-v2/manual-order", iconName: "clipboard-list" },
   { id: "inventory", label: "Inventory", href: "/admin-v2/inventory", iconName: "package" },
   { id: "discounts", label: "Discount codes", href: "/admin-v2/discount-codes", iconName: "tag" },
   { id: "tax", label: "Sales tax (TN)", href: "/admin-v2/tax", iconName: "receipt" },
@@ -96,7 +97,7 @@ export const ADMIN_V2_NAV = [
 /**
  * @param {string} activeId
  */
-export function sidebar(activeId) {
+export function sidebar(activeId, email = "") {
   const items = ADMIN_V2_NAV.map((item) => {
     const isActive = item.id === activeId;
     const active = isActive ? " is-active" : "";
@@ -105,14 +106,17 @@ export function sidebar(activeId) {
       item.label,
     )}</span></a></li>`;
   }).join("");
+  const emailHtml = email
+    ? `<p class="sg-sidebar__account-email" id="sg-sidebar-email">${escapeHtml(email)}</p>`
+    : `<p class="sg-sidebar__account-email sg-muted" id="sg-sidebar-email">No active session</p>`;
 
   return `<aside class="sg-sidebar" id="sg-sidebar">
     <div class="sg-sidebar__brand">
       <!-- Logo-ready: swap "SAI" for an <img>/<svg> logo later; CSS sizes it to the badge. -->
       <div class="sg-brand__mark">SAI</div>
       <div>
-        <p class="sg-brand__name">SAI Goods Inc.</p>
-        <p class="sg-brand__sub">Back office</p>
+        <p class="sg-brand__name">SAI Goods, Inc.</p>
+        <p class="sg-brand__sub">Operation Dashboard</p>
       </div>
     </div>
     <nav class="sg-nav" aria-label="Admin sections">
@@ -120,8 +124,20 @@ export function sidebar(activeId) {
       <ul class="sg-nav__list">${items}</ul>
     </nav>
     <div class="sg-sidebar__footer">
-      <a class="sg-nav__link" href="/admin/summary.html">Legacy admin</a>
-      <small>Admin v2</small>
+      <div class="sg-sidebar__account">
+        ${emailHtml}
+        <div class="sg-sidebar__footer-actions">
+          <button type="button" class="sg-btn sg-btn--ghost sg-btn--sm sg-btn--block sg-sidebar__signout" id="sg-logout">${icon(
+            "external-link",
+            14,
+          )}<span>Sign out</span></button>
+          <a class="sg-btn sg-btn--ghost sg-btn--sm sg-btn--block sg-sidebar__legacy" href="/admin/summary.html">${icon(
+            "arrow-up-right",
+            14,
+          )}<span>Legacy admin</span></a>
+        </div>
+      </div>
+      <small>Version 2.1.45</small>
     </div>
   </aside>`;
 }
@@ -129,21 +145,23 @@ export function sidebar(activeId) {
 /* ---------------------------------------------------------------- topbar */
 
 /**
- * @param {{ email?: string, meta?: string }} [opts]
+ * @param {{ email?: string, meta?: string, leftHtml?: string }} [opts]
  */
 export function topbar(opts = {}) {
-  const email = opts.email ? escapeHtml(opts.email) : "";
   const meta = opts.meta ? escapeHtml(opts.meta) : "";
+  const leftHtml = typeof opts.leftHtml === "string" && opts.leftHtml
+    ? `<div class="sg-topbar__context">${opts.leftHtml}</div>`
+    : "";
   return `<header class="sg-topbar">
     <div class="sg-topbar__left">
       <button type="button" class="sg-menu-btn" id="sg-menu-btn" aria-label="Open menu" aria-controls="sg-sidebar" aria-expanded="false">${icon("menu", 20)}</button>
-      <span class="sg-topbar__email" id="sg-topbar-email">${email}</span>
-      <span class="sg-topbar__dot" aria-hidden="true">&middot;</span>
-      <button type="button" class="sg-linkbtn" id="sg-logout">Sign out</button>
     </div>
+    ${leftHtml}
     <div class="sg-topbar__right">
-      <button type="button" class="sg-linkbtn" id="sg-refresh">${icon("refresh-cw", 14)}<span>Refresh</span></button>
-      <span class="sg-topbar__dot" aria-hidden="true">&middot;</span>
+      <button type="button" class="sg-btn sg-btn--ghost sg-btn--sm sg-topbar__refresh" id="sg-refresh">${icon(
+        "refresh-cw",
+        14,
+      )}<span>Refresh</span></button>
       <span class="sg-topbar__meta" id="sg-topbar-meta">${meta}</span>
     </div>
   </header>`;
@@ -170,20 +188,45 @@ export function pageHeader(opts) {
   </div>`;
 }
 
+/**
+ * Shared top-level order-builder mode switch.
+ * Keeps Manual remote-order workflow distinct from Walk-in sale workflow.
+ * @param {"manual"|"walk-in"} activeMode
+ * @param {{ location?: "page"|"topbar", showLabel?: boolean }} [opts]
+ */
+export function orderBuilderModeSwitch(activeMode, opts = {}) {
+  const isWalkIn = activeMode === "walk-in";
+  const isTopbar = opts.location === "topbar";
+  const showLabel = opts.showLabel ?? !isTopbar;
+  const manualClass = isWalkIn ? "" : " is-active";
+  const walkInClass = isWalkIn ? " is-active" : "";
+  const manualCurrent = isWalkIn ? "" : ` aria-current="page"`;
+  const walkInCurrent = isWalkIn ? ` aria-current="page"` : "";
+  const modeClass = isTopbar ? " sg-order-mode--topbar" : "";
+  const labelHtml = showLabel ? `<span class="sg-order-mode__label">Order type</span>` : "";
+  return `<div class="sg-order-mode${modeClass}" aria-label="Order type">
+    ${labelHtml}
+    <div class="sg-order-mode__group" role="tablist" aria-label="Order type">
+      <a class="sg-order-mode__option${manualClass}" href="/admin-v2/manual-order"${manualCurrent}>Remote order</a>
+      <a class="sg-order-mode__option${walkInClass}" href="/admin-v2/walk-in-order"${walkInCurrent}>Walk-in sale</a>
+    </div>
+  </div>`;
+}
+
 /* --------------------------------------------------------------- shell */
 
 /**
  * Full dashboard shell. Returns the sidebar + main column skeleton with an
  * empty `#sg-page` node the page controller fills in.
- * @param {{ active: string, email?: string, meta?: string }} opts
+ * @param {{ active: string, email?: string, meta?: string, topbarLeftHtml?: string }} opts
  */
 export function shell(opts) {
   return `<a class="sg-skip-link" href="#sg-page">Skip to main content</a>
   <div class="sg-overlay" id="sg-overlay"></div>
   <div class="sg-shell">
-    ${sidebar(opts.active)}
+    ${sidebar(opts.active, opts.email)}
     <div class="sg-main">
-      ${topbar({ email: opts.email, meta: opts.meta })}
+      ${topbar({ meta: opts.meta, leftHtml: opts.topbarLeftHtml })}
       <main class="sg-content" id="sg-page" tabindex="-1"></main>
     </div>
   </div>
@@ -214,14 +257,15 @@ export function kpiCard(opts) {
 
 /**
  * Horizontal mini stat card.
- * @param {{ label: string, value: string, sub?: string, iconName?: string }} opts
+ * @param {{ label: string, value: string, sub?: string, iconName?: string, danger?: boolean }} opts
  */
 export function miniCard(opts) {
+  const valueClass = opts.danger ? " sg-minicard__value--danger" : "";
   return `<article class="sg-card sg-minicard">
     <div class="sg-minicard__icon">${icon(opts.iconName || "dollar-sign", 16)}</div>
     <div>
       <p class="sg-minicard__label">${escapeHtml(opts.label)}</p>
-      <p class="sg-minicard__value">${escapeHtml(opts.value)}</p>
+      <p class="sg-minicard__value${valueClass}">${escapeHtml(opts.value)}</p>
       ${opts.sub ? `<p class="sg-minicard__sub">${escapeHtml(opts.sub)}</p>` : ""}
     </div>
   </article>`;
@@ -243,14 +287,14 @@ export function statusChip(label, variant = "neutral") {
 /* --------------------------------------------------------------- card shell */
 
 /**
- * @param {{ title?: string, subtitle?: string, actionHtml?: string, bodyHtml: string, className?: string }} opts
+ * @param {{ title?: string, titleHtml?: string, subtitle?: string, actionHtml?: string, bodyHtml: string, className?: string }} opts
  */
 export function card(opts) {
   const header =
-    opts.title || opts.actionHtml
+    opts.title || opts.titleHtml || opts.actionHtml
       ? `<div class="sg-card__header">
           <div>
-            ${opts.title ? `<h2 class="sg-card__title">${escapeHtml(opts.title)}</h2>` : ""}
+            ${opts.titleHtml ? `<h2 class="sg-card__title">${opts.titleHtml}</h2>` : opts.title ? `<h2 class="sg-card__title">${escapeHtml(opts.title)}</h2>` : ""}
             ${opts.subtitle ? `<p class="sg-card__subtitle">${escapeHtml(opts.subtitle)}</p>` : ""}
           </div>
           ${opts.actionHtml || ""}
@@ -281,23 +325,225 @@ export function tableShell(opts) {
 
 /* ------------------------------------------------------------ filter toolbar */
 
+export function customSelect(selectSpec) {
+  const options = Array.isArray(selectSpec?.options) ? selectSpec.options : [];
+  const fallback = options[0] || { value: "", label: "Select" };
+  const selected = options.find((option) => option.value === selectSpec.selected) || fallback;
+  const listId = `${selectSpec.id}-listbox`;
+  const wrapperClass = selectSpec.className ? ` ${escapeHtml(selectSpec.className)}` : "";
+  const triggerClass = selectSpec.triggerClass ? ` ${escapeHtml(selectSpec.triggerClass)}` : "";
+  const ariaLabel = escapeHtml(selectSpec.ariaLabel || "Filter");
+  const optionButtons = options
+    .map((option) => {
+      const isSelected = option.value === selected.value;
+      return `<button type="button" class="sg-selectbox__option${isSelected ? " is-selected" : ""}" role="option" data-value="${escapeHtml(
+        option.value,
+      )}" aria-selected="${isSelected ? "true" : "false"}">${escapeHtml(option.label)}</button>`;
+    })
+    .join("");
+
+  return `<div class="sg-selectbox${wrapperClass}" data-selectbox>
+    <input type="hidden" id="${escapeHtml(selectSpec.id)}" value="${escapeHtml(selected.value)}">
+    <button
+      type="button"
+      class="sg-selectbox__trigger${triggerClass}"
+      aria-label="${ariaLabel}"
+      aria-haspopup="listbox"
+      aria-expanded="false"
+      aria-controls="${escapeHtml(listId)}"
+    >
+      <span class="sg-selectbox__label">${escapeHtml(selected.label)}</span>
+      ${icon("chevron-down", 16, "sg-selectbox__caret")}
+    </button>
+    <div class="sg-selectbox__menu" id="${escapeHtml(listId)}" role="listbox" hidden>
+      ${optionButtons}
+    </div>
+  </div>`;
+}
+
 /**
  * @param {{ id: string, options: {value:string,label:string}[], selected?: string }} selectSpec
  * @param {string} [extraHtml] additional controls appended to the toolbar
  */
 export function filterToolbar(selectSpec, extraHtml = "") {
-  const opts = selectSpec.options
-    .map(
-      (o) =>
-        `<option value="${escapeHtml(o.value)}"${o.value === selectSpec.selected ? " selected" : ""}>${escapeHtml(
-          o.label,
-        )}</option>`,
-    )
-    .join("");
   return `<div class="sg-toolbar">
-    <select class="sg-select" id="${escapeHtml(selectSpec.id)}" aria-label="Filter">${opts}</select>
+    ${customSelect(selectSpec)}
     ${extraHtml}
   </div>`;
+}
+
+/* ------------------------------------------------------- custom selectboxes */
+
+let _selectboxDocWired = false;
+
+function selectboxEls(box) {
+  return {
+    input: box.querySelector("input[type='hidden']"),
+    trigger: box.querySelector(".sg-selectbox__trigger"),
+    label: box.querySelector(".sg-selectbox__label"),
+    menu: box.querySelector(".sg-selectbox__menu"),
+    options: [...box.querySelectorAll(".sg-selectbox__option")],
+  };
+}
+
+function closeSelectbox(box, { restoreFocus = false } = {}) {
+  const { trigger, menu } = selectboxEls(box);
+  if (!trigger || !menu) return;
+  box.classList.remove("is-open");
+  trigger.setAttribute("aria-expanded", "false");
+  menu.hidden = true;
+  if (restoreFocus && typeof trigger.focus === "function") {
+    trigger.focus();
+  }
+}
+
+function closeAllSelectboxes(exceptBox = null) {
+  document.querySelectorAll("[data-selectbox].is-open").forEach((box) => {
+    if (box !== exceptBox) closeSelectbox(box);
+  });
+}
+
+function focusSelectboxOption(box, index) {
+  const { options } = selectboxEls(box);
+  if (!options.length) return;
+  const safeIndex = Math.max(0, Math.min(index, options.length - 1));
+  const option = options[safeIndex];
+  if (option && typeof option.focus === "function") {
+    option.focus();
+  }
+}
+
+function openSelectbox(box) {
+  const { trigger, menu, options } = selectboxEls(box);
+  if (!trigger || !menu) return;
+  closeAllSelectboxes(box);
+  box.classList.add("is-open");
+  trigger.setAttribute("aria-expanded", "true");
+  menu.hidden = false;
+  const selectedIndex = options.findIndex((option) => option.classList.contains("is-selected"));
+  focusSelectboxOption(box, selectedIndex >= 0 ? selectedIndex : 0);
+}
+
+function setSelectboxValue(box, value, { dispatch = true } = {}) {
+  const { input, label, options } = selectboxEls(box);
+  if (!input || !label || !options.length) return;
+  const option = options.find((item) => item.dataset.value === value) || options[0];
+  const nextValue = option?.dataset?.value || "";
+  const previous = input.value;
+  input.value = nextValue;
+  label.textContent = option?.textContent?.trim() || "";
+  options.forEach((item) => {
+    const isSelected = item === option;
+    item.classList.toggle("is-selected", isSelected);
+    item.setAttribute("aria-selected", isSelected ? "true" : "false");
+  });
+  if (dispatch && previous !== nextValue) {
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+}
+
+export function setCustomSelectboxValue(target, value, opts = {}) {
+  const input =
+    typeof target === "string"
+      ? document.getElementById(target)
+      : target instanceof HTMLElement
+        ? target
+        : null;
+  if (!input) return;
+  const box = input.closest?.("[data-selectbox]");
+  if (!box) {
+    input.value = value;
+    if (opts.dispatch) {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    return;
+  }
+  setSelectboxValue(box, value, opts);
+}
+
+export function initCustomSelectboxes(root = document) {
+  root.querySelectorAll("[data-selectbox]").forEach((box) => {
+    if (box.dataset.selectboxBound === "1") return;
+    box.dataset.selectboxBound = "1";
+
+    const { trigger, options } = selectboxEls(box);
+    if (!trigger) return;
+
+    trigger.addEventListener("click", () => {
+      if (box.classList.contains("is-open")) {
+        closeSelectbox(box);
+      } else {
+        openSelectbox(box);
+      }
+    });
+
+    trigger.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openSelectbox(box);
+      }
+    });
+
+    box.addEventListener("click", (event) => {
+      const option = event.target.closest(".sg-selectbox__option");
+      if (!option) return;
+      setSelectboxValue(box, option.dataset.value || "");
+      closeSelectbox(box, { restoreFocus: true });
+    });
+
+    options.forEach((option, index) => {
+      option.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          focusSelectboxOption(box, index + 1);
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          focusSelectboxOption(box, index - 1);
+          return;
+        }
+        if (event.key === "Home") {
+          event.preventDefault();
+          focusSelectboxOption(box, 0);
+          return;
+        }
+        if (event.key === "End") {
+          event.preventDefault();
+          focusSelectboxOption(box, options.length - 1);
+          return;
+        }
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          setSelectboxValue(box, option.dataset.value || "");
+          closeSelectbox(box, { restoreFocus: true });
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeSelectbox(box, { restoreFocus: true });
+        }
+      });
+    });
+  });
+
+  if (_selectboxDocWired) return;
+  _selectboxDocWired = true;
+
+  document.addEventListener("click", (event) => {
+    document.querySelectorAll("[data-selectbox].is-open").forEach((box) => {
+      if (!box.contains(event.target)) {
+        closeSelectbox(box);
+      }
+    });
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    document.querySelectorAll("[data-selectbox].is-open").forEach((box) => {
+      closeSelectbox(box, { restoreFocus: true });
+    });
+  });
 }
 
 /* --------------------------------------------------------------- button */
@@ -378,8 +624,25 @@ export function initShellInteractions() {
   _shellCloseSidebar = close;
   setExpanded(false);
 
-  menuBtn.addEventListener("click", open);
+  if (menuBtn.getAttribute("data-shell-bound") === "1") {
+    return;
+  }
+  menuBtn.setAttribute("data-shell-bound", "1");
+
+  menuBtn.addEventListener("click", () => {
+    if (sidebarEl.classList.contains("is-open")) {
+      close({ restoreFocus: true });
+      return;
+    }
+    open();
+  });
   overlay.addEventListener("click", () => close());
+  sidebarEl.addEventListener("click", (e) => {
+    const navTarget = e.target.closest("a[href], button");
+    if (!navTarget) return;
+    if (typeof window !== "undefined" && window.innerWidth > 768) return;
+    close();
+  });
 
   if (!_shellDocEscapeWired) {
     _shellDocEscapeWired = true;

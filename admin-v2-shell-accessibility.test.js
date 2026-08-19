@@ -159,7 +159,7 @@ function createShellHarness() {
   };
 }
 
-test("shell exposes skip link, main landmark, toast live region, and Admin v2 footer", async () => {
+test("shell exposes skip link, main landmark, toast live region, and versioned sidebar footer", async () => {
   globalThis.document = createShellHarness().document;
   const mod = await import(`${UI_MODULE}?shell=${Date.now()}`);
   const html = mod.shell({ active: "summary", email: "a@b.c" });
@@ -170,7 +170,11 @@ test("shell exposes skip link, main landmark, toast live region, and Admin v2 fo
   assert.match(html, /role="status"/);
   assert.match(html, /aria-live="polite"/);
   assert.match(html, /aria-atomic="true"/);
-  assert.match(html, />Admin v2</);
+  assert.match(html, />SAI Goods, Inc\.</);
+  assert.match(html, />Operation Dashboard</);
+  assert.match(html, />a@b\.c</);
+  assert.match(html, />Version 2\.1\.45</);
+  assert.match(html, /id="sg-logout"/);
   assert.doesNotMatch(html, /read-only preview/i);
   assert.match(html, /aria-current="page"/);
   assert.match(html, /aria-controls="sg-sidebar"/);
@@ -211,6 +215,16 @@ test("initShellInteractions wires Escape once and restores focus to menu button"
   const menuBtn = harness.document.getElementById("sg-menu-btn");
   const sidebar = harness.document.getElementById("sg-sidebar");
   const overlay = harness.document.getElementById("sg-overlay");
+  assert.equal(menuBtn.getAttribute("aria-expanded"), "false");
+
+  menuBtn.click();
+  assert.equal(sidebar.classList.contains("is-open"), true);
+  assert.equal(overlay.classList.contains("is-open"), true);
+  assert.equal(menuBtn.getAttribute("aria-expanded"), "true");
+
+  menuBtn.click();
+  assert.equal(sidebar.classList.contains("is-open"), false);
+  assert.equal(overlay.classList.contains("is-open"), false);
   assert.equal(menuBtn.getAttribute("aria-expanded"), "false");
 
   menuBtn.click();

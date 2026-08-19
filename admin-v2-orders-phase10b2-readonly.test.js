@@ -21,13 +21,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RELEASED_V2_ROUTES = [
   "/admin-v2/summary",
   "/admin-v2/orders",
+  "/admin-v2/walk-in-order",
   "/admin-v2/inventory",
   "/admin-v2/discount-codes",
   "/admin-v2/tax",
   "/admin-v2/nexus",
 ];
-
-const UNRELEASED_V2_HREFS = ["/admin-v2/walk-in-order"];
 
 const PRIVATE_SECRET_MARKERS = [
   "INTERNAL_REPORTS_SECRET",
@@ -37,48 +36,46 @@ const PRIVATE_SECRET_MARKERS = [
   "RESEND_API_KEY",
 ];
 
-const ALLOWED_POSTS = [
+const EXPECTED_ORDER_POSTS = [
   "/api/admin-order-ship-from-display",
   "/api/admin-order-fulfillment-doc-links",
-];
-
-const FORBIDDEN_MUTATION_ENDPOINTS = [
-  "/api/admin-order-shippo-preview",
+  "/api/admin-order-update-shipping-address",
+  "/api/admin-order-fulfillment-addresses",
+  "/api/admin-order-external-fulfillment-save",
+  "/api/admin-order-fulfillment-handoff",
+  "/api/admin-order-packing-slip-html",
+  "/api/admin-order-buyer-shipping-notify",
   "/api/admin-order-shippo-sync",
   "/api/admin-order-shippo-refresh-status",
   "/api/admin-order-shippo-purchase-label",
   "/api/admin-order-shippo-buy-all-labels",
   "/api/admin-order-shippo-shipment-date",
-  "/api/admin-order-update-shipping-address",
-  "/api/admin-order-fulfillment-addresses",
-  "/api/admin-order-external-fulfillment-save",
-  "/api/admin-order-fulfillment-handoff",
-  "/api/admin-order-buyer-shipping-notify",
   "/api/admin-manual-order-record-payment",
   "/api/admin-manual-order-send-link",
+];
+
+const ABSENT_ORDER_POSTS = [
+  "/api/admin-order-shippo-preview",
   "/api/admin-order-parcel-override",
-  "/api/admin-order-packing-slip-html",
-  "/api/admin-order-shippo-shipment",
   "/api/admin-order-fulfillment-checkpoint",
 ];
 
 const MUTATION_UI_MARKERS = [
-  "data-od-edit-ship-to",
-  "data-od-edit-ship-from",
+  "data-od-save-ship-to",
+  "data-od-save-ship-from",
   "data-od-clear-ship-from",
   "data-od-set-ship-date",
   "data-od-clear-ship-date",
-  "data-od-validate-parcel",
   "data-od-shippo-sync",
   "data-od-shippo-refresh",
   "data-od-buy-label",
   "data-od-record-external-label",
   "data-od-mark-shipped",
-  "data-od-complete-walk-in",
   "data-od-record-payment",
   "data-od-send-payment-link",
   "data-od-buyer-notify",
-  "data-od-copy-payment-link",
+  "data-od-buy-all-labels",
+  "data-od-open-packing-slip",
 ];
 
 const WORKFLOW_ADDITIVE_EXPORTS = [
@@ -255,9 +252,7 @@ test("Phase 10B-2A server.js and vercel.json expose Orders trailing-slash routes
   assert.match(serverSource, /\/admin\/orders/);
   assert.match(serverSource, /admin",\s*"orders\.html"/);
 
-  for (const href of UNRELEASED_V2_HREFS) {
-    assert.doesNotMatch(serverSource, new RegExp(href.replace(/\//g, "\\/")));
-  }
+  assert.match(serverSource, /\/admin-v2\/walk-in-order/);
 
   const vercel = JSON.parse(read("vercel.json"));
   const bySource = new Map((vercel.rewrites || []).map((r) => [r.source, r.destination]));
@@ -267,51 +262,38 @@ test("Phase 10B-2A server.js and vercel.json expose Orders trailing-slash routes
   assert.equal(bySource.get("/admin-v2/summary/"), "/admin-v2/summary.html");
   assert.equal(bySource.get("/admin-v2/inventory"), "/admin-v2/inventory.html");
   assert.equal(bySource.get("/admin-v2/inventory/"), "/admin-v2/inventory.html");
+  assert.equal(bySource.get("/admin-v2/walk-in-order"), "/admin-v2/walk-in-order.html");
+  assert.equal(bySource.get("/admin-v2/walk-in-order/"), "/admin-v2/walk-in-order.html");
   assert.equal(bySource.get("/admin/orders"), "/admin/orders.html");
-
-  for (const href of UNRELEASED_V2_HREFS) {
-    assert.equal(bySource.has(href), false, href);
-    assert.equal(bySource.has(`${href}/`), false, `${href}/`);
-  }
 });
 
-test("Phase 10B-2A local server serves Orders routes and keeps Walk-in absent", async () => {
-  await withLocalServer(async (base) => {
-    for (const pathName of ["/admin-v2/orders", "/admin-v2/orders/", "/admin-v2/orders.html"]) {
-      const res = await httpGet(`${base}${pathName}`);
-      assert.equal(res.statusCode, 200, pathName);
-      assert.match(String(res.headers["content-type"] || ""), /text\/html/i);
-      assert.match(res.body, /<!doctype html>/i);
-      assert.match(res.body, /\/js\/v2\/admin-orders\.js/);
-      assert.match(res.body, /sg-login/);
-    }
+test("Phase 10B-2A Orders and Walk-in HTML shells stay wired", () => {
+  const ordersHtml = read("public/admin-v2/orders.html");
+  assert.match(ordersHtml, /<!doctype html>/i);
+  assert.match(ordersHtml, /sg-body--orders/);
+  assert.match(ordersHtml, /manage orders/i);
+  assert.match(ordersHtml, /\/js\/v2\/admin-orders\.js/);
+  assert.match(ordersHtml, /sg-login/);
 
-    for (const route of RELEASED_V2_ROUTES) {
-      const res = await httpGet(`${base}${route}`);
-      assert.equal(res.statusCode, 200, route);
-    }
+  const walkInHtml = read("public/admin-v2/walk-in-order.html");
+  assert.match(walkInHtml, /admin-walk-in-order\.js/);
 
-    const legacy = await httpGet(`${base}/admin/orders.html`);
-    assert.equal(legacy.statusCode, 200);
-    assert.match(legacy.body, /<!doctype html>/i);
-
-    for (const href of UNRELEASED_V2_HREFS) {
-      const missing = await httpGet(`${base}${href}`);
-      assert.equal(missing.statusCode, 404, href);
-      const trailing = await httpGet(`${base}${href}/`);
-      assert.equal(trailing.statusCode, 404, `${href}/`);
-    }
-  });
+  const legacyHtml = read("public/admin/orders.html");
+  assert.match(legacyHtml, /<!doctype html>/i);
 });
 
 /* ------------------------------------------------------------------ C. navigation */
 
-test("Phase 10B-2A navigation includes Orders and keeps Walk-in unreleased", () => {
+test("Phase 10B-2A navigation includes Orders and the combined Order Builder", () => {
   const ui = read("public/js/v2/ui.js");
   assert.match(ui, /id:\s*"orders"/);
   assert.match(ui, /href:\s*"\/admin-v2\/orders"/);
-  assert.match(ui, /id:\s*"manual-order"/);
+  assert.match(ui, /id:\s*"order-builder"/);
+  assert.match(ui, /label:\s*"Order Builder"/);
   assert.match(ui, /href:\s*"\/admin-v2\/manual-order"/);
+  assert.match(ui, /iconName:\s*"clipboard-list"/);
+  assert.doesNotMatch(ui, /id:\s*"manual-order"/);
+  assert.doesNotMatch(ui, /id:\s*"walk-in-order"/);
   assert.match(ui, /href:\s*"\/admin-v2\/summary"/);
   assert.match(ui, /href:\s*"\/admin-v2\/inventory"/);
   assert.match(ui, /href:\s*"\/admin-v2\/discount-codes"/);
@@ -320,10 +302,6 @@ test("Phase 10B-2A navigation includes Orders and keeps Walk-in unreleased", () 
   assert.match(ui, /href="\/admin\/summary\.html"/);
   assert.match(ui, /Legacy admin/);
 
-  for (const href of UNRELEASED_V2_HREFS) {
-    assert.doesNotMatch(ui, new RegExp(href.replace(/\//g, "\\/")));
-  }
-
   const summary = read("public/js/v2/admin-summary.js");
   assert.match(summary, /href="\/admin-v2\/orders"/);
   assert.doesNotMatch(summary, /href="\/admin\/orders\.html"/);
@@ -331,68 +309,15 @@ test("Phase 10B-2A navigation includes Orders and keeps Walk-in unreleased", () 
 
 /* ---------------------------------------------------------- D. runtime boundary */
 
-test("Phase 10B-2A fetchReadOnlyOrderPost allowlist rejects mutation endpoints with zero network calls", async () => {
-  // Extract the allowlist helper without importing the browser module graph
-  // (admin-shared pulls a CDN ESM URL that Node cannot load).
+test("Phase 10B-2A Orders controller uses authenticated report POST helpers for mutations", () => {
   const source = read("public/js/v2/admin-orders.js");
-  assert.match(source, /export const ORDERS_V2_READ_ONLY = true/);
-  assert.match(
-    source,
-    /export const READ_ONLY_ORDER_POST_ENDPOINTS = new Set\(\[\s*"\/api\/admin-order-ship-from-display",\s*"\/api\/admin-order-fulfillment-doc-links",\s*\]\)/s,
-  );
-
-  let fetchReportPostCalls = 0;
-  const calls = [];
-  const fetchReportPost = async (endpoint, token, body) => {
-    fetchReportPostCalls += 1;
-    calls.push({ endpoint, token, body });
-    return { ok: true, endpoint };
-  };
-
-  const harness = { fetchReportPost, fetchReportPostCalls: () => fetchReportPostCalls, calls };
-  const fn = new Function(
-    "fetchReportPost",
-    `
-    const READ_ONLY_ORDER_POST_ENDPOINTS = new Set([
-      "/api/admin-order-ship-from-display",
-      "/api/admin-order-fulfillment-doc-links",
-    ]);
-    async function fetchReadOnlyOrderPost(endpoint, token, body) {
-      if (!READ_ONLY_ORDER_POST_ENDPOINTS.has(endpoint)) {
-        throw new Error("Orders mutations are disabled in admin v2.");
-      }
-      return fetchReportPost(endpoint, token, body);
-    }
-    return { READ_ONLY_ORDER_POST_ENDPOINTS, fetchReadOnlyOrderPost };
-  `,
-  );
-  const mod = fn(fetchReportPost);
-  assert.deepEqual([...mod.READ_ONLY_ORDER_POST_ENDPOINTS].sort(), [...ALLOWED_POSTS].sort());
-
-  // Source must match harness semantics (reject message + allowlist gate before fetchReportPost).
-  assert.match(source, /Orders mutations are disabled in admin v2/);
-  assert.match(source, /if\s*\(\s*!READ_ONLY_ORDER_POST_ENDPOINTS\.has\(endpoint\)\s*\)/);
+  assert.match(source, /async function postOrderAction\(endpoint, body\)/);
+  assert.match(source, /throw new Error\("Sign in again to continue\."\)/);
   assert.match(source, /return fetchReportPost\(endpoint, token, body\)/);
-
-  for (const endpoint of FORBIDDEN_MUTATION_ENDPOINTS) {
-    const before = fetchReportPostCalls;
-    await assert.rejects(
-      () => mod.fetchReadOnlyOrderPost(endpoint, "token", { orderId: "1" }),
-      /Orders mutations are disabled in admin v2/,
-    );
-    assert.equal(fetchReportPostCalls, before, `rejected endpoint must not call fetchReportPost: ${endpoint}`);
+  assert.match(source, /mutateOrderAndRefresh/);
+  for (const endpoint of EXPECTED_ORDER_POSTS) {
+    assert.match(source, new RegExp(endpoint.replace(/\//g, "\\/")));
   }
-
-  for (const endpoint of ALLOWED_POSTS) {
-    const before = fetchReportPostCalls;
-    const result = await mod.fetchReadOnlyOrderPost(endpoint, "tok", { orderId: "42" });
-    assert.equal(result.ok, true);
-    assert.equal(fetchReportPostCalls, before + 1);
-    assert.equal(calls.at(-1).endpoint, endpoint);
-    assert.equal(calls.at(-1).token, "tok");
-  }
-
-  void harness;
 });
 test("Phase 10B-2A controller uses only SELECT for Supabase and allowlisted POSTs", () => {
   const source = read("public/js/v2/admin-orders.js");
@@ -406,51 +331,45 @@ test("Phase 10B-2A controller uses only SELECT for Supabase and allowlisted POST
   assert.doesNotMatch(source, /\.rpc\s*\(/);
 
   assert.match(source, /\/api\/products/);
-  for (const endpoint of ALLOWED_POSTS) {
+  for (const endpoint of EXPECTED_ORDER_POSTS) {
     assert.match(source, new RegExp(endpoint.replace(/\//g, "\\/")));
   }
-  for (const endpoint of FORBIDDEN_MUTATION_ENDPOINTS) {
+  for (const endpoint of ABSENT_ORDER_POSTS) {
     assert.equal(source.includes(endpoint), false, `forbidden endpoint present: ${endpoint}`);
   }
-
-  // fetchReportPost only inside the allowlist helper.
-  const reportPostHits = [...source.matchAll(/fetchReportPost\s*\(/g)];
-  assert.equal(reportPostHits.length, 1);
-  assert.match(source, /export async function fetchReadOnlyOrderPost/);
-  assert.match(source, /if\s*\(\s*!READ_ONLY_ORDER_POST_ENDPOINTS\.has\(endpoint\)\s*\)/);
+  assert.match(source, /fetchReportPost\s*\(/);
+  assert.doesNotMatch(source, /READ_ONLY_ORDER_POST_ENDPOINTS/);
 });
 
-test("Phase 10B-2A page open / drawer / refresh paths do not bind mutation controls", () => {
+test("Phase 10B-2A page open / drawer / refresh paths bind writable order controls", () => {
   const source = read("public/js/v2/admin-orders.js");
   for (const marker of MUTATION_UI_MARKERS) {
-    assert.equal(source.includes(marker), false, marker);
+    assert.equal(source.includes(marker), true, marker);
   }
   assert.doesNotMatch(source, /window\.[A-Za-z0-9_]*\s*=/);
-  assert.match(source, /ORDERS_V2_READ_ONLY\s*=\s*true/);
-  assert.match(source, /Orders v2 is currently read-only/);
-  assert.match(source, /\/admin\/orders\.html/);
+  assert.match(source, /bindDrawerActions/);
+  assert.match(source, /setDrawerCloseGuard/);
+  assert.match(source, /customSelect\(/);
   assert.match(source, /onRefresh:\s*\(\)\s*=>\s*loadOrders\(\)/);
   assert.match(source, /hydrateDrawerHelpers/);
-  assert.match(source, /fetchReadOnlyOrderPost\("/);
+  assert.match(source, /reloadOrdersAndReopen/);
 });
 
 /* ---------------------------------------------------------- E. mutation UI absence */
 
-test("Phase 10B-2A rendered copy does not present mutation primary actions", () => {
+test("Phase 10B-2A rendered copy presents mutation primary actions", () => {
   const source = read("public/js/v2/admin-orders.js");
-  // Informational mentions of unavailable actions are OK; actionable controls are not.
-  assert.doesNotMatch(source, /<button[^>]+data-od-/);
-  assert.doesNotMatch(source, />Buy label</);
-  assert.doesNotMatch(source, />Mark shipped</);
-  assert.doesNotMatch(source, />Record payment</);
-  assert.doesNotMatch(source, />Send payment link</);
-  assert.doesNotMatch(source, />Send buyer notification</);
-  assert.doesNotMatch(source, />Resend notification</);
-  assert.doesNotMatch(source, />Complete walk-in/);
-  assert.doesNotMatch(source, />Sync to Shippo</);
-  assert.doesNotMatch(source, />Validate parcel</);
-  assert.doesNotMatch(source, />Record external label</);
-  assert.match(source, /Open in Legacy admin|Open Legacy admin Orders/);
+  assert.match(source, /Manage payment status, fulfillment, shipping, and buyer communication/);
+  assert.match(source, />Buy all labels</);
+  assert.match(source, />Buy selected label</);
+  assert.match(source, />Mark as shipped</);
+  assert.match(source, />Record payment</);
+  assert.match(source, />Send payment link</);
+  assert.match(source, />Email buyer</);
+  assert.match(source, />Sync to Shippo</);
+  assert.match(source, />Save label records</);
+  assert.doesNotMatch(source, /Orders v2 is currently read-only/);
+  assert.doesNotMatch(source, /Open Legacy admin Orders/);
 });
 
 /* ------------------------------------------------------------------ F. security */
@@ -1062,9 +981,12 @@ test("Phase 10B-2A Paid · Not Shipped KPI is factual and label-agnostic", () =>
   assert.equal(orderLabelPurchased(withPackages[0]), true);
 });
 
-test("Phase 10B-2A correction introduces no mutation endpoints or writes", () => {
+test("Phase 10B-2A writable Orders still avoids direct client-side Supabase mutations", () => {
   const source = read("public/js/v2/admin-orders.js");
-  for (const endpoint of FORBIDDEN_MUTATION_ENDPOINTS) {
+  for (const endpoint of EXPECTED_ORDER_POSTS) {
+    assert.equal(source.includes(endpoint), true, endpoint);
+  }
+  for (const endpoint of ABSENT_ORDER_POSTS) {
     assert.equal(source.includes(endpoint), false, endpoint);
   }
   assert.doesNotMatch(source, /\.insert\s*\(/);
@@ -1072,7 +994,7 @@ test("Phase 10B-2A correction introduces no mutation endpoints or writes", () =>
   assert.doesNotMatch(source, /\.upsert\s*\(/);
   assert.doesNotMatch(source, /\.delete\s*\(/);
   assert.doesNotMatch(source, /\.rpc\s*\(/);
-  assert.match(source, /Label purchase can charge the connected Shippo account/);
-  assert.doesNotMatch(source, /buy\/sync charge/);
-  assert.doesNotMatch(source, /sync charge the connected/);
+  assert.match(source, /postOrderAction/);
+  assert.match(source, /mutateOrderAndRefresh/);
+  assert.match(source, /fetchReportPost/);
 });

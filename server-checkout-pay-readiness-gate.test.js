@@ -48,18 +48,32 @@ const VALID_PAY_BODY = {
   phone: "7315550100",
   name: "Test Buyer",
   sourceId: "cnon:card-nonce-ok",
+  checkoutAttemptId: "11111111-1111-4111-8111-111111111111",
 };
 
 /** Env that reaches final live quote with canCheckout:false (Shippo unconfigured) without external HTTP. */
 const LIVE_QUOTE_FAIL_ENV = {
+  NODE_ENV: "test",
   ADDRESS_VALIDATION: "off",
   SHIPPING_QUOTE_MODE: "live_ups",
   SHIPPING_RATE_PROVIDER: "shippo",
+  CHECKOUT_LIVE_SHIPPING_FALLBACK: "off",
+  SHIPPO_API_TOKEN: undefined,
+  INVENTORY_BACKEND: "file",
+};
+
+const LIVE_QUOTE_FALLBACK_ENV = {
+  NODE_ENV: "test",
+  ADDRESS_VALIDATION: "off",
+  SHIPPING_QUOTE_MODE: "live_ups",
+  SHIPPING_RATE_PROVIDER: "shippo",
+  CHECKOUT_LIVE_SHIPPING_FALLBACK: "on",
   SHIPPO_API_TOKEN: undefined,
   INVENTORY_BACKEND: "file",
 };
 
 const BAKED_IN_PASS_GATE_ENV = {
+  NODE_ENV: "test",
   ADDRESS_VALIDATION: "off",
   SHIPPING_QUOTE_MODE: "baked_in",
   INVENTORY_BACKEND: "file",
@@ -178,6 +192,23 @@ test("live shipping provider failure produces canCheckout:false on authoritative
   });
 });
 
+test("public checkout falls back to a payable Standard Ground quote when carrier rates are unavailable", async () => {
+  await withEnv(LIVE_QUOTE_FALLBACK_ENV, async () => {
+    const quote = await buildFullCheckoutQuote(VALID_ITEMS, VALID_ADDRESS, {
+      flow: "checkout",
+      shippingContext: { applyResidentialSurcharge: false, shippoUnavailable: true },
+    });
+    assert.equal(quote.canCheckout, true);
+    assert.equal(quote.shipping?.mode, "live_ups");
+    assert.equal(quote.shipping?.quoteStatus, "rated");
+    assert.equal(quote.shipping?.provider, "fallback");
+    assert.equal(quote.shipping?.serviceLabel, "Standard Ground");
+    assert.equal(quote.userFacingError, null);
+    assert.ok(Number(quote.shippingCents) > 0);
+    assert.equal(quote.parcelSummary?.fallbackRated, true);
+  });
+});
+
 test("POST /api/checkout-pay rejects when final quote canCheckout is false with exact 503 body", async () => {
   await withEnv(
     {
@@ -222,19 +253,21 @@ test("checkout-pay.js evaluates readiness after final quote and before payment/o
   const parseIdx = checkoutPaySource.indexOf("const parsed = parseCheckoutPayBody");
   const addrIdx = checkoutPaySource.indexOf("await validateShippingAddressForCheckout");
   const stockIdx = checkoutPaySource.indexOf("await assertStockAvailableForItems");
-  const quoteIdx = checkoutPaySource.indexOf("const quote = await buildFullCheckoutQuote");
+  const selectedQuoteIdx = checkoutPaySource.indexOf("const selectedQuote = verifiedQuotePayload");
+  const quoteIdx = checkoutPaySource.indexOf("const quote = verifiedQuotePayload");
   const gateIdx = checkoutPaySource.indexOf("if (quote.canCheckout !== true)");
-  const pendingIdx = checkoutPaySource.indexOf("pending = await createPendingOrder");
-  const squareIdx = checkoutPaySource.indexOf("const { paymentId } = await createCardPayment");
-  const paidIdx = checkoutPaySource.indexOf("await markOrderPaid");
+  const pendingIdx = checkoutPaySource.indexOf("const pending = await createPendingOrder");
+  const squareIdx = checkoutPaySource.indexOf("await createCardPayment");
+  const paidIdx = checkoutPaySource.indexOf("await markOrderPaidWithRetry");
   const emailIdx = checkoutPaySource.indexOf("void sendResendOrderConfirmation");
-  const successIdx = checkoutPaySource.indexOf("success: true");
+  const successIdx = checkoutPaySource.lastIndexOf("success: true");
 
   assert.ok(methodIdx > 0);
   assert.ok(parseIdx > methodIdx, "body parse after method");
   assert.ok(addrIdx > parseIdx, "address after body");
   assert.ok(stockIdx > addrIdx, "stock after address");
-  assert.ok(quoteIdx > stockIdx, "final quote after stock");
+  assert.ok(selectedQuoteIdx > stockIdx, "selected quote after stock");
+  assert.ok(quoteIdx > selectedQuoteIdx, "final quote after selected quote");
   assert.ok(gateIdx > quoteIdx, "readiness gate after final quote");
   assert.ok(pendingIdx > gateIdx, "pending order after readiness gate");
   assert.ok(squareIdx > gateIdx, "createCardPayment after readiness gate");
@@ -247,6 +280,15 @@ test("checkout-pay.js evaluates readiness after final quote and before payment/o
   // Strict allow: only === true may continue; false/undefined/null/non-boolean reject.
   assert.match(checkoutPaySource, /if\s*\(\s*quote\.canCheckout\s*!==\s*true\s*\)/);
   assert.equal(checkoutPaySource.includes("quote.canCheckout === false"), false);
+});
+
+test("checkout-pay carries the shopper-selected shipping rate into final quote validation", () => {
+  assert.match(checkoutPaySource, /function\s+checkoutSelectedShippingRateFields/);
+  assert.match(
+    checkoutPaySource,
+    /const\s+selectedShipping\s*=\s*checkoutSelectedShippingRateFields\(req\.body\s*\|\|\s*\{\}\)/,
+  );
+  assert.match(checkoutPaySource, /\.\.\.selectedShipping/);
 });
 
 /**
@@ -322,10 +364,12 @@ process.stdout.write(JSON.stringify(state));
 
   const childEnv = {
     ...process.env,
+    NODE_ENV: "test",
     ADDRESS_VALIDATION: "off",
-    SHIPPING_QUOTE_MODE: "live_ups",
-    SHIPPING_RATE_PROVIDER: "shippo",
-    INVENTORY_BACKEND: "file",
+	    SHIPPING_QUOTE_MODE: "live_ups",
+	    SHIPPING_RATE_PROVIDER: "shippo",
+	    CHECKOUT_LIVE_SHIPPING_FALLBACK: "off",
+	    INVENTORY_BACKEND: "file",
     SQUARE_ACCESS_TOKEN: "dummy-square-token",
     SQUARE_LOCATION_ID: "dummy-location",
     SUPABASE_URL: spyBase,
@@ -358,7 +402,12 @@ process.stdout.write(JSON.stringify(state));
           return;
         }
         try {
-          resolve(JSON.parse(stdout));
+          const jsonLine = stdout
+            .trim()
+            .split(/\r?\n/)
+            .reverse()
+            .find((line) => line.trim().startsWith("{"));
+          resolve(JSON.parse(jsonLine || stdout));
         } catch (err) {
           reject(new Error(`bad child stdout: ${stdout}\nstderr: ${stderr}\n${err}`));
         }
@@ -404,18 +453,17 @@ test("existing unrelated validation failures remain unchanged (method, body, emp
 test("validation order unchanged: method and body reject before readiness gate", () => {
   const methodIdx = checkoutPaySource.indexOf('if (req.method !== "POST")');
   const parseIdx = checkoutPaySource.indexOf("const parsed = parseCheckoutPayBody");
-  const quoteIdx = checkoutPaySource.indexOf("const quote = await buildFullCheckoutQuote");
+  const quoteIdx = checkoutPaySource.indexOf("const quote = verifiedQuotePayload");
   const gateIdx = checkoutPaySource.indexOf("if (quote.canCheckout !== true)");
   assert.ok(methodIdx < parseIdx);
   assert.ok(parseIdx < quoteIdx);
   assert.ok(quoteIdx < gateIdx);
 });
 
-test("/api/checkout-estimate remains unchanged by this fix (no readiness gate export usage)", () => {
+test("/api/checkout-estimate keeps its independent retry path without pay-gate coupling", () => {
   assert.equal(checkoutEstimateSource.includes("CHECKOUT_PAY_NOT_READY"), false);
-  assert.equal(checkoutEstimateSource.includes("canCheckout === false"), false);
   assert.equal(checkoutEstimateSource.includes("buildCheckoutPayNotReadyBody"), false);
-  assert.match(checkoutEstimateSource, /computeCheckoutEstimate/);
+  assert.match(checkoutEstimateSource, /computeCheckoutEstimateWithFreshSelection/);
 });
 
 test("/api/checkout live-shipping payment-link gate remains unchanged", async () => {

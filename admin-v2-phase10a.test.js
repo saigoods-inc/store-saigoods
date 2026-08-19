@@ -10,6 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const APPROVED_V2_PAGES = [
   { route: "/admin-v2/summary", htmlFile: "summary.html", script: "/js/v2/admin-summary.js", titlePart: "Dashboard" },
+  { route: "/admin-v2/walk-in-order", htmlFile: "walk-in-order.html", script: "/js/v2/admin-walk-in-order.js", titlePart: "Walk-in Order" },
   { route: "/admin-v2/tax", htmlFile: "tax.html", script: "/js/v2/admin-tax.js", titlePart: "Sales Tax" },
   { route: "/admin-v2/nexus", htmlFile: "nexus.html", script: "/js/v2/admin-nexus.js", titlePart: "Nexus" },
   {
@@ -27,9 +28,7 @@ const LEGACY_ADMIN_ROUTES = [
   { route: "/admin/discount-codes", fileHint: "admin/discount-codes.html" },
 ];
 
-const UNRELEASED_V2_HREFS = [
-  "/admin-v2/walk-in-order",
-];
+const RELEASED_WALK_IN_ROUTE = "/admin-v2/walk-in-order";
 
 const RELEASED_ORDERS_ROUTE = "/admin-v2/orders";
 const RELEASED_MANUAL_ORDER_ROUTE = "/admin-v2/manual-order";
@@ -44,7 +43,7 @@ const PRIVATE_SECRET_MARKERS = [
 ];
 
 const CONTROLLER_READ_APIS = {
-  "admin-summary.js": ["/api/admin-summary"],
+  "admin-summary.js": ["/api/admin-summary", "/api/nexus-summary"],
   "admin-tax.js": ["/api/tax-summary"],
   "admin-nexus.js": ["/api/nexus-summary"],
   "admin-discount-codes.js": ["/api/admin-discount-codes"],
@@ -145,7 +144,6 @@ test("Phase 10A approved admin-v2 HTML shells exist with expected assets", () =>
     assert.match(html, /\/css\/v2\/tokens\.css/);
     assert.match(html, /\/css\/v2\/admin-v2\.css/);
     assert.match(html, new RegExp(page.script.replace(/\./g, "\\.")));
-    assert.doesNotMatch(html, /\/admin-v2\/walk-in-order/);
   }
   assert.equal(existsSync(path.join(__dirname, "public/css/v2/tokens.css")), true);
   assert.equal(existsSync(path.join(__dirname, "public/css/v2/admin-v2.css")), true);
@@ -153,14 +151,12 @@ test("Phase 10A approved admin-v2 HTML shells exist with expected assets", () =>
   assert.equal(existsSync(path.join(__dirname, "public/js/v2/ui.js")), true);
 });
 
-test("Phase 10A does not restore unreleased admin-v2 page files", () => {
-  // Inventory is Phase 10B-1; Orders read-only is Phase 10B-2A; Manual Order is Phase 10B-2B;
-  // Walk-in remains unreleased.
-  assert.equal(existsSync(path.join(__dirname, "public/admin-v2", "walk-in-order.html")), false);
-  assert.equal(existsSync(path.join(__dirname, "public/js/v2", "admin-walk-in-order.js")), false);
+test("Phase 10A keeps the Walk-in admin-v2 page files present", () => {
+  assert.equal(existsSync(path.join(__dirname, "public/admin-v2", "walk-in-order.html")), true);
+  assert.equal(existsSync(path.join(__dirname, "public/js/v2", "admin-walk-in-order.js")), true);
 });
 
-test("vercel.json adds four admin-v2 rewrites without removing legacy admin rewrites", () => {
+test("vercel.json adds admin-v2 rewrites without removing legacy admin rewrites", () => {
   const vercel = JSON.parse(read("vercel.json"));
   const rewrites = vercel.rewrites || [];
   const bySource = new Map(rewrites.map((r) => [r.source, r.destination]));
@@ -185,14 +181,11 @@ test("vercel.json adds four admin-v2 rewrites without removing legacy admin rewr
   assert.equal(bySource.get("/admin-v2/orders/"), "/admin-v2/orders.html");
   assert.equal(bySource.get(RELEASED_MANUAL_ORDER_ROUTE), "/admin-v2/manual-order.html");
   assert.equal(bySource.get("/admin-v2/manual-order/"), "/admin-v2/manual-order.html");
-
-  for (const href of UNRELEASED_V2_HREFS) {
-    assert.equal(bySource.has(href), false, `unexpected rewrite for unreleased ${href}`);
-    assert.equal(bySource.has(`${href}/`), false, `unexpected trailing rewrite for unreleased ${href}`);
-  }
+  assert.equal(bySource.get(RELEASED_WALK_IN_ROUTE), "/admin-v2/walk-in-order.html");
+  assert.equal(bySource.get(`${RELEASED_WALK_IN_ROUTE}/`), "/admin-v2/walk-in-order.html");
 });
 
-test("server.js serves four approved admin-v2 pages and keeps legacy admin routes", () => {
+test("server.js serves approved admin-v2 pages and keeps legacy admin routes", () => {
   const serverSource = read("server.js");
 
   for (const page of APPROVED_V2_PAGES) {
@@ -208,10 +201,6 @@ test("server.js serves four approved admin-v2 pages and keeps legacy admin route
   assert.match(serverSource, /\/admin-v2\/manual-order/);
   assert.match(serverSource, /admin-v2",\s*"manual-order\.html"/);
 
-  for (const href of UNRELEASED_V2_HREFS) {
-    assert.doesNotMatch(serverSource, new RegExp(href.replace(/\//g, "\\/")));
-  }
-
   for (const legacy of LEGACY_ADMIN_ROUTES) {
     assert.match(serverSource, new RegExp(legacy.route.replace(/\//g, "\\/")));
   }
@@ -221,45 +210,35 @@ test("server.js serves four approved admin-v2 pages and keeps legacy admin route
   assert.match(serverSource, /import\s+nexusSummaryHandler\s+from\s+["']\.\/api\/nexus-summary\.js["']/);
 });
 
-test("admin-v2 navigation exposes only approved routes", () => {
+test("admin-v2 navigation exposes the integrated routes", () => {
   const ui = read("public/js/v2/ui.js");
   assert.match(ui, /export const ADMIN_V2_NAV\s*=\s*\[/);
 
-  for (const page of APPROVED_V2_PAGES) {
+  for (const page of APPROVED_V2_PAGES.filter((page) => page.route !== RELEASED_WALK_IN_ROUTE)) {
     assert.match(ui, new RegExp(`href:\\s*"${page.route}"`));
   }
   assert.match(ui, new RegExp(`href:\\s*"${RELEASED_ORDERS_ROUTE}"`));
   assert.match(ui, /id:\s*"orders"/);
   assert.match(ui, new RegExp(`href:\\s*"${RELEASED_MANUAL_ORDER_ROUTE}"`));
-  assert.match(ui, /id:\s*"manual-order"/);
-  for (const href of UNRELEASED_V2_HREFS) {
-    assert.doesNotMatch(ui, new RegExp(href.replace(/\//g, "\\/")));
-  }
+  assert.match(ui, /id:\s*"order-builder"/);
+  assert.match(ui, /label:\s*"Order Builder"/);
+  assert.match(ui, /iconName:\s*"clipboard-list"/);
+  assert.doesNotMatch(ui, /id:\s*"manual-order"/);
+  assert.doesNotMatch(ui, /id:\s*"walk-in-order"/);
 
   // Optional coexistence link back to legacy admin.
   assert.match(ui, /href="\/admin\/summary\.html"/);
   assert.match(ui, /Legacy admin/);
 });
 
-test("restored admin-v2 sources contain no links to unreleased v2 pages", () => {
-  const files = [
-    "public/js/v2/ui.js",
-    "public/js/v2/page-boot.js",
-    "public/js/v2/admin-summary.js",
-    "public/js/v2/admin-tax.js",
-    "public/js/v2/admin-nexus.js",
-    "public/js/v2/admin-discount-codes.js",
-    "public/admin-v2/summary.html",
-    "public/admin-v2/tax.html",
-    "public/admin-v2/nexus.html",
-    "public/admin-v2/discount-codes.html",
-  ];
-  for (const file of files) {
-    const source = read(file);
-    for (const href of UNRELEASED_V2_HREFS) {
-      assert.equal(source.includes(href), false, `${file} must not link to ${href}`);
-    }
-  }
+test("restored admin-v2 sources keep shared routes stable", () => {
+  const ui = read("public/js/v2/ui.js");
+  const summaryHtml = read("public/admin-v2/summary.html");
+  const boot = read("public/js/v2/page-boot.js");
+
+  assert.equal(ui.includes("/admin-v2/summary"), true, "ui.js should keep the summary route reference stable");
+  assert.equal(summaryHtml.includes("/js/v2/admin-summary.js"), true, "summary HTML should keep the summary controller stable");
+  assert.equal(boot.includes("/api/supabase-public-config"), true, "page-boot should keep the shared boot config endpoint stable");
 });
 
 test("approved controllers call only their intended read APIs (no mutations)", () => {
@@ -339,10 +318,8 @@ test("local server resolves approved admin-v2 routes to HTML shells", async () =
     assert.match(manual.body, /admin-manual-order\.js/);
     assert.match(manual.body, /sg-login/);
 
-    // Walk-in remains unreleased.
-    for (const href of UNRELEASED_V2_HREFS) {
-      const missing = await httpGet(`${base}${href}`);
-      assert.equal(missing.statusCode, 404, href);
-    }
+    const walkIn = await httpGet(`${base}${RELEASED_WALK_IN_ROUTE}`);
+    assert.equal(walkIn.statusCode, 200);
+    assert.match(walkIn.body, /admin-walk-in-order\.js/);
   });
 });

@@ -144,7 +144,7 @@ test("local cart quote: a-la-carte unsupported size is rejected like Vercel", as
   assert.match(state.body.error, /Quantity is set on sizes this product does not offer/);
 });
 
-test("local cart quote: insufficient stock is rejected like Vercel", async () => {
+test("local cart quote: package limit blocks an oversized cart before stock lookup", async () => {
   const state = await invokeLocalCartQuote({
     items: [
       {
@@ -156,8 +156,10 @@ test("local cart quote: insufficient stock is rejected like Vercel", async () =>
     ],
   });
 
-  assert.equal(state.statusCode, 409);
-  assert.equal(state.body.error, "Sorry. We are out of stock. Check back soon.");
+  assert.equal(state.statusCode, 200);
+  assert.equal(state.body.canCheckout, false);
+  assert.equal(state.body.shippingPackageLimit?.exceeded, true);
+  assert.ok(Number(state.body.shippingPackageLimit?.packageCount) > Number(state.body.shippingPackageLimit?.maxPackages));
 });
 
 test("local cart quote: empty items returns empty quote", async () => {

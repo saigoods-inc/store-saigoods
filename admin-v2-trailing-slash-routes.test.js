@@ -12,13 +12,12 @@ const RELEASED_V2_ROUTES = [
   { canonical: "/admin-v2/summary", trailing: "/admin-v2/summary/", html: "/admin-v2/summary.html" },
   { canonical: "/admin-v2/orders", trailing: "/admin-v2/orders/", html: "/admin-v2/orders.html" },
   { canonical: "/admin-v2/manual-order", trailing: "/admin-v2/manual-order/", html: "/admin-v2/manual-order.html" },
+  { canonical: "/admin-v2/walk-in-order", trailing: "/admin-v2/walk-in-order/", html: "/admin-v2/walk-in-order.html" },
   { canonical: "/admin-v2/inventory", trailing: "/admin-v2/inventory/", html: "/admin-v2/inventory.html" },
   { canonical: "/admin-v2/discount-codes", trailing: "/admin-v2/discount-codes/", html: "/admin-v2/discount-codes.html" },
   { canonical: "/admin-v2/tax", trailing: "/admin-v2/tax/", html: "/admin-v2/tax.html" },
   { canonical: "/admin-v2/nexus", trailing: "/admin-v2/nexus/", html: "/admin-v2/nexus.html" },
 ];
-
-const UNRELEASED_TRAILING = ["/admin-v2/walk-in-order/"];
 
 const LEGACY_REWRITES = [
   "/admin/orders",
@@ -127,11 +126,6 @@ test("vercel.json is valid JSON with released admin-v2 trailing-slash rewrites",
     assert.equal(bySource.get(route.trailing), route.html, `missing trailing-slash rewrite ${route.trailing}`);
   }
 
-  for (const href of UNRELEASED_TRAILING) {
-    assert.equal(bySource.has(href), false, `unexpected unreleased rewrite ${href}`);
-    assert.equal(bySource.has(href.replace(/\/$/, "")), false, `unexpected unreleased rewrite ${href.slice(0, -1)}`);
-  }
-
   for (const legacy of LEGACY_REWRITES) {
     assert.ok(bySource.has(legacy), `missing legacy rewrite ${legacy}`);
   }
@@ -140,18 +134,13 @@ test("vercel.json is valid JSON with released admin-v2 trailing-slash rewrites",
   assert.equal(Object.prototype.hasOwnProperty.call(vercel, "trailingSlash"), false);
 });
 
-test("local server serves released admin-v2 trailing-slash routes and keeps unreleased absent", async () => {
+test("local server serves released admin-v2 trailing-slash routes", async () => {
   await withLocalServer(async (base) => {
     for (const route of RELEASED_V2_ROUTES) {
       const res = await httpGet(`${base}${route.trailing}`);
       assert.equal(res.statusCode, 200, route.trailing);
       assert.match(String(res.headers["content-type"] || ""), /text\/html/i);
       assert.match(res.body, /<!doctype html>/i);
-    }
-
-    for (const href of UNRELEASED_TRAILING) {
-      const res = await httpGet(`${base}${href}`);
-      assert.equal(res.statusCode, 404, href);
     }
   });
 });

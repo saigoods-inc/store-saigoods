@@ -4,6 +4,7 @@ import {
 } from "../lib/checkout-totals.js";
 import { createPendingOrder } from "../lib/orders.js";
 import { createPaymentLink } from "../lib/square.js";
+import { primeRuntimeStoreForItems } from "../lib/runtime-store.js";
 
 /** Deterministic body when live shipping makes the payment-link fallback unsafe. */
 export const STOREFRONT_PAYMENT_LINK_UNAVAILABLE_BODY = {
@@ -33,6 +34,8 @@ export default async function handler(req, res) {
       res.status(400).json({ error: "Your cart is empty." });
       return;
     }
+
+    await primeRuntimeStoreForItems(items);
 
     const quote = await buildFullCheckoutQuote(items, customer?.address || {}, {
       flow: "checkout",

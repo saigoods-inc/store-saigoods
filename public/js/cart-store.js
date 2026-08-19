@@ -164,7 +164,7 @@ function normaliseCartEntry(raw, sizes = FALLBACK_SIZES) {
     return {
       quantities: sanitiseQuantities(raw.quantities, sizes),
       boxQuantities: sanitiseQuantities(raw.boxQuantities, sizes),
-      bundleLines: sanitiseBundleLines(raw.bundleLines),
+      bundleLines: normaliseBundleLinesForCart(raw.bundleLines),
     };
   }
 
@@ -188,7 +188,7 @@ function normaliseCartPayload(payload, sizes) {
     return {
       quantities: sanitiseQuantities(payload.quantities, sizes),
       boxQuantities: sanitiseQuantities(payload.boxQuantities, sizes),
-      bundleLines: sanitiseBundleLines(payload.bundleLines),
+      bundleLines: normaliseBundleLinesForCart(payload.bundleLines),
     };
   }
 
@@ -212,17 +212,26 @@ function sanitiseQuantities(quantities, sizes = FALLBACK_SIZES) {
   }, {});
 }
 
-function sanitiseBundleLines(lines) {
+export function normaliseBundleLinesForCart(lines) {
   if (!Array.isArray(lines)) {
     return [];
   }
 
-  return lines
-    .map((line) => ({
-      id: String(line?.id || "").trim(),
-      qty: Math.floor(Number(line?.qty) || 0),
-    }))
-    .filter((line) => line.id && line.qty > 0);
+  const merged = new Map();
+  for (const line of lines) {
+    const rawId = String(line?.id || "").trim();
+    const rawQty = Math.floor(Number(line?.qty) || 0);
+    if (!rawId || rawQty < 1) {
+      continue;
+    }
+
+    const legacy = /^(box|case)_(\d+)$/.exec(rawId);
+    const id = legacy ? `${legacy[1]}_1` : rawId;
+    const multiplier = legacy ? Math.max(1, Number.parseInt(legacy[2], 10)) : 1;
+    merged.set(id, (merged.get(id) || 0) + rawQty * multiplier);
+  }
+
+  return [...merged.entries()].map(([id, qty]) => ({ id, qty }));
 }
 
 function mergeCartEntries(a, b, sizes) {

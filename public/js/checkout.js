@@ -68,9 +68,26 @@ let latestEstimate = null;
 let cardInstance = null;
 let estimateStale = true;
 let estimateLoading = false;
+let confirmAddressNeedsRefresh = true;
 let latestQuotedAddressSnapshot = null;
+let selectedShippingRate = null;
+let quoteExpiryTimer = null;
 /** Bumped when the shipping address (or discount) invalidates the quote; stale in-flight estimates must not repaint the UI. */
 let checkoutQuoteEpoch = 0;
+const CHECKOUT_ATTEMPT_STORAGE_KEY = "saigoods.checkoutAttemptId";
+
+function checkoutAttemptId() {
+  let value = sessionStorage.getItem(CHECKOUT_ATTEMPT_STORAGE_KEY) || "";
+  if (!/^[0-9a-f-]{36}$/i.test(value)) {
+    value = crypto.randomUUID();
+    sessionStorage.setItem(CHECKOUT_ATTEMPT_STORAGE_KEY, value);
+  }
+  return value;
+}
+
+function resetCheckoutAttemptId() {
+  sessionStorage.removeItem(CHECKOUT_ATTEMPT_STORAGE_KEY);
+}
 
 document.addEventListener("DOMContentLoaded", init);
 
@@ -102,6 +119,7 @@ async function init() {
       };
     }
     renderCheckoutShell(miniQuote, { skipInitialEstimate: true });
+    initCheckoutStateDropdown();
     latestEstimate = { items: miniQuote.items };
     showCheckoutSuccessModal({
       orderId: "00000000-0000-0000-0000-000000000001",
@@ -147,6 +165,7 @@ async function init() {
     miniQuote = { items: [] };
   }
   renderCheckoutShell(miniQuote);
+  initCheckoutStateDropdown();
   applyCheckoutAddressValidationDevBanner(config);
   await initSquareCard(config.squareApplicationId, config.squareLocationId);
   wireEvents();
@@ -206,6 +225,9 @@ function renderCheckoutShell(miniQuote, options = {}) {
   const stateOptions = US_STATE_CODES.map(
     (code) => `<option value="${code}">${code}</option>`,
   ).join("");
+  const stateButtons = US_STATE_CODES.map(
+    (code) => `<button type="button" class="checkout-state-select__option" data-state-value="${code}">${code}</button>`,
+  ).join("");
 
   root.innerHTML = `
     <section class="page-heading">
@@ -248,16 +270,24 @@ function renderCheckoutShell(miniQuote, options = {}) {
             <input type="text" name="city" autocomplete="address-level2" required />
             <span id="checkout-err-city" class="checkout-field-error" role="alert" hidden></span>
           </label>
-          <label class="checkout-field">
+          <div class="checkout-field">
             <span>State</span>
             <div class="checkout-select-wrapper">
-              <select name="state" required>
+              <select class="checkout-native-state-select checkout-state-select__native" name="state" required tabindex="-1" aria-hidden="true">
                 <option value="">Select</option>
                 ${stateOptions}
               </select>
+              <button type="button" class="checkout-state-select__trigger" aria-haspopup="listbox" aria-expanded="false">
+                <span class="checkout-state-select__value">Select</span>
+                <span class="checkout-state-select__chevron" aria-hidden="true"></span>
+              </button>
+              <div class="checkout-state-select__menu" role="listbox" hidden>
+                <button type="button" class="checkout-state-select__option checkout-state-select__option--placeholder" data-state-value="">Select</button>
+                ${stateButtons}
+              </div>
             </div>
             <span id="checkout-err-state" class="checkout-field-error" role="alert" hidden></span>
-          </label>
+          </div>
           <label class="checkout-field">
             <span>ZIP code</span>
             <input type="text" name="postalCode" inputmode="numeric" autocomplete="postal-code" required />
@@ -294,6 +324,17 @@ function renderCheckoutShell(miniQuote, options = {}) {
           </button>
         </div>
 
+        <section
+          id="checkout-shipping-rates"
+          class="checkout-shipping-rates"
+          aria-labelledby="checkout-shipping-rates-title"
+          hidden
+        >
+          <h2 id="checkout-shipping-rates-title" class="checkout-section-title">Shipping service</h2>
+          <p class="checkout-card-hint">Select one service to continue.</p>
+          <div id="checkout-shipping-rates-list" class="checkout-shipping-rates__list"></div>
+        </section>
+
         <h2 class="checkout-section-title">Payment</h2>
         <p class="checkout-card-hint">Card details are processed by Square. We never see your full card number.</p>
         <div id="sq-card-container" class="sq-card-container"></div>
@@ -317,8 +358,9 @@ function renderCheckoutShell(miniQuote, options = {}) {
           </div>
           <div class="summary-card__row">
             <span>Shipping:</span>
-            <strong id="sum-ship">—</strong>
+            <strong id="sum-ship">–</strong>
           </div>
+          <p id="checkout-delivery-estimate" class="checkout-delivery-estimate" hidden></p>
           <div id="checkout-row-residential" class="summary-card__row" hidden>
             <span>Residential surcharge*:</span>
             <strong id="sum-residential">—</strong>
@@ -329,7 +371,7 @@ function renderCheckoutShell(miniQuote, options = {}) {
           </div>
           <div class="summary-card__row summary-card__row--tax">
             <span>Estimated tax:</span>
-            <strong id="sum-tax">—</strong>
+            <strong id="sum-tax">–</strong>
           </div>
           <div class="summary-card__row summary-card__row--total">
             <span>Total due:</span>
@@ -353,10 +395,67 @@ function renderCheckoutShell(miniQuote, options = {}) {
     sumSub.textContent = miniQuote.subtotalFormatted;
   }
   // Initial estimate on load should not complain about missing contact/address.
-  // Keep Shipping / Estimated tax as "—" until the shopper clicks "Confirm address & discount".
+  // Keep Shipping / Estimated tax pending until the shopper clicks "Confirm address & discount".
   if (!options.skipInitialEstimate) {
     void runEstimate({ validateContact: false, requireAddress: false, initialSummary: true });
   }
+}
+
+function initCheckoutStateDropdown() {
+  const wrapper = root.querySelector(".checkout-select-wrapper");
+  const select = wrapper?.querySelector(".checkout-state-select__native");
+  const trigger = wrapper?.querySelector(".checkout-state-select__trigger");
+  const value = wrapper?.querySelector(".checkout-state-select__value");
+  const menu = wrapper?.querySelector(".checkout-state-select__menu");
+  if (!wrapper || !select || !trigger || !value || !menu) {
+    return;
+  }
+
+  const close = () => {
+    menu.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+  };
+  const open = () => {
+    menu.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+  };
+  const sync = () => {
+    value.textContent = select.value || "Select";
+    menu.querySelectorAll(".checkout-state-select__option").forEach((option) => {
+      option.classList.toggle("is-selected", option.dataset.stateValue === select.value);
+    });
+  };
+
+  trigger.addEventListener("click", () => {
+    if (menu.hidden) {
+      open();
+    } else {
+      close();
+    }
+  });
+  menu.addEventListener("click", (event) => {
+    const option = event.target.closest(".checkout-state-select__option");
+    if (!option) {
+      return;
+    }
+    select.value = option.dataset.stateValue || "";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    sync();
+    close();
+    trigger.focus();
+  });
+  document.addEventListener("click", (event) => {
+    if (!wrapper.contains(event.target)) {
+      close();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      close();
+    }
+  });
+  select.addEventListener("change", sync);
+  sync();
 }
 
 function readAddressFromForm() {
@@ -415,6 +514,8 @@ function quoteView(data) {
       canCheckout: data?.canCheckout !== false,
       userFacingError: data?.userFacingError ? String(data.userFacingError) : null,
       warnings: Array.isArray(data?.warnings) ? data.warnings : [],
+      shippingRateOptions: Array.isArray(data?.shippingRateOptions) ? data.shippingRateOptions : [],
+      estimatedDays: checkoutEstimatedDeliveryDays(data),
     };
   }
 
@@ -435,7 +536,38 @@ function quoteView(data) {
     canCheckout: true,
     userFacingError: null,
     warnings: Array.isArray(data?.warnings) ? data.warnings : [],
+    shippingRateOptions: [],
+    estimatedDays: null,
   };
+}
+
+function checkoutEstimatedDeliveryDays(data) {
+  const options = Array.isArray(data?.shippingRateOptions) ? data.shippingRateOptions : [];
+  const providerQuoteId = String(data?.shipping?.providerQuoteId || "").trim();
+  const serviceCode = String(data?.shipping?.serviceCode || "").trim();
+  const selected =
+    options.find((option) => providerQuoteId && String(option?.id || option?.object_id || "") === providerQuoteId) ||
+    options.find((option) => serviceCode && String(option?.serviceCode || option?.service_code || "") === serviceCode) ||
+    options[0];
+  const days = Number(data?.shipping?.estimatedDays ?? selected?.estimatedDays ?? selected?.estimated_days);
+  return Number.isFinite(days) && days > 0 ? Math.max(1, Math.round(days)) : null;
+}
+
+function addBusinessDays(start, days) {
+  const date = new Date(start);
+  let remaining = days;
+  while (remaining > 0) {
+    date.setDate(date.getDate() + 1);
+    const day = date.getDay();
+    if (day !== 0 && day !== 6) remaining -= 1;
+  }
+  return date;
+}
+
+function estimatedDeliveryDisplay(view) {
+  if (view?.shippingStatus !== "rated" || !view?.estimatedDays) return null;
+  const date = addBusinessDays(new Date(), view.estimatedDays);
+  return `Estimated delivery ${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
 }
 
 function shippingStatusDisplay(v) {
@@ -446,6 +578,8 @@ function shippingStatusDisplay(v) {
       return "Enter shipping address to quote";
     case "rated":
       return v.shippingAmountFormatted || "—";
+    case "local_delivery":
+      return "Free local delivery";
     case "invalid_address":
       return "Address invalid";
     case "provider_unavailable":
@@ -462,6 +596,11 @@ function markEstimateStale() {
   latestEstimate = null;
   latestQuotedAddressSnapshot = null;
   estimateStale = true;
+  confirmAddressNeedsRefresh = true;
+  selectedShippingRate = null;
+  if (quoteExpiryTimer) clearTimeout(quoteExpiryTimer);
+  quoteExpiryTimer = null;
+  renderShippingRateChoices(null);
   hideAddressSuggestion();
   const warningsEl = document.getElementById("checkout-warnings");
   if (warningsEl) {
@@ -471,17 +610,21 @@ function markEstimateStale() {
   const sumShip = document.getElementById("sum-ship");
   const sumTax = document.getElementById("sum-tax");
   const sumTotal = document.getElementById("sum-total");
+  const deliveryEstimate = document.getElementById("checkout-delivery-estimate");
   const sumSub = document.getElementById("sum-sub");
   const resRow = document.getElementById("checkout-row-residential");
   const resFoot = document.getElementById("checkout-residential-footnote-wrap");
   if (sumShip) {
-    sumShip.textContent = "—";
+    sumShip.textContent = "–";
   }
   if (sumTax) {
-    sumTax.textContent = "—";
+    sumTax.textContent = "–";
   }
   if (sumTotal) {
     sumTotal.textContent = sumSub?.textContent || "—";
+  }
+  if (deliveryEstimate) {
+    deliveryEstimate.hidden = true;
   }
   if (resRow) {
     resRow.hidden = true;
@@ -490,7 +633,120 @@ function markEstimateStale() {
     resFoot.hidden = true;
   }
   resetCheckoutSummaryDiscountAmount();
+  syncConfirmAddressButtonState();
   syncPayButtonForAddressSuggestion();
+}
+
+function shippingRateStableKey(rate) {
+  return [rate?.provider, rate?.serviceCode || rate?.serviceLabel, rate?.currency || "USD"]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .join("||");
+}
+
+function shippingRateEquivalent(a, b) {
+  return Boolean(a && b) &&
+    shippingRateStableKey(a) === shippingRateStableKey(b) &&
+    Number(a.totalAmountCents ?? a.amountCents) === Number(b.totalAmountCents ?? b.amountCents) &&
+    Number(a.estimatedDays || 0) === Number(b.estimatedDays || 0);
+}
+
+function shippingChoiceBadge(rate) {
+  const roles = Array.isArray(rate?.choiceRoles) ? rate.choiceRoles : [];
+  if (roles.includes("cheapest") && roles.includes("fastest")) return "Cheapest & fastest";
+  if (roles.includes("cheapest")) return "Cheapest";
+  if (roles.includes("fastest")) return "Fastest";
+  return "";
+}
+
+function applySelectedShippingRate(rate) {
+  if (!latestEstimate || !rate) return;
+  const shippingCents = Math.max(0, Math.round(Number(rate.totalAmountCents ?? rate.amountCents) || 0));
+  const subtotalCents = Math.max(0, Math.round(Number(latestEstimate.subtotalCents) || 0));
+  const taxRateBps = Math.max(0, Math.round(Number(latestEstimate?.tax?.rateBps) || 0));
+  const taxCents = Math.round(((subtotalCents + shippingCents) * taxRateBps) / 10000);
+  const totalCents = subtotalCents + shippingCents + taxCents;
+  const money = (cents) => `$${(cents / 100).toFixed(2)}`;
+  latestEstimate = {
+    ...latestEstimate,
+    shipping: {
+      ...(latestEstimate.shipping || {}),
+      provider: rate.provider,
+      serviceCode: rate.serviceCode,
+      serviceLabel: rate.serviceLabel,
+      providerQuoteId: rate.id,
+      amountCents: shippingCents,
+      amountFormatted: money(shippingCents),
+      estimatedDays: rate.estimatedDays,
+    },
+    shippingCents,
+    shippingFormatted: money(shippingCents),
+    tax: { ...(latestEstimate.tax || {}), amountCents: taxCents, amountFormatted: money(taxCents) },
+    taxCents,
+    taxFormatted: money(taxCents),
+    totals: { ...(latestEstimate.totals || {}), shippingCents, taxCents, totalCents, totalFormatted: money(totalCents) },
+    totalCents,
+    totalFormatted: money(totalCents),
+  };
+  applyCheckoutOrderSummary(latestEstimate);
+}
+
+function renderShippingRateChoices(data, previousSelection = null) {
+  const section = document.getElementById("checkout-shipping-rates");
+  const list = document.getElementById("checkout-shipping-rates-list");
+  if (!section || !list) return;
+  const rates = Array.isArray(data?.shippingRateOptions) ? data.shippingRateOptions : [];
+  section.hidden = rates.length === 0;
+  if (!rates.length) {
+    list.innerHTML = "";
+    return;
+  }
+  const preserved = previousSelection
+    ? rates.find((rate) => shippingRateEquivalent(previousSelection, rate)) || null
+    : rates.find((rate) => rate?.automatic === true || String(rate?.provider || "").toLowerCase() === "local") || null;
+  selectedShippingRate = preserved;
+  list.innerHTML = rates.map((rate, index) => {
+    const id = String(rate.id || "");
+    const badge = shippingChoiceBadge(rate);
+    const isLocalDelivery =
+      String(rate.provider || "").trim().toLowerCase() === "local" ||
+      String(rate.serviceCode || rate.service_code || "").trim().toLowerCase() === "local_delivery";
+    const eta = Number(rate.estimatedDays) > 0 ? `${Math.round(Number(rate.estimatedDays))} business day${Number(rate.estimatedDays) === 1 ? "" : "s"}` : "Delivery estimate unavailable";
+    const meta = isLocalDelivery
+      ? ""
+      : `<span class="checkout-shipping-rate__meta">${escapeHtml(rate.provider || "Carrier")} · ${escapeHtml(eta)}</span>`;
+    return `<label class="checkout-shipping-rate">
+      <input type="radio" name="shippingRate" value="${escapeHtml(id)}" ${preserved && String(preserved.id) === id ? "checked" : ""} />
+      <span class="checkout-shipping-rate__body">
+        <span class="checkout-shipping-rate__service">${escapeHtml(rate.serviceLabel || "Shipping")} ${badge ? `<strong>· ${escapeHtml(badge)}</strong>` : ""}</span>
+        ${meta}
+      </span>
+      <strong>${escapeHtml(rate.totalAmountFormatted || rate.amountFormatted || "—")}</strong>
+    </label>`;
+  }).join("");
+  list.querySelectorAll('input[name="shippingRate"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      selectedShippingRate = rates.find((rate) => String(rate.id) === input.value) || null;
+      if (selectedShippingRate) applySelectedShippingRate(selectedShippingRate);
+      clearShippingSectionError();
+      syncPayButtonForAddressSuggestion();
+    });
+  });
+  if (preserved) applySelectedShippingRate(preserved);
+}
+
+function scheduleQuoteExpiry(data) {
+  if (quoteExpiryTimer) clearTimeout(quoteExpiryTimer);
+  const expiresAt = Date.parse(String(data?.checkoutQuoteExpiresAt || ""));
+  if (!Number.isFinite(expiresAt)) return;
+  const delay = Math.max(0, expiresAt - Date.now());
+  quoteExpiryTimer = setTimeout(() => {
+    const previous = selectedShippingRate;
+    selectedShippingRate = null;
+    estimateStale = true;
+    syncPayButtonForAddressSuggestion();
+    showShippingSectionError("Shipping rates expired. Refreshing current rates…", { tone: "notice" });
+    void runEstimate({ validateContact: false, requireAddress: true, previousShippingSelection: previous });
+  }, delay);
 }
 
 function normalizeAddressForComparison(addr) {
@@ -543,6 +799,7 @@ function applyCheckoutOrderSummary(data, opts = {}) {
   const sumDiscount = document.getElementById("sum-discount");
   const sumTax = document.getElementById("sum-tax");
   const sumTotal = document.getElementById("sum-total");
+  const deliveryEstimate = document.getElementById("checkout-delivery-estimate");
   const view = quoteView(data);
   const showDiscountBreakdown = Boolean(view.discountFormatted);
 
@@ -568,8 +825,9 @@ function applyCheckoutOrderSummary(data, opts = {}) {
 
   if (sumShip && sumTax && sumTotal) {
     if (initialSummary) {
-      sumShip.textContent = "—";
-      sumTax.textContent = "—";
+      sumShip.textContent = "–";
+      sumTax.textContent = "–";
+      if (deliveryEstimate) deliveryEstimate.hidden = true;
       if (resRow) {
         resRow.hidden = true;
       }
@@ -582,6 +840,11 @@ function applyCheckoutOrderSummary(data, opts = {}) {
     } else {
       sumShip.textContent = shippingStatusDisplay(view);
       sumTax.textContent = view.taxFormatted;
+      if (deliveryEstimate) {
+        const deliveryText = estimatedDeliveryDisplay(view);
+        deliveryEstimate.textContent = deliveryText || "";
+        deliveryEstimate.hidden = !deliveryText;
+      }
       const resCents = view.residentialSurchargeCents;
       if (resRow && sumRes) {
         if (resCents > 0 && view.residentialSurchargeFormatted) {
@@ -640,6 +903,30 @@ function clearShippingSectionError() {
   el.hidden = true;
   el.textContent = "";
   el.classList.remove("checkout-shipping-error--notice");
+}
+
+function publicCheckoutShippingMessage(message) {
+  const raw = String(message || "").trim();
+  if (!raw) {
+    return "";
+  }
+  const lower = raw.toLowerCase();
+  const internalTerms = [
+    "shippo",
+    "ups rating",
+    "provider",
+    "carrier account",
+    "sandbox",
+    "rate provider",
+    "shipment",
+    "parcel plan",
+    "carton",
+    "packing plan",
+  ];
+  if (internalTerms.some((term) => lower.includes(term))) {
+    return "Shipping options are temporarily unavailable. Please try again.";
+  }
+  return raw;
 }
 
 const ADDRESS_FIELD_ERR_IDS = {
@@ -847,9 +1134,27 @@ function syncPayButtonForAddressSuggestion() {
   } else if (latestEstimate?.canCheckout === false) {
     payBtn.disabled = true;
     payBtn.title = latestEstimate?.userFacingError || "Shipping quote is not ready.";
+  } else if (!selectedShippingRate) {
+    payBtn.disabled = true;
+    payBtn.title = "Select a shipping service before paying.";
   } else {
     payBtn.disabled = false;
     payBtn.removeAttribute("title");
+  }
+}
+
+function syncConfirmAddressButtonState() {
+  const btn = document.getElementById("checkout-update-totals");
+  if (!btn) return;
+  btn.disabled = estimateLoading || !confirmAddressNeedsRefresh;
+  btn.classList.toggle("checkout-confirm-address--loading", estimateLoading);
+  btn.textContent = estimateLoading ? "Calculating shipping..." : "Confirm address & discount";
+  if (estimateLoading) {
+    btn.title = "Calculating current shipping services…";
+  } else if (!confirmAddressNeedsRefresh) {
+    btn.title = "Address and discount confirmed. Edit either to refresh.";
+  } else {
+    btn.removeAttribute("title");
   }
 }
 
@@ -892,9 +1197,14 @@ function showShippingSectionError(message, options = {}) {
   if (!el) {
     return;
   }
-  el.textContent = message;
-  el.hidden = false;
   const notice = options.tone === "notice";
+  const safeMessage = notice ? String(message || "").trim() : publicCheckoutShippingMessage(message);
+  if (!safeMessage) {
+    clearShippingSectionError();
+    return;
+  }
+  el.textContent = safeMessage;
+  el.hidden = false;
   el.classList.toggle("checkout-shipping-error--notice", notice);
 }
 
@@ -979,8 +1289,11 @@ async function runEstimate(options = {}) {
   let epochAtFetch = checkoutQuoteEpoch;
   try {
     estimateLoading = true;
+    syncConfirmAddressButtonState();
     if (!initialSummary && sumShip) {
       sumShip.textContent = "Calculating…";
+      const deliveryEstimate = document.getElementById("checkout-delivery-estimate");
+      if (deliveryEstimate) deliveryEstimate.hidden = true;
     }
     syncPayButtonForAddressSuggestion();
     const dc = readDiscountCode();
@@ -991,7 +1304,6 @@ async function runEstimate(options = {}) {
     if (dc && requireAddress) {
       payload.discountCode = dc;
     }
-
     const requestAddressSnapshot = readAddressFromForm();
     epochAtFetch = checkoutQuoteEpoch;
     const res = await fetch("/api/checkout-estimate", {
@@ -1022,9 +1334,10 @@ async function runEstimate(options = {}) {
         showAddressSuggestionIfAny(data);
       }
 
-      throw new Error(data.error || "Could not calculate totals.");
+      throw new Error(publicCheckoutShippingMessage(data.error) || "Could not calculate totals.");
     }
 
+    const previousSelection = options.previousShippingSelection || selectedShippingRate;
     latestEstimate = data;
     latestQuotedAddressSnapshot =
       (data?.addressValidation?.submittedAddress && typeof data.addressValidation.submittedAddress === "object"
@@ -1035,6 +1348,17 @@ async function runEstimate(options = {}) {
     clearAddressFieldErrors();
     applyCheckoutOrderSummary(data, { initialSummary });
     if (!initialSummary) {
+      renderShippingRateChoices(data, previousSelection);
+      scheduleQuoteExpiry(data);
+      if (
+        Array.isArray(data?.shippingRateOptions) &&
+        data.shippingRateOptions.length > 0 &&
+        !(data?.addressSuggestion && typeof data.addressSuggestion === "object")
+      ) {
+        confirmAddressNeedsRefresh = false;
+      }
+    }
+    if (!initialSummary) {
       showAddressSuggestionIfAny(data);
     } else {
       hideAddressSuggestion();
@@ -1043,6 +1367,11 @@ async function runEstimate(options = {}) {
     if (warningsEl) {
       const view = quoteView(data);
       const w = [...(Array.isArray(view.warnings) ? view.warnings : [])];
+      if (data?.freeDelivery?.applied) {
+        w.unshift("Your order qualifies for free local delivery.");
+      } else if (data?.freeDelivery?.message && data.freeDelivery.reason === "minimum_not_met") {
+        w.unshift(data.freeDelivery.message);
+      }
       if (data.hardinDiscountBlocked === "incomplete_address" && readDiscountCode()) {
         w.push(
           'Complete your shipping address and click "Confirm address & discount" to apply a discount code.',
@@ -1057,11 +1386,11 @@ async function runEstimate(options = {}) {
         error: "Shipping quote failed. Please retry.",
       };
       const status = String(view.shippingStatus || "");
-      if (statusMessageMap[status]) {
-        w.push(statusMessageMap[status]);
-      }
       if (view.userFacingError) {
+        w.push(publicCheckoutShippingMessage(view.userFacingError));
         showShippingSectionError(view.userFacingError);
+      } else if (statusMessageMap[status]) {
+        w.push(statusMessageMap[status]);
       }
       if (w.length) {
         warningsEl.hidden = false;
@@ -1088,9 +1417,11 @@ async function runEstimate(options = {}) {
         showShippingSectionError(msg);
       }
     }
-    sumShip.textContent = "—";
-    sumTax.textContent = "—";
+    sumShip.textContent = "–";
+    sumTax.textContent = "–";
     sumTotal.textContent = "—";
+    const deliveryEstimate = document.getElementById("checkout-delivery-estimate");
+    if (deliveryEstimate) deliveryEstimate.hidden = true;
     resetCheckoutSummaryDiscountAmount();
     const resRowErr = document.getElementById("checkout-row-residential");
     const resFootErr = document.getElementById("checkout-residential-footnote-wrap");
@@ -1106,9 +1437,11 @@ async function runEstimate(options = {}) {
       latestQuotedAddressSnapshot = null;
     }
     estimateStale = true;
+    confirmAddressNeedsRefresh = true;
     syncPayButtonForAddressSuggestion();
   } finally {
     estimateLoading = false;
+    syncConfirmAddressButtonState();
     syncPayButtonForAddressSuggestion();
   }
 }
@@ -1195,14 +1528,14 @@ function showCheckoutSuccessModal({ orderId, orderRef, totalFormatted }) {
     : "";
 
   const refLine = orderRef
-    ? `<p class="checkout-success-modal__order-ref"><strong>Order reference</strong> ${escapeHtml(String(orderRef))}</p>`
+    ? `<div class="checkout-success-modal__receipt-row"><span>Order reference</span><strong>${escapeHtml(String(orderRef))}</strong></div>`
     : "";
   const idLine =
     orderId != null && String(orderId).trim()
-      ? `<p class="checkout-success-modal__order-id"><span class="checkout-success-modal__label">Order ID</span> <code>${escapeHtml(String(orderId))}</code></p>`
+      ? `<div class="checkout-success-modal__receipt-row"><span>Order ID</span><code>${escapeHtml(String(orderId))}</code></div>`
       : "";
   const totalLine = totalFormatted
-    ? `<p class="checkout-success-modal__total"><strong>Total paid</strong> ${escapeHtml(String(totalFormatted))}</p>`
+    ? `<div class="checkout-success-modal__receipt-row checkout-success-modal__receipt-row--total"><span>Total paid</span><strong>${escapeHtml(String(totalFormatted))}</strong></div>`
     : "";
 
   const existing = document.getElementById("checkout-success-modal");
@@ -1223,18 +1556,22 @@ function showCheckoutSuccessModal({ orderId, orderRef, totalFormatted }) {
         <span aria-hidden="true">&times;</span>
       </button>
       <div class="checkout-success-modal__content">
-        <h2 id="checkout-success-heading" class="checkout-success-modal__title">
-          Order completed.<br />
-          <span class="checkout-success-modal__title-line2">Thank you for your purchase!</span>
-        </h2>
-        <p class="checkout-success-modal__message">
-          We&rsquo;ll ship your order shortly. You&rsquo;ll receive a shipping notification with tracking information once it&rsquo;s on the way.
-        </p>
+        <div class="checkout-success-modal__hero">
+          <span class="checkout-success-modal__check" aria-hidden="true">&#10003;</span>
+          <p class="checkout-success-modal__eyebrow">Order completed</p>
+          <h2 id="checkout-success-heading" class="checkout-success-modal__title">Thank you for your purchase.</h2>
+          <p class="checkout-success-modal__message">
+            We&rsquo;ll email tracking information as soon as your order is on the way.
+          </p>
+        </div>
         <div class="checkout-success-modal__summary">
-          <h3 class="checkout-success-modal__summary-title">Order summary</h3>
-          ${refLine}
-          ${idLine}
-          ${totalLine}
+          <h3 class="checkout-success-modal__summary-title">Receipt</h3>
+          <div class="checkout-success-modal__receipt">
+            ${refLine}
+            ${idLine}
+            ${totalLine}
+          </div>
+          ${productsHtml ? `<h3 class="checkout-success-modal__summary-title checkout-success-modal__summary-title--items">Items ordered</h3>` : ""}
           ${productsHtml}
         </div>
         <p class="checkout-success-modal__support">
@@ -1253,7 +1590,7 @@ function showCheckoutSuccessModal({ orderId, orderRef, totalFormatted }) {
     document.removeEventListener("keydown", onKeyDown);
     wrap.remove();
     document.body.style.overflow = prevOverflow;
-    window.location.href = "/cart.html";
+    window.location.href = "/";
   };
 
   function onKeyDown(e) {
@@ -1350,6 +1687,7 @@ function wireEvents() {
     }
     if (state && sug.state) {
       state.value = String(sug.state || "").trim().toUpperCase().slice(0, 2);
+      state.dispatchEvent(new Event("change", { bubbles: true }));
     }
     if (zip) {
       zip.value = String(sug.postalCode || "").trim();
@@ -1402,6 +1740,10 @@ function wireEvents() {
       showShippingSectionError(latestEstimate?.userFacingError || "Shipping quote is not ready.");
       return;
     }
+    if (!selectedShippingRate) {
+      showShippingSectionError("Select a shipping service before paying.");
+      return;
+    }
 
     setButtonBusy(payBtn, true, "Processing…");
 
@@ -1421,6 +1763,16 @@ function wireEvents() {
         phone: contact.phone,
         name: contact.name || undefined,
         sourceId: tokenResult.token,
+        checkoutAttemptId: checkoutAttemptId(),
+        selectedShippingRateObjectId: selectedShippingRate.id,
+        selectedShippingServiceCode: selectedShippingRate.serviceCode,
+        selectedShippingServiceLabel: selectedShippingRate.serviceLabel,
+        selectedShippingProvider: selectedShippingRate.provider,
+        selectedShippingAmountCents: selectedShippingRate.amountCents,
+        selectedShippingParcelCount: Number(latestEstimate?.parcelSummary?.parcelCount || 0),
+        ...(latestEstimate?.checkoutQuoteToken
+          ? { checkoutQuoteToken: latestEstimate.checkoutQuoteToken }
+          : {}),
       };
       const dcPay = readDiscountCode();
       if (dcPay) {
@@ -1435,11 +1787,15 @@ function wireEvents() {
 
       const data = await res.json();
       if (!res.ok) {
+        if (data?.retryWithNewAttempt === true) {
+          resetCheckoutAttemptId();
+        }
         applyCheckoutShippingAddressErrors(data);
-        throw new Error(data.error || "Payment failed.");
+        throw new Error(publicCheckoutShippingMessage(data.error) || "Payment failed.");
       }
 
       clearCart();
+      resetCheckoutAttemptId();
       checkoutSucceeded = true;
       showCheckoutSuccessModal({
         orderId: data.orderId,

@@ -13,8 +13,9 @@ export default async function handler(req, res) {
     const preset = String(url.searchParams.get("preset") || "last30").trim();
     const start = String(url.searchParams.get("start") || "").trim();
     const end = String(url.searchParams.get("end") || "").trim();
+    const channel = String(url.searchParams.get("channel") || "all").trim().toLowerCase();
 
-    const summary = await fetchAdminSummary({ preset, start, end });
+    const summary = await fetchAdminSummary({ preset, start, end, channel });
     res.status(200).json(summary);
   } catch (error) {
     console.error(error);

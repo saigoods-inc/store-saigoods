@@ -1,0 +1,108 @@
+@import "../../public/css/v2/tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    background: var(--sg-bg);
+    color: var(--sg-text);
+    font-family: var(--sg-font);
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--sg-bg);
+    color: var(--sg-text);
+    font-family: var(--sg-font);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  p {
+    line-height: 1.22;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+}
+
+@layer components {
+  .sg25-card {
+    @apply rounded-[10px] border border-sg-border bg-white;
+  }
+
+  .sg25-card-header {
+    @apply flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-start lg:justify-between;
+  }
+
+  .sg25-btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-transparent px-3.5 py-2 text-[10.5px] font-medium transition disabled:cursor-not-allowed disabled:opacity-45 sm:px-4 sm:text-[11.5px];
+  }
+
+  .sg25-btn-primary {
+    @apply bg-sg-primary text-white hover:bg-sg-primary-hover disabled:hover:bg-sg-primary;
+  }
+
+  .sg25-btn-ghost {
+    @apply border-sg-border bg-white text-sg-text hover:bg-sg-input-bg disabled:hover:bg-white;
+  }
+
+  .sg25-pill-field {
+    @apply h-[36px] w-full appearance-none rounded-full border border-sg-border bg-white px-3 pr-5 text-[10.5px] leading-none text-sg-text outline-none transition focus:border-sg-primary sm:text-[11.5px];
+  }
+
+  .sg25-input {
+    @apply h-11 w-full rounded-[7px] border border-sg-border bg-white px-4 text-[12px] text-sg-text outline-none transition focus:border-sg-primary sm:text-[13px];
+  }
+
+  .sg25-progress {
+    @apply h-2 rounded-full bg-sg-border-soft;
+  }
+
+  .sg25-order-row > td {
+    @apply transition-colors;
+  }
+
+  .sg25-order-row:hover > td {
+    background-color: #faf8f6;
+  }
+}
+
+@keyframes sg25-drawer-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sg25-drawer-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@layer utilities {
+  .sg25-drawer-backdrop-in {
+    animation: sg25-drawer-backdrop-in 160ms ease-out both;
+  }
+
+  .sg25-drawer-slide-in {
+    animation: sg25-drawer-slide-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}

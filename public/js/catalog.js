@@ -63,7 +63,7 @@ export function formatCurrency(cents) {
 }
 
 /**
- * Bundle card: per-box or per-case line (below title + total wrapper).
+ * Bundle card: per-box or per-carton line (below title + total wrapper).
  * @param {number} priceCents
  * @param {number} units
  * @param {string} kind — "box" | "case"
@@ -72,14 +72,14 @@ export function bundleCardPricePerHtml(priceCents, units, kind) {
   const u = Math.max(1, Math.floor(Number(units) || 0));
   const perCents = Math.round(Number(priceCents) / u);
   const k = String(kind || "").toLowerCase();
-  const suffix = k === "box" ? "/box" : "/case";
+  const suffix = k === "box" ? "/box" : "/carton";
   return `<div class="bundle-card__price-row"><span class="bundle-card__price-per">${formatCurrency(
     perCents,
   )}${suffix}</span></div>`;
 }
 
 export function formatCaseLabel(count) {
-  return `${count} case${count === 1 ? "" : "s"}`;
+  return `${count} carton${count === 1 ? "" : "s"}`;
 }
 
 export function formatSizeDisplayLabel(size) {
@@ -92,7 +92,7 @@ export function formatSizeDisplayLabel(size) {
 }
 
 /**
- * One size row: "Small: 3 cases 2 boxes" (omits zero parts).
+ * One size row: "Small: 3 cartons 2 boxes" (omits zero parts).
  * @returns {string|null}
  */
 export function formatSizeLineText(size, quantities, boxQuantities) {
@@ -103,7 +103,7 @@ export function formatSizeLineText(size, quantities, boxQuantities) {
   }
   const parts = [];
   if (c > 0) {
-    parts.push(`${c} case${c === 1 ? "" : "s"}`);
+    parts.push(`${c} carton${c === 1 ? "" : "s"}`);
   }
   if (b > 0) {
     parts.push(`${b} box${b === 1 ? "" : "es"}`);
@@ -111,13 +111,13 @@ export function formatSizeLineText(size, quantities, boxQuantities) {
   return `${formatSizeDisplayLabel(size)}: ${parts.join(" ")}`;
 }
 
-/** Cart / quote line: cases and/or boxes. */
+/** Cart / quote line: cartons and/or boxes. */
 export function formatCartUnitLabel(item) {
   const c = Math.floor(Number(item?.lineCases) || 0);
   const b = Math.floor(Number(item?.lineBoxCount) || 0);
   const parts = [];
   if (c > 0) {
-    parts.push(`${c} case${c === 1 ? "" : "s"}`);
+    parts.push(`${c} carton${c === 1 ? "" : "s"}`);
   }
   if (b > 0) {
     parts.push(`${b} box${b === 1 ? "" : "es"}`);

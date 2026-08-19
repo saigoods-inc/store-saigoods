@@ -112,10 +112,10 @@ test("vercel.json and server.js map /admin-v2 and /admin-v2/ to summary.html", (
   const server = read("server.js");
   assert.match(server, /pathname === "\/admin-v2" \|\| pathname === "\/admin-v2\/"/);
   assert.match(server, /admin-v2", "summary\.html"/);
-  assert.doesNotMatch(server, /\/admin-v2\/walk-in-order/);
+  assert.match(server, /\/admin-v2\/walk-in-order/);
 });
 
-test("local server serves Admin-v2 root as Summary and keeps Walk-in absent", async () => {
+test("local server serves Admin-v2 root as Summary and exposes Walk-in", async () => {
   await withLocalServer(async (base) => {
     for (const href of ["/admin-v2", "/admin-v2/"]) {
       const res = await httpGet(`${base}${href}`);
@@ -133,7 +133,8 @@ test("local server serves Admin-v2 root as Summary and keeps Walk-in absent", as
 
     for (const href of ["/admin-v2/walk-in-order", "/admin-v2/walk-in-order/", "/admin-v2/walk-in-order.html"]) {
       const res = await httpGet(`${base}${href}`);
-      assert.equal(res.statusCode, 404, href);
+      assert.equal(res.statusCode, 200, href);
+      assert.match(res.body, /admin-walk-in-order\.js/);
     }
 
     const legacy = await httpGet(`${base}/admin/summary.html`);

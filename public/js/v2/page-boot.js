@@ -53,9 +53,10 @@ function showApp() {
  * @param {(ctx: { getAccessToken: () => Promise<string|undefined>, getSupabaseClient: () => object|null }) => (void|Promise<void>)} [opts.onRefresh]
  *        Called when the topbar Refresh button is clicked. Defaults to re-running onEnter's load if omitted.
  * @param {() => void} [opts.onSignedOut] Optional cleanup when the user signs out.
+ * @param {string} [opts.topbarLeftHtml] Optional custom topbar content shown next to the mobile menu button.
  * @returns {{ getAccessToken: () => Promise<string|undefined>, getSupabaseClient: () => object|null }} ctx (also passed to callbacks).
  */
-export function bootAdminV2Page({ activeNav, onEnter, onRefresh, onSignedOut }) {
+export function bootAdminV2Page({ activeNav, onEnter, onRefresh, onSignedOut, topbarLeftHtml = "" }) {
   let supabase = null;
 
   async function getAccessToken() {
@@ -76,7 +77,7 @@ export function bootAdminV2Page({ activeNav, onEnter, onRefresh, onSignedOut }) 
   function mountShell(email) {
     const root = getEl("sg-root");
     if (!root) return;
-    root.innerHTML = shell({ active: activeNav, email: email || "", meta: "" });
+    root.innerHTML = shell({ active: activeNav, email: email || "", meta: "", topbarLeftHtml });
     initShellInteractions();
 
     getEl("sg-logout")?.addEventListener("click", async () => {

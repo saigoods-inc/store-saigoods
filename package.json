@@ -4,19 +4,42 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "npm run verify:shipping",
+    "verify:shipping": "node --test api/admin-payment-health.test.js api/admin-manual-order-create.test.js api/admin-manual-order-estimate.test.js lib/payment-health.test.js lib/shipping-package-limit.test.js lib/automatic-label-worker.test.js lib/checkout-shipping-options.test.js lib/square-payment-verification.test.js lib/checkout-payment-idempotency.test.js lib/online-payment-inventory-atomic.test.js lib/public-api-guard.test.js lib/checkout-quote-token.test.js lib/internal-shipping-rate.test.js lib/shippo-package-rate-set.test.js lib/shippo-rate-provider.test.js lib/shippo-shipment-sync.test.js api/admin-order-shippo-buy-all-labels.test.js api/admin-order-shippo-purchase-label.test.js api/admin-order-shippo-sync.test.js api/checkout-estimate-public.test.js lib/live-shipping-quote.test.js lib/order-shippo-labels-handoff.test.js lib/shippo-label-purchase-claim.test.js lib/shipping-health.test.js lib/warehouse-settings.test.js shipping-phase6-matrix.test.js",
+    "verify:launch": "npm run check:shipping-config && npm run verify:shipping && npm run test:admin-v2:unit && npm run test:admin-v2:integration && npm run build:admin-v2.5",
+    "check:shipping-config": "node scripts/check-shipping-readiness.mjs",
     "dev": "node --watch server.js",
     "start": "node server.js",
+    "dev:admin-v2.5": "vite",
+    "watch:admin-v2.5": "vite build --watch",
+    "build:admin-v2.5": "vite build",
     "api:dev": "vercel dev",
+    "test:admin-v2:unit": "node --test api/admin-address-verify.test.js lib/inventory-unit-conversion.test.js admin-v2-drawer-accessibility.test.js admin-v2-polish-behavior.test.js admin-v2-responsive-css-static.test.js admin-walk-in-handoff.test.js admin-walk-in-inventory-exactly-once.test.js admin-walk-in-order-mark-paid.test.js admin-walk-in-order-quick-pay.test.js admin-walk-in-shipping-zero.test.js lib/admin-summary-alerts.test.js lib/admin-summary-inventory-alerts.test.js lib/admin-summary-order-profit.test.js lib/live-shipping-quote.test.js lib/marketplace-orders.test.js lib/orders-vendor-paid-notification.test.js lib/quote-physical-allocation.test.js lib/volume-pricing.test.js public/js/cart-store.test.js lib/reports-auth.test.js lib/sales-tax.test.js lib/shipping-zone-legacy.test.js lib/shippo-webhook-auth.test.js lib/square-webhook-handler.test.js lib/tax-us.test.js lib/vendor-paid-order-notification.test.js",
+    "test:admin-v2:integration": "node --test admin-v2-phase10a.test.js admin-v2-inventory-phase10b1.test.js admin-v2-manual-order-phase10b2b.test.js admin-v2-orders-phase10b2-readonly.test.js admin-v2-root-route.test.js admin-v2-shell-accessibility.test.js admin-v2-trailing-slash-routes.test.js server-*.test.js",
     "test:resend": "node scripts/test-resend-email.mjs",
     "test:quote-physical": "node --test lib/quote-physical-allocation.test.js",
     "optimize:images": "node scripts/optimize-images.mjs",
     "bootstrap:inventory": "node scripts/bootstrap-inventory-from-json.mjs"
   },
   "devDependencies": {
-    "sharp": "^0.33.5"
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "autoprefixer": "^10.5.4",
+    "postcss": "^8.5.26",
+    "sharp": "^0.35.3",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.8",
-    "resend": "^6.10.0"
+    "@tanstack/react-query": "^5.101.4",
+    "@vercel/functions": "^3.9.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.18.2",
+    "resend": "^6.20.0",
+    "ws": "^8.21.0"
   }
 }
