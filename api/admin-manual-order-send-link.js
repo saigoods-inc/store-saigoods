@@ -229,6 +229,7 @@ export function classifySquareCreatePaymentLinkError(err) {
  *   orderId: string,
  *   createPaymentLinkFn?: Function,
  *   persistPaymentLinkFn?: Function,
+ *   buildCustomerCheckoutUrlFn?: Function,
  *   sendEmailFn?: Function,
  *   releaseDiscountFn?: Function,
  *   logErrorFn?: Function,
@@ -240,6 +241,8 @@ export function classifySquareCreatePaymentLinkError(err) {
 export async function deliverManualOrderPaymentLink(opts) {
   const createPaymentLinkFn = opts.createPaymentLinkFn || createPaymentLink;
   const persistPaymentLinkFn = opts.persistPaymentLinkFn || updateOrderPaymentLinkSent;
+  const buildCustomerCheckoutUrlFn =
+    opts.buildCustomerCheckoutUrlFn || manualPaymentAccessUrl;
   const sendEmailFn = opts.sendEmailFn || sendManualOrderPaymentLinkEmail;
   const releaseDiscountFn = opts.releaseDiscountFn || releaseDiscountCodeForOrder;
   const logErrorFn = opts.logErrorFn || ((err) => console.error(err));
@@ -316,7 +319,7 @@ export async function deliverManualOrderPaymentLink(opts) {
         paymentLinkId: created?.paymentLinkId || null,
       });
       persisted = true;
-      customerCheckoutUrl = manualPaymentAccessUrl({
+      customerCheckoutUrl = buildCustomerCheckoutUrlFn({
         orderId,
         expiresAt: savedOrder?.payment_link_expires_at,
       });
