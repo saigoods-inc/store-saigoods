@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SAI Goods Store</title>
+    <title>Shop Nitrile Gloves | SAI Goods Store</title>
     <meta
       name="description"
-      content="Shop nitrile and black nitrile gloves from SAI Goods. Explore standard, general purpose, and heavy-duty protection."
+      content="Shop dependable nitrile gloves for everyday, general-purpose, and heavy-duty work. Secure checkout, bulk ordering, and responsive support from SAI Goods."
     />
     <!-- Perf (Lighthouse): discover LCP candidate early; WebP generated via npm run optimize:images -->
     <link rel="preload" as="image" href="/img/boxes-stack.webp" type="image/webp" fetchpriority="high" />
@@ -56,21 +56,7 @@
         max-width: 32rem;
         height: auto;
       }
-      .announcement-bar {
-        position: sticky;
-        top: 0.75rem;
-        z-index: 21;
-        width: 100%;
-        background: #2d2d2d;
-        min-height: 2.75rem;
-      }
-      .announcement-bar__marquee {
-        background: linear-gradient(90deg, #1f2937 0%, #8f3f32 52%, #1f2937 100%);
-      }
-      .announcement-bar__text,
-      .announcement-bar__text::after {
-        color: #fafafa;
-      }
+      .announcement-bar { width: 100%; background: #25242a; min-height: 2.75rem; }
     </style>
     <!-- Perf: non-render-blocking full stylesheet (see also public/js/image-utils.js) -->
     <link rel="stylesheet" href="/css/styles.css" media="print" onload="this.media='all'" />
@@ -80,15 +66,10 @@
     <div class="site-frame">
       <header data-site-header></header>
 
-      <div class="announcement-bar" role="region" aria-label="Announcement" data-announcement-bar>
-        <div class="announcement-bar__marquee" aria-hidden="true">
-          <!-- No whitespace between spans: avoids stray flex gaps that break the seamless loop -->
-          <div class="announcement-bar__track">
-            <span class="announcement-bar__text">Tennessee neighbors: you may qualify for free delivery on eligible orders — ZIP code and minimum purchase apply.</span><span class="announcement-bar__text">Tennessee neighbors: you may qualify for free delivery on eligible orders — ZIP code and minimum purchase apply.</span><span class="announcement-bar__text">Tennessee neighbors: you may qualify for free delivery on eligible orders — ZIP code and minimum purchase apply.</span><span class="announcement-bar__text">Tennessee neighbors: you may qualify for free delivery on eligible orders — ZIP code and minimum purchase apply.</span><span class="announcement-bar__text">Tennessee neighbors: you may qualify for free delivery on eligible orders — ZIP code and minimum purchase apply.</span><span class="announcement-bar__text">Tennessee neighbors: you may qualify for free delivery on eligible orders — ZIP code and minimum purchase apply.</span>
-          </div>
-        </div>
-        <p class="announcement-bar__sr-only">
-          Tennessee neighbors: you may qualify for free delivery on eligible orders. ZIP code and minimum purchase apply.
+      <div class="announcement-bar" role="region" aria-label="Store announcement" data-announcement-bar>
+        <p class="announcement-bar__message">
+          <strong>Free shipping on qualifying orders.</strong>
+          <a href="#products">Shop the collection</a>
         </p>
         <button
           type="button"
@@ -104,16 +85,21 @@
         <section id="hero" class="hero">
           <div class="shell hero__grid">
             <div class="hero__content fade-up">
-              <p class="hero__label">
-                <span class="hero__label-emoji" aria-hidden="true">🖐️</span>
-                Welcome to <strong>SAI Goods Store</strong>
-              </p>
-              <h1 class="hero__title">Quality Gloves You Can Count On.</h1>
+              <p class="eyebrow eyebrow--accent">Protection for work that matters</p>
+              <h1 class="hero__title">The right glove.<br />Ready when you are.</h1>
               <p class="hero__copy">
-                From quality to consistency, our nitrile gloves are made to deliver reliable
-                protection you can trust. Stay stocked with products that perform, order after
-                order.
+                Shop dependable nitrile gloves for everyday tasks, demanding jobs, and bulk
+                operations—all backed by responsive, US-based support.
               </p>
+              <div class="hero__actions">
+                <a class="button button--primary" href="#products">Shop gloves</a>
+                <a class="button button--secondary" href="#b2b">Bulk &amp; B2B orders</a>
+              </div>
+              <ul class="hero__proof" aria-label="Store benefits">
+                <li>Secure checkout</li>
+                <li>Live inventory</li>
+                <li>Bulk-order support</li>
+              </ul>
             </div>
 
             <div class="hero__media fade-up">
@@ -134,10 +120,53 @@
           </div>
         </section>
 
+        <section class="store-benefits" aria-label="Why shop SAI Goods">
+          <div class="shell store-benefits__grid">
+            <div><strong>Reliable protection</strong><span>Purpose-built options for every job</span></div>
+            <div><strong>Transparent ordering</strong><span>Live pricing and availability</span></div>
+            <div><strong>Flexible quantities</strong><span>Boxes, cartons, and B2B orders</span></div>
+            <div><strong>Real support</strong><span>Help from our US-based team</span></div>
+          </div>
+        </section>
+
+        <section id="shop-by-need" class="section home-needs">
+          <div class="shell">
+            <div class="section-heading section-heading--split">
+              <div>
+                <p class="eyebrow eyebrow--accent">Find your fit</p>
+                <h2>Shop by the work you do.</h2>
+              </div>
+              <p>Three clear levels of protection make it easier to choose confidently.</p>
+            </div>
+            <div class="home-needs__grid">
+              <a class="need-card need-card--blue" href="/product.html?slug=nitrile-standard">
+                <span class="need-card__number">01</span>
+                <span class="need-card__use">Everyday protection</span>
+                <strong>Nitrile Examination</strong>
+                <span class="need-card__link">Choose options <span aria-hidden="true">→</span></span>
+              </a>
+              <a class="need-card need-card--stone" href="/product.html?slug=black-nitrile-general">
+                <span class="need-card__number">02</span>
+                <span class="need-card__use">General-purpose work</span>
+                <strong>Black Nitrile General</strong>
+                <span class="need-card__link">Choose options <span aria-hidden="true">→</span></span>
+              </a>
+              <a class="need-card need-card--dark" href="/product.html?slug=black-nitrile-heavy-duty">
+                <span class="need-card__number">03</span>
+                <span class="need-card__use">Demanding jobs</span>
+                <strong>Black Nitrile Heavy Duty</strong>
+                <span class="need-card__link">Choose options <span aria-hidden="true">→</span></span>
+              </a>
+            </div>
+          </div>
+        </section>
+
         <section id="products" class="section section--tight section--catalog">
           <div class="shell">
             <div class="section-heading section-heading--catalog">
-              <h2>Our Products.</h2>
+              <p class="eyebrow eyebrow--accent">Shop the collection</p>
+              <h2>Gloves for every level of work.</h2>
+              <p class="section-heading__copy">Select a product to choose your size and order quantity.</p>
             </div>
 
             <div class="catalog-meta" data-search-meta aria-live="polite"></div>
@@ -145,6 +174,23 @@
           </div>
         </section>
 
+        <section id="b2b" class="home-b2b">
+          <div class="shell home-b2b__card">
+            <div class="home-b2b__copy">
+              <p class="eyebrow">Built for business</p>
+              <h2>Need contract quantities or negotiated pricing?</h2>
+              <p>Our team supports custom B2B pricing, freight planning, and invoice-backed payment links for larger orders.</p>
+            </div>
+            <a class="button button--light" href="mailto:sales@saigoods.com?subject=B2B%20glove%20order%20inquiry">Talk to our sales team</a>
+          </div>
+        </section>
+
+        <section class="home-range-heading">
+          <div class="shell section-heading">
+            <p class="eyebrow eyebrow--accent">Compare the range</p>
+            <h2>More detail, fewer surprises.</h2>
+          </div>
+        </section>
         <section class="intro-stack" data-product-intros></section>
       </main>
 

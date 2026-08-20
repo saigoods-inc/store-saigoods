@@ -103,10 +103,10 @@ function renderCatalog(products) {
       const cta = cardOos
         ? `<span class="button button--primary button--disabled" aria-disabled="true">Unavailable</span>`
         : `<a class="button button--primary" href="/product.html?slug=${encodeURIComponent(product.slug)}">
-                View product
+                Choose options
               </a>`;
       return `
-        <article class="product-card product-card--${escapeHtml(product.intro.theme)}${cardOos ? " product-card--oos" : ""}">
+        <article class="product-card product-card--${escapeHtml(product.intro.theme)}${cardOos ? " product-card--oos" : ""}" data-product-slug="${escapeHtml(product.slug)}">
           <div class="product-card__media">
             ${responsiveRasterImg(product.cardImage, {
               alt: product.name,
