@@ -277,6 +277,13 @@ function modeButtonClass(active: boolean) {
   ].join(" ");
 }
 
+function priceModeButtonClass(active: boolean) {
+  return [
+    "inline-flex h-9 items-center justify-center rounded-full px-4 text-[12px] font-semibold transition",
+    active ? "bg-[#f5f5f5] text-sg-primary" : "text-sg-muted hover:bg-[#f5f5f5] hover:text-sg-text",
+  ].join(" ");
+}
+
 function optionButtonClass(active: boolean) {
   return [
     "min-w-0 rounded-[7px] border p-3 text-left transition",
@@ -1664,7 +1671,7 @@ export function OrderBuilderPage() {
                                 key={pricingMode}
                                 type="button"
                                 aria-pressed={row.pricingMode === pricingMode}
-                                className={modeButtonClass(row.pricingMode === pricingMode)}
+                                className={priceModeButtonClass(row.pricingMode === pricingMode)}
                                 onClick={() => patchItemRow(row.id, { pricingMode })}
                               >
                                 {pricingMode === "catalog" ? "Catalog price" : "Negotiated price"}
