@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "../auth/AuthProvider";
 import { useAdminShellHeaderMeta } from "../components/layout/AdminShell";
 import { CustomSelect } from "../components/ui/CustomSelect";
-import { ApiError, cancelAndRefundOrder, completeOrderHandoff, confirmOrderProductShipped, fetchInventoryDashboard, fetchMarketplaceOrders, fetchOrderShipFromDisplay, notifyBuyerShipping, postMarketplaceOrderAction, previewOrderPackingPlan, purchaseOrderShippoAllLabels, purchaseOrderShippoLabel, saveOrderExternalFulfillment, sendManualOrderLink, syncOrderToShippo, updateOrderPackingPlan } from "../lib/api";
+import { ApiError, cancelAndRefundOrder, checkCancelledOrderRefundStatus, completeOrderHandoff, confirmOrderProductShipped, fetchInventoryDashboard, fetchMarketplaceOrders, fetchOrderShipFromDisplay, notifyBuyerShipping, postMarketplaceOrderAction, previewOrderPackingPlan, purchaseOrderShippoAllLabels, purchaseOrderShippoLabel, saveOrderExternalFulfillment, sendManualOrderLink, syncOrderToShippo, updateOrderPackingPlan } from "../lib/api";
 import type { AdminOrderPackingPlanResponse, AdminOrderShipFromDisplayResponse, InventoryVariantRow, MarketplaceOrder, PackingPlanContent, PackingPlanParcel, PackingPlanSummary } from "../lib/api";
 import { formatDateTime, formatNumber, formatUsdCents } from "../lib/format";
 import { Icon } from "../lib/icons";
@@ -16,7 +16,7 @@ type OrderTypeFilter = "all" | "online" | "manual" | "walkin";
 type StatusFilter = "all" | "awaiting_payment" | "paid_not_shipped" | "shipped" | "needs_attention" | "cancelled";
 type TimeFilter = "all" | "today" | "week" | "month";
 type Tone = "neutral" | "blue" | "green" | "red" | "amber";
-type OrderActionKey = "sync" | `purchase:${string}` | "packingPreview" | "packingSave" | "packingClear" | "notify" | "arrivalLink" | "externalFulfillment" | "ship" | "cancel";
+type OrderActionKey = "sync" | `purchase:${string}` | "packingPreview" | "packingSave" | "packingClear" | "notify" | "arrivalLink" | "externalFulfillment" | "ship" | "cancel" | "refundStatus";
 type PurchaseIntent = {
   orderId: string;
   rateObjectId: string;
@@ -309,7 +309,27 @@ function isShipped(order: OrderRow) {
 function needsAttention(order: OrderRow) {
   const status = normalize(order.order_status);
   const tracking = normalize(order.shippo_tracking_status);
+  if (isCancelled(order)) {
+    const labelCode = normalize(fieldText(order, ["label_workflow_error_code"]));
+    const paymentError = normalize(fieldText(order, ["payment_reconciliation_error"]));
+    return labelCode.includes("attention") || (Boolean(paymentError) && paymentError !== "square refund is pending settlement.");
+  }
   return status.includes("failed") || status.includes("error") || tracking === "failure" || tracking === "unknown";
+}
+
+function isAttentionOrder(order: OrderRow, labels: LabelRow[]) {
+  return needsAttention(order) || (!isCancelled(order) && fulfillmentState(order, labels).tone === "red");
+}
+
+function cancellationLabelRefundState(order: OrderRow, labels: LabelRow[]): "complete" | "pending" | "attention" | "not_applicable" {
+  const labelCodes = labels.map((label) => normalize(label.last_error_code)).filter(Boolean);
+  const orderCode = normalize(fieldText(order, ["label_workflow_error_code"]));
+  const codes = labelCodes.length ? labelCodes : orderCode ? [orderCode] : [];
+  if (!codes.length) return "not_applicable";
+  if (codes.some((code) => code.includes("attention"))) return "attention";
+  if (labelCodes.length && labelCodes.every((code) => code.includes("refunded") && !code.includes("pending"))) return "complete";
+  if (!labelCodes.length && orderCode.includes("refunded") && !orderCode.includes("pending")) return "complete";
+  return "pending";
 }
 
 function attentionReason(order: OrderRow, labels: LabelRow[]) {
@@ -344,7 +364,7 @@ function paymentState(order: OrderRow): { label: string; tone: Tone } {
 }
 
 function fulfillmentState(order: OrderRow, labels: LabelRow[]): { label: string; tone: Tone } {
-  if (isCancelled(order)) return { label: "Cancelled", tone: "red" };
+  if (isCancelled(order)) return { label: "Cancelled", tone: "neutral" };
   if (isShipped(order)) return { label: "Shipped", tone: "green" };
   if (isLocalPayLaterOrder(order)) return { label: "Local delivery pending", tone: "amber" };
   if (!isPaid(order)) return { label: "Await payment", tone: "amber" };
@@ -392,6 +412,11 @@ function isLocalPayLaterOrder(order: OrderRow) {
 function nextAction(order: OrderRow, labels: LabelRow[]) {
   const payment = paymentState(order).label;
   const fulfillment = fulfillmentState(order, labels).label;
+  if (isCancelled(order)) {
+    if (normalize(order.status) === "refund_pending") return "Wait for refund settlement";
+    if (cancellationLabelRefundState(order, labels) === "pending") return "Wait for label credit";
+    return needsAttention(order) ? "Review refund status" : "No action required";
+  }
   if (isLocalPayLaterOrder(order)) return "Deliver and collect payment";
   if (!isPaid(order) && !isCancelled(order)) return "Record payment when received";
   if (payment === "Awaiting payment") return "Collect payment";
@@ -850,6 +875,12 @@ function paymentFlowLabel(order: OrderRow) {
 }
 
 function orderStepState(index: number, order: OrderRow, labels: LabelRow[]): "done" | "active" | "pending" {
+  if (isCancelled(order)) {
+    if (index === 0 || index === 3) return "done";
+    if (index === 1) return normalize(order.status) === "refunded" ? "done" : "active";
+    const labelState = cancellationLabelRefundState(order, labels);
+    return ["complete", "not_applicable"].includes(labelState) ? "done" : labelState === "attention" ? "active" : "pending";
+  }
   const paid = isPaid(order);
   const labelDone = hasPurchasedLabel(order, labels);
   const shipped = isShipped(order);
@@ -867,6 +898,7 @@ function orderStepState(index: number, order: OrderRow, labels: LabelRow[]): "do
 }
 
 function orderSteps(order: OrderRow, labels: LabelRow[]) {
+  if (isCancelled(order)) return ["Order created", "Customer refund", "Label credit", "Cancelled"];
   if (isLocalPayLaterOrder(order)) {
     return ["Order created", "Deliver + collect payment"];
   }
@@ -889,6 +921,28 @@ function timelineItems(order: OrderRow, labels: LabelRow[]): Array<{ label: stri
   const firstLabel = purchasedLabels[0];
   const orderTracking = trackingDisplayValue(order);
   const orderCarrier = fieldText(order, ["shippo_label_carrier"]);
+
+  if (isCancelled(order)) {
+    const squareComplete = normalize(order.status) === "refunded";
+    const labelState = cancellationLabelRefundState(order, labels);
+    const labelComplete = labelState === "complete";
+    const labelAttention = labelState === "attention";
+    const labelNotApplicable = labelState === "not_applicable";
+    return [
+      { label: "Order created", detail: formatDateTime(order.created_at), state: "done" },
+      {
+        label: squareComplete ? "Customer refund completed" : "Customer refund pending",
+        detail: squareComplete ? "Square confirmed the refund." : "Square accepted the refund and is processing it.",
+        state: squareComplete ? "done" : "active",
+      },
+      {
+        label: labelComplete ? "Shipping-label credit completed" : labelAttention ? "Shipping-label credit needs review" : labelNotApplicable ? "No shipping-label credit" : "Shipping-label credit pending",
+        detail: labelComplete ? "Shippo confirmed every label credit." : labelAttention ? "Review this refund in Shippo." : labelNotApplicable ? "This order has no purchased carrier label." : "Shippo accepted the label-refund request.",
+        state: labelComplete || labelNotApplicable ? "done" : labelAttention ? "active" : "pending",
+      },
+      { label: "Order cancelled", detail: "Inventory restored.", state: "done" },
+    ];
+  }
 
   if (isLocalPayLaterOrder(order)) {
     return [
@@ -1696,6 +1750,7 @@ function OrderDrawer({
   onSaveExternalFulfillment,
   onRequestConfirmShipped,
   onRequestCancel,
+  onCheckCancellationStatus,
   actionBusy,
   actionStatus,
 }: {
@@ -1713,6 +1768,7 @@ function OrderDrawer({
   onSaveExternalFulfillment: (body: Parameters<typeof saveOrderExternalFulfillment>[0]) => Promise<void>;
   onRequestConfirmShipped: (intent: NonNullable<ShipIntent>) => void;
   onRequestCancel: (intent: NonNullable<CancelIntent>) => void;
+  onCheckCancellationStatus: (orderId: string) => Promise<void>;
   actionBusy: OrderActionKey | null;
   actionStatus: { tone: "success" | "error"; message: string } | null;
 }) {
@@ -1778,12 +1834,13 @@ function OrderDrawer({
   const shippingSummaryText = detailValue(shippingSummary(order, labels));
   const showSeparateShippingSummary = shippingSummaryText !== "-" && shippingSummaryText !== trackingText;
   const shipped = isShipped(order);
+  const cancelled = isCancelled(order);
   const paymentLinkUrl = fieldText(order, ["payment_link_url"]);
   const arrivalLinkOrder = normalize(fieldText(order, ["manual_payment_method"])) === "arrival_payment_link";
   const localPayLaterPending = isLocalPayLaterOrder(order);
   const requiresPaymentProof = localPayLaterPending && !arrivalLinkOrder;
   const canSyncShippo = carrierOrder && paid && !labelPurchased;
-  const canConfirmShipped = carrierOrder && labelPurchased && !shipped;
+  const canConfirmShipped = carrierOrder && labelPurchased && !shipped && !cancelled;
   const canResendNotify = carrierOrder && labelPurchased && shipped;
   const canCompleteHandoff = localHandoffOrder && !shipped && (paid || (localPayLaterPending && !arrivalLinkOrder));
   const externalCarrier = fieldText(order, ["admin_external_carrier"]);
@@ -1794,10 +1851,16 @@ function OrderDrawer({
   const hasExternalLabelRecord = Boolean(externalCarrier || externalService || externalTracking || externalShipDate || externalLabelCost != null);
   const hasExternalLabelFile = Boolean(fieldText(order, ["admin_external_label_storage_path"]));
   const externalRecordComplete = Boolean(externalCarrier && externalTracking && hasExternalLabelFile);
-  const canConfirmExternalShipped = b2bShippingOrder && paid && externalRecordComplete && !shipped;
+  const canConfirmExternalShipped = b2bShippingOrder && paid && externalRecordComplete && !shipped && !cancelled;
   const cancelStatus = normalize(order.status);
   const canCancelAndRefund = Boolean(fieldText(order, ["payment_id"])) && orderType(order) !== "walkin" && !shipped &&
-    ["paid", "cancellation_pending", "refund_pending"].includes(cancelStatus);
+    cancelStatus === "paid";
+  const customerRefundComplete = cancelStatus === "refunded";
+  const labelRefundState = cancellationLabelRefundState(order, labels);
+  const labelRefundComplete = labelRefundState === "complete";
+  const labelRefundAttention = labelRefundState === "attention";
+  const labelRefundNotApplicable = labelRefundState === "not_applicable";
+  const showCancellationStatus = cancelled && Boolean(fieldText(order, ["payment_id"]));
   const [externalForm, setExternalForm] = useState({
     carrier: externalCarrier,
     service: externalService,
@@ -2648,8 +2711,27 @@ function OrderDrawer({
                         onClick={() => onRequestCancel({ orderId, orderRef: String(order.order_ref || order.id), totalCents: Math.max(0, Number(order.total_cents) || 0), purchasedLabels: purchasedLabels.length })}
                       >
                         <Icon name="x" className="h-4 w-4" />
-                        {cancelStatus === "paid" ? "Cancel and refund" : "Continue cancellation"}
+                        Cancel and refund
                       </button>
+                    </div>
+                  ) : null}
+                  {showCancellationStatus ? (
+                    <div className="mt-4 space-y-3 border-t border-sg-border pt-4">
+                      <div className="rounded-[8px] bg-sg-input-bg p-3 text-[12px] leading-5">
+                        <p className="flex justify-between gap-3"><span className="text-sg-muted">Customer refund</span><strong>{customerRefundComplete ? "Completed" : "Pending in Square"}</strong></p>
+                        <p className="mt-1 flex justify-between gap-3"><span className="text-sg-muted">Shipping-label credit</span><strong>{labelRefundComplete ? "Completed" : labelRefundAttention ? "Needs review" : labelRefundNotApplicable ? "Not applicable" : "Pending in Shippo"}</strong></p>
+                        <p className="mt-1 flex justify-between gap-3"><span className="text-sg-muted">Inventory</span><strong>Restored</strong></p>
+                      </div>
+                      <button
+                        type="button"
+                        className="sg25-btn sg25-btn-ghost h-9 w-full px-4 text-[12px]"
+                        disabled={actionBusy === "refundStatus"}
+                        onClick={() => void onCheckCancellationStatus(orderId)}
+                      >
+                        <Icon name="refresh" className={`h-4 w-4 ${actionBusy === "refundStatus" ? "animate-spin" : ""}`} />
+                        {actionBusy === "refundStatus" ? "Checking providers" : "Check refund status"}
+                      </button>
+                      <p className="text-center text-[11px] leading-4 text-sg-muted">This only checks Square and Shippo. It cannot submit another refund.</p>
                     </div>
                   ) : null}
                 </div>
@@ -3213,6 +3295,26 @@ export function OrdersPage() {
     }
   }
 
+  async function handleCheckCancellationStatus(orderId: string) {
+    setDrawerActionBusy("refundStatus");
+    setDrawerActionStatus(null);
+    try {
+      const token = await auth.getAccessToken();
+      const result = await checkCancelledOrderRefundStatus(orderId, token);
+      mergeActionResponse(result);
+      await Promise.all([ordersQuery.refetch(), queryClient.invalidateQueries({ queryKey: ["admin-v2.5-summary"] })]);
+      setDrawerActionStatus({
+        tone: result.warning?.includes("manual review") ? "error" : "success",
+        message: result.warning || "Square refund and Shippo label credit are complete.",
+      });
+    } catch (error) {
+      await ordersQuery.refetch();
+      setDrawerActionStatus({ tone: "error", message: error instanceof Error ? error.message : "Could not check refund status." });
+    } finally {
+      setDrawerActionBusy(null);
+    }
+  }
+
   async function handleSendArrivalPaymentLink(orderId: string) {
     setDrawerActionBusy("arrivalLink");
     setDrawerActionStatus(null);
@@ -3277,7 +3379,7 @@ export function OrdersPage() {
   const visibleOrders = filteredOrders.slice(effectiveOrderPage * 10, effectiveOrderPage * 10 + 10);
   const attentionOrders = useMemo(() => payload.orders.filter((order) => {
     const labels = payload.labelsByOrderId.get(String(order.id)) || [];
-    return needsAttention(order) || fulfillmentState(order, labels).tone === "red";
+    return isAttentionOrder(order, labels);
   }), [payload.labelsByOrderId, payload.orders]);
 
   useEffect(() => {
@@ -3297,7 +3399,7 @@ export function OrdersPage() {
       if (!isPaid(order) && !isCancelled(order)) awaitingPayment += 1;
       if (isPaid(order) && !isShipped(order) && !isCancelled(order)) paidNotShipped += 1;
       if (isShipped(order)) shipped += 1;
-      if (needsAttention(order) || fulfillmentState(order, labels).tone === "red") attention += 1;
+      if (isAttentionOrder(order, labels)) attention += 1;
     });
     return { awaitingPayment, paidNotShipped, shipped, attention };
   }, [payload.labelsByOrderId, payload.orders]);
@@ -3515,6 +3617,7 @@ export function OrdersPage() {
           onSaveExternalFulfillment={handleSaveExternalFulfillment}
           onRequestConfirmShipped={(intent) => setShipIntent(intent)}
           onRequestCancel={(intent) => setCancelIntent(intent)}
+          onCheckCancellationStatus={handleCheckCancellationStatus}
           actionBusy={drawerActionBusy}
           actionStatus={drawerActionStatus}
         />

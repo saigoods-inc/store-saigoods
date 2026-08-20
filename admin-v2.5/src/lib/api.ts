@@ -808,6 +808,14 @@ export function cancelAndRefundOrder(orderId: string, reason: string, token?: st
   );
 }
 
+export function checkCancelledOrderRefundStatus(orderId: string, token?: string) {
+  return postJson<AdminOrderShippoActionResponse & { complete?: boolean; warning?: string | null }>(
+    "/api/admin-order-cancel-status",
+    { orderId },
+    token,
+  );
+}
+
 export function completeOrderHandoff(orderId: string, token?: string) {
   return postJson<AdminOrderShippoActionResponse>("/api/admin-order-fulfillment-handoff", { orderId }, token);
 }
