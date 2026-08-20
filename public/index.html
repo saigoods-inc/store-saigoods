@@ -48,7 +48,10 @@
         align-items: center;
         gap: 2rem;
         min-height: 22rem;
-        padding: 1rem 1rem;
+        width: 100%;
+        max-width: none;
+        padding: 1rem max(1rem, calc((100vw - 72rem) / 2));
+        border-radius: 0;
       }
       .hero__media img {
         display: block;
@@ -85,7 +88,6 @@
         <section id="hero" class="hero">
           <div class="shell hero__grid">
             <div class="hero__content fade-up">
-              <p class="eyebrow eyebrow--accent">Protection for work that matters</p>
               <h1 class="hero__title">The right glove.<br />Ready when you are.</h1>
               <p class="hero__copy">
                 Shop dependable nitrile gloves for everyday tasks, demanding jobs, and bulk
@@ -95,10 +97,10 @@
                 <a class="button button--primary" href="#products">Shop gloves</a>
                 <a class="button button--secondary" href="#b2b">Bulk &amp; B2B orders</a>
               </div>
-              <ul class="hero__proof" aria-label="Store benefits">
-                <li>Secure checkout</li>
-                <li>Live inventory</li>
-                <li>Bulk-order support</li>
+              <ul class="hero__proof" aria-label="Glove options">
+                <li>3 protection levels</li>
+                <li>Sizes Small–X Large</li>
+                <li>Box and carton quantities</li>
               </ul>
             </div>
 
@@ -122,40 +124,57 @@
 
         <section class="store-benefits" aria-label="Why shop SAI Goods">
           <div class="shell store-benefits__grid">
-            <div><strong>Reliable protection</strong><span>Purpose-built options for every job</span></div>
-            <div><strong>Transparent ordering</strong><span>Live pricing and availability</span></div>
-            <div><strong>Flexible quantities</strong><span>Boxes, cartons, and B2B orders</span></div>
-            <div><strong>Real support</strong><span>Help from our US-based team</span></div>
+            <div>
+              <span class="store-benefits__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.6 2.8 8.1 7 10 4.2-1.9 7-5.4 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-5"/></svg>
+              </span>
+              <span class="store-benefits__copy"><strong>Reliable protection</strong><span>Purpose-built options for every job</span></span>
+            </div>
+            <div>
+              <span class="store-benefits__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M4 7h16v12H4z"/><path d="M8 7V5h8v2M8 12h8M8 16h5"/></svg>
+              </span>
+              <span class="store-benefits__copy"><strong>Transparent ordering</strong><span>Live pricing and availability</span></span>
+            </div>
+            <div>
+              <span class="store-benefits__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="m4 8 8-4 8 4-8 4-8-4Z"/><path d="M4 8v8l8 4 8-4V8M12 12v8"/></svg>
+              </span>
+              <span class="store-benefits__copy"><strong>Flexible quantities</strong><span>Boxes, cartons, and bulk orders</span></span>
+            </div>
+            <div>
+              <span class="store-benefits__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M5 12a7 7 0 0 1 14 0v5h-3v-5M5 12v5H2v-5h3Z"/><path d="M16 19c-1 1-2.3 1.5-4 1.5"/></svg>
+              </span>
+              <span class="store-benefits__copy"><strong>Real support</strong><span>Help from our US-based team</span></span>
+            </div>
           </div>
         </section>
 
         <section id="shop-by-need" class="section home-needs">
           <div class="shell">
-            <div class="section-heading section-heading--split">
+            <div class="section-heading section-heading--needs">
               <div>
                 <p class="eyebrow eyebrow--accent">Find your fit</p>
                 <h2>Shop by the work you do.</h2>
+                <p>Three clear levels of protection make it easier to choose confidently.</p>
               </div>
-              <p>Three clear levels of protection make it easier to choose confidently.</p>
             </div>
             <div class="home-needs__grid">
               <a class="need-card need-card--blue" href="/product.html?slug=nitrile-standard">
+                <span class="need-card__visual" aria-hidden="true"><img src="/img/product-listing/nitrile-standard/amazon-listing-img-main-1-400.webp" alt="" loading="lazy" decoding="async" /></span>
                 <span class="need-card__number">01</span>
-                <span class="need-card__use">Everyday protection</span>
-                <strong>Nitrile Examination</strong>
-                <span class="need-card__link">Choose options <span aria-hidden="true">→</span></span>
+                <span class="need-card__content"><span class="need-card__use">Everyday protection</span><strong>Nitrile Examination</strong><span class="need-card__link">Choose options <span aria-hidden="true">→</span></span></span>
               </a>
               <a class="need-card need-card--stone" href="/product.html?slug=black-nitrile-general">
+                <span class="need-card__visual" aria-hidden="true"><img src="/img/product-listing/black-nitrile-general/amazon-listing-img-main-400.webp" alt="" loading="lazy" decoding="async" /></span>
                 <span class="need-card__number">02</span>
-                <span class="need-card__use">General-purpose work</span>
-                <strong>Black Nitrile General</strong>
-                <span class="need-card__link">Choose options <span aria-hidden="true">→</span></span>
+                <span class="need-card__content"><span class="need-card__use">General-purpose work</span><strong>Black Nitrile General</strong><span class="need-card__link">Choose options <span aria-hidden="true">→</span></span></span>
               </a>
               <a class="need-card need-card--dark" href="/product.html?slug=black-nitrile-heavy-duty">
+                <span class="need-card__visual" aria-hidden="true"><img src="/img/product-listing/black-nitrile-heavy-duty/amazon-listing-img-main-400.webp" alt="" loading="lazy" decoding="async" /></span>
                 <span class="need-card__number">03</span>
-                <span class="need-card__use">Demanding jobs</span>
-                <strong>Black Nitrile Heavy Duty</strong>
-                <span class="need-card__link">Choose options <span aria-hidden="true">→</span></span>
+                <span class="need-card__content"><span class="need-card__use">Demanding jobs</span><strong>Black Nitrile Heavy Duty</strong><span class="need-card__link">Choose options <span aria-hidden="true">→</span></span></span>
               </a>
             </div>
           </div>
@@ -166,7 +185,6 @@
             <div class="section-heading section-heading--catalog">
               <p class="eyebrow eyebrow--accent">Shop the collection</p>
               <h2>Gloves for every level of work.</h2>
-              <p class="section-heading__copy">Select a product to choose your size and order quantity.</p>
             </div>
 
             <div class="catalog-meta" data-search-meta aria-live="polite"></div>
@@ -185,12 +203,6 @@
           </div>
         </section>
 
-        <section class="home-range-heading">
-          <div class="shell section-heading">
-            <p class="eyebrow eyebrow--accent">Compare the range</p>
-            <h2>More detail, fewer surprises.</h2>
-          </div>
-        </section>
         <section class="intro-stack" data-product-intros></section>
       </main>
 

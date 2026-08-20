@@ -123,7 +123,6 @@ function renderHeader(site, page, searchValue) {
 
   const logoHref = page === "home" ? "#hero" : "/index.html#hero";
   const shopHref = page === "home" ? "#products" : "/index.html#products";
-  const needsHref = page === "home" ? "#shop-by-need" : "/index.html#shop-by-need";
   const b2bHref = page === "home" ? "#b2b" : "/index.html#b2b";
 
   headerRoot.innerHTML = `
@@ -136,8 +135,7 @@ function renderHeader(site, page, searchValue) {
 
         <nav class="store-nav" aria-label="Store navigation">
           <a href="${shopHref}">Shop</a>
-          <a href="${needsHref}">Find your glove</a>
-          <a href="${b2bHref}">Bulk &amp; B2B</a>
+          <a href="${b2bHref}">Bulk order</a>
           <a href="#contact">Contact</a>
         </nav>
 
@@ -184,8 +182,7 @@ function renderFooter(site) {
             <h3 class="widget__title">SHOP</h3>
             <nav class="footer-links" aria-label="Footer store links">
               <a href="/index.html#products">All gloves</a>
-              <a href="/index.html#shop-by-need">Find your glove</a>
-              <a href="/index.html#b2b">Bulk &amp; B2B</a>
+              <a href="/index.html#b2b">Bulk order</a>
               <a href="/cart.html">View cart</a>
             </nav>
           </div>
