@@ -700,7 +700,8 @@ export type FreeDeliveryConfig = {
   state: string;
   postalCodes: string[];
   minimumSubtotalCents: number;
-  productMinimumsCents: Record<string, number>;
+  /** @deprecated Compatibility only; whole-order subtotal controls eligibility. */
+  productMinimumsCents?: Record<string, number>;
 };
 export type FreeDeliveryConfigResponse = { config: FreeDeliveryConfig; source: string; migrationRequired?: boolean; updatedAt?: string | null };
 

@@ -1713,22 +1713,10 @@ export function AdvancedPage() {
                     <div className="rounded-[9px] border border-sg-border bg-white p-4">
                       <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                         <div>
-                          <p className="text-[13px] font-bold">Minimum order by product</p>
-                          <p className="mt-1 text-[11px] leading-4 text-sg-muted">Each product in the order must meet its displayed post-discount minimum.</p>
+                          <p className="text-[13px] font-bold">Minimum order total</p>
+                          <p className="mt-1 text-[11px] leading-4 text-sg-muted">The complete post-discount merchandise subtotal must reach this amount.</p>
                         </div>
-                        <p className="text-[11px] font-semibold text-sg-muted">Default: {money(freeDeliveryConfig.minimumSubtotalCents)}</p>
-                      </div>
-                      <div className="mt-3 grid gap-2 lg:grid-cols-3">
-                        {productOptions.map((product) => {
-                          const override = freeDeliveryConfig.productMinimumsCents?.[product.slug];
-                          return (
-                            <div key={product.slug} className="rounded-[8px] bg-sg-canvas px-3 py-3">
-                              <p className="text-[11px] font-bold leading-4 text-sg-muted">{product.name}</p>
-                              <p className="mt-2 text-[17px] font-bold">{money(override ?? freeDeliveryConfig.minimumSubtotalCents)}</p>
-                              <p className="mt-0.5 text-[10px] font-semibold text-sg-muted">{override == null ? "Uses default minimum" : "Product-specific minimum"}</p>
-                            </div>
-                          );
-                        })}
+                        <p className="text-[17px] font-bold">{money(freeDeliveryConfig.minimumSubtotalCents)}</p>
                       </div>
                     </div>
 
@@ -1750,12 +1738,12 @@ export function AdvancedPage() {
 
                     <div className="flex items-start gap-3 rounded-[8px] border border-sg-border bg-sg-canvas/70 px-3 py-3 text-[11px] leading-5 text-sg-muted">
                       <Icon name="lock" className="mt-0.5 h-4 w-4 shrink-0" />
-                      <span>This is a read-only summary. Unlock editing to change the delivery area, minimums, or ZIP codes.</span>
+                      <span>This is a read-only summary. Unlock editing to change the delivery area, order minimum, or ZIP codes.</span>
                     </div>
                   </div>
                 ) : (
                   <fieldset disabled={freeDeliverySaving} className="mt-4 space-y-3">
-                  <ToggleSetting label="Free local delivery" detail="Applies when the ZIP qualifies and every product in the order reaches its configured minimum." enabled={freeDeliveryConfig.active} onChange={(active) => setFreeDeliveryConfig((current) => current ? { ...current, active } : current)} />
+                  <ToggleSetting label="Free local delivery" detail="Applies when the ZIP qualifies and the complete post-discount order reaches the configured minimum." enabled={freeDeliveryConfig.active} onChange={(active) => setFreeDeliveryConfig((current) => current ? { ...current, active } : current)} />
                   <div className="grid gap-3 sm:grid-cols-[110px_minmax(0,1fr)]">
                     <Field label="State">
                       <CustomSelect
@@ -1769,34 +1757,10 @@ export function AdvancedPage() {
                       />
                     </Field>
                     <CurrencyCentsField
-                      label="Default product minimum"
+                      label="Minimum order subtotal"
                       cents={freeDeliveryConfig.minimumSubtotalCents}
-                      onCommit={(minimumSubtotalCents) => setFreeDeliveryConfig((current) => current ? { ...current, minimumSubtotalCents: minimumSubtotalCents || 0 } : current)}
+                      onCommit={(minimumSubtotalCents) => setFreeDeliveryConfig((current) => current ? { ...current, minimumSubtotalCents: minimumSubtotalCents || 0, productMinimumsCents: {} } : current)}
                     />
-                  </div>
-                  <div className="rounded-[8px] border border-sg-border bg-white p-3">
-                    <p className="text-[12px] font-bold">Minimum by product</p>
-                    <p className="mt-1 text-[11px] leading-4 text-sg-muted">Each product present must reach its own post-discount merchandise minimum. Leave an override blank to use the default above.</p>
-                    <div className="mt-3 grid gap-3 lg:grid-cols-3">
-                      {productOptions.map((product) => {
-                        const override = freeDeliveryConfig.productMinimumsCents?.[product.slug];
-                        return (
-                          <CurrencyCentsField
-                            key={product.slug}
-                            label={product.name}
-                            cents={override ?? null}
-                            optional
-                            onCommit={(cents) => setFreeDeliveryConfig((current) => {
-                              if (!current) return current;
-                              const next = { ...(current.productMinimumsCents || {}) };
-                              if (cents != null) next[product.slug] = cents;
-                              else delete next[product.slug];
-                              return { ...current, productMinimumsCents: next };
-                            })}
-                          />
-                        );
-                      })}
-                    </div>
                   </div>
                   <div>
                     <p className="text-[11px] font-bold text-sg-muted">Eligible ZIP codes</p>
