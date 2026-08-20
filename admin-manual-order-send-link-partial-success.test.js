@@ -8,6 +8,9 @@ import {
   assertManualOrderEligibleForPaymentLink,
   classifySquareCreatePaymentLinkError,
   deliverManualOrderPaymentLink,
+  MAX_B2B_INVOICE_BYTES,
+  parseB2bInvoiceAttachment,
+  validateB2bInvoiceForFulfillment,
 } from "./api/admin-manual-order-send-link.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -232,6 +235,87 @@ test("Phase 10B-2B production sequence is Square → persist → email", async (
   ]);
   assert.equal(result.status, 200);
   assert.equal(deps.calls.release, 0);
+});
+
+test("B2B invoice validation accepts only a real, bounded PDF", () => {
+  const contentBase64 = Buffer.from("%PDF-1.7\ninvoice").toString("base64");
+  const attachment = parseB2bInvoiceAttachment({
+    filename: "Negotiated / Invoice.pdf",
+    contentType: "application/pdf",
+    contentBase64,
+    sizeBytes: Buffer.from("%PDF-1.7\ninvoice").length,
+  });
+  assert.deepEqual(attachment, {
+    filename: "Negotiated _ Invoice.pdf",
+    content: contentBase64,
+  });
+  assert.deepEqual(
+    validateB2bInvoiceForFulfillment({
+      filename: "invoice.pdf",
+      contentType: "application/pdf",
+      contentBase64,
+      sizeBytes: Buffer.from("%PDF-1.7\ninvoice").length,
+    }, "b2b_shipping"),
+    { filename: "invoice.pdf", content: contentBase64 },
+  );
+  assert.throws(
+    () => validateB2bInvoiceForFulfillment({
+      filename: "invoice.pdf",
+      contentType: "application/pdf",
+      contentBase64,
+      sizeBytes: Buffer.from("%PDF-1.7\ninvoice").length,
+    }, "shippo"),
+    /only available for B2B/i,
+  );
+  assert.throws(
+    () => parseB2bInvoiceAttachment({
+      filename: "invoice.pdf",
+      contentType: "application/pdf",
+      contentBase64: Buffer.from("not a pdf").toString("base64"),
+      sizeBytes: Buffer.from("not a pdf").length,
+    }),
+    /not a valid PDF/i,
+  );
+  assert.throws(
+    () => parseB2bInvoiceAttachment({
+      filename: "invoice.pdf",
+      contentType: "application/pdf",
+      contentBase64: Buffer.alloc(MAX_B2B_INVOICE_BYTES + 1, 1).toString("base64"),
+      sizeBytes: MAX_B2B_INVOICE_BYTES + 1,
+    }),
+    /2 MB or smaller/i,
+  );
+});
+
+test("B2B invoice attachment is forwarded only to the payment email step", async () => {
+  const invoiceAttachment = {
+    filename: "invoice.pdf",
+    content: Buffer.from("%PDF-1.7").toString("base64"),
+  };
+  let emailArgs;
+  const deps = makeDeps({
+    createPaymentLinkArgs: { orderId: "ord-test-1", quote: {} },
+    sendEmailArgs: { customerEmail: "a@b.com", invoiceAttachment },
+    sendEmailFn: async (args) => {
+      emailArgs = args;
+      return true;
+    },
+  });
+  const result = await deliverManualOrderPaymentLink(deps);
+  assert.equal(result.body.emailed, true);
+  assert.equal(deps.createPaymentLinkArgs.invoiceAttachment, undefined);
+  assert.deepEqual(emailArgs.invoiceAttachment, invoiceAttachment);
+  assert.equal(emailArgs.checkoutUrl, "https://store.test/signed-payment-link");
+});
+
+test("Order Builder exposes invoice upload only inside B2B Square-link flow", () => {
+  const source = read("admin-v2.5/src/pages/OrderBuilderPage.tsx");
+  assert.match(source, /fulfillmentMethod === "b2b_shipping" && paymentMethod === "square_payment_link"/);
+  assert.match(source, /Customer invoice PDF/);
+  assert.match(source, /Drop invoice PDF here/);
+  assert.match(source, /accept="application\/pdf,\.pdf"/);
+  assert.match(source, /MAX_B2B_INVOICE_BYTES = 2 \* 1024 \* 1024/);
+  assert.match(source, /The file is not stored with the order/);
 });
 
 test("Phase 10B-2B send-link test file contains no live provider host literals", () => {

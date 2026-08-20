@@ -17,6 +17,7 @@ import {
   type ManualOrderAddress,
   type ManualOrderCreateRequest,
   type ManualOrderItem,
+  type ManualOrderInvoiceAttachment,
   type ManualOrderQuoteResponse,
   type ManualOrderShippingRateOption,
 } from "../lib/api";
@@ -86,6 +87,7 @@ type AddressVerificationState = {
 type InventoryAvailability = Record<ProductSlug, Record<SizeCode, { caseAvailable: number | null; boxAvailable: number | null; boxesPerCase: number; tracked: boolean }>>;
 const HARDIN_DISCOUNT_PERCENT = 7;
 const CARRIER_RATE_AUTO_REFRESH_MS = 15 * 60 * 1000;
+const MAX_B2B_INVOICE_BYTES = 2 * 1024 * 1024;
 const usStateOptions = [
   { value: "AL", label: "AL" },
   { value: "AK", label: "AK" },
@@ -301,6 +303,31 @@ function todayYmd() {
 
 function normalizePhone(value: string) {
   return value.replace(/\D/g, "");
+}
+
+async function readB2bInvoicePdf(file: File): Promise<ManualOrderInvoiceAttachment> {
+  if (!/\.pdf$/i.test(file.name) || (file.type && file.type !== "application/pdf")) {
+    throw new Error("Select a PDF invoice file.");
+  }
+  if (!file.size || file.size > MAX_B2B_INVOICE_BYTES) {
+    throw new Error("The invoice PDF must be 2 MB or smaller.");
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (new TextDecoder("ascii").decode(bytes.slice(0, 5)) !== "%PDF-") {
+    throw new Error("The selected invoice is not a valid PDF file.");
+  }
+  const contentBase64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = String(reader.result || "");
+      const separator = value.indexOf(",");
+      if (separator < 0) reject(new Error("The invoice PDF could not be read."));
+      else resolve(value.slice(separator + 1));
+    };
+    reader.onerror = () => reject(new Error("The invoice PDF could not be read."));
+    reader.readAsDataURL(file);
+  });
+  return { filename: file.name, contentBase64, contentType: "application/pdf", sizeBytes: file.size };
 }
 
 function parseDollarsToCents(value: string) {
@@ -648,6 +675,8 @@ export function OrderBuilderPage() {
   } | null>(null);
   const [customDiscountValue, setCustomDiscountValue] = useState("");
   const [customB2bShipping, setCustomB2bShipping] = useState("");
+  const [b2bInvoiceFile, setB2bInvoiceFile] = useState<File | null>(null);
+  const [b2bInvoiceDragActive, setB2bInvoiceDragActive] = useState(false);
   const [selectedRateId, setSelectedRateId] = useState("");
   const [selectedRateSnapshot, setSelectedRateSnapshot] = useState<ManualOrderShippingRateOption | null>(null);
   const [products, setProducts] = useState<ProductOption[]>(fallbackProducts);
@@ -685,6 +714,7 @@ export function OrderBuilderPage() {
   const carrierRatesRef = useRef<HTMLDivElement | null>(null);
   const shouldScrollToRatesRef = useRef(false);
   const editDraftLoadingRef = useRef(false);
+  const b2bInvoiceInputRef = useRef<HTMLInputElement | null>(null);
 
   useAdminShellHeaderMeta(<span>Updated {formatDateTime(updatedAt)}</span>);
 
@@ -983,6 +1013,29 @@ export function OrderBuilderPage() {
       setPaymentMethod(options[0].value);
     }
   }, [fulfillmentMethod, paymentMethod]);
+
+  useEffect(() => {
+    if (fulfillmentMethod !== "b2b_shipping" || paymentMethod !== "square_payment_link") {
+      setB2bInvoiceFile(null);
+      setB2bInvoiceDragActive(false);
+    }
+  }, [fulfillmentMethod, paymentMethod]);
+
+  function selectB2bInvoice(file: File | null) {
+    if (!file) return;
+    if (!/\.pdf$/i.test(file.name) || (file.type && file.type !== "application/pdf")) {
+      setB2bInvoiceFile(null);
+      setStatus({ tone: "danger", message: "Select a PDF invoice file." });
+      return;
+    }
+    if (!file.size || file.size > MAX_B2B_INVOICE_BYTES) {
+      setB2bInvoiceFile(null);
+      setStatus({ tone: "danger", message: "The invoice PDF must be 2 MB or smaller." });
+      return;
+    }
+    setB2bInvoiceFile(file);
+    setStatus(null);
+  }
 
   function markDirty() {
     setQuoteDirty(true);
@@ -1400,6 +1453,15 @@ export function OrderBuilderPage() {
   async function handleCreateAndSend() {
     const validation = validateRemoteOrder(true);
     if (validation) return;
+    let invoiceAttachment: ManualOrderInvoiceAttachment | undefined;
+    if (fulfillmentMethod === "b2b_shipping" && paymentMethod === "square_payment_link" && b2bInvoiceFile) {
+      try {
+        invoiceAttachment = await readB2bInvoicePdf(b2bInvoiceFile);
+      } catch (error) {
+        setStatus({ tone: "danger", message: error instanceof Error ? error.message : "The invoice PDF could not be read." });
+        return;
+      }
+    }
     setBusy("send");
     setStatus({ tone: "muted", message: editOrderId ? "Saving order changes..." : "Creating draft order..." });
     try {
@@ -1438,13 +1500,18 @@ export function OrderBuilderPage() {
 
       setStatus({ tone: "muted", message: editOrderId ? "Changes saved. Creating a new Square payment link..." : "Draft created. Creating Square payment link..." });
       const selectedRatePayload = buildEstimateRequest();
-      const sent = await sendManualOrderLink({ ...selectedRatePayload, orderId, shipmentDate: shipmentDate || null }, token);
+      const sent = await sendManualOrderLink({
+        ...selectedRatePayload,
+        orderId,
+        shipmentDate: shipmentDate || null,
+        ...(invoiceAttachment ? { invoiceAttachment } : {}),
+      }, token);
       setQuoteDirty(false);
       setStatus({
         tone: sent.warning ? "warning" : "success",
         message:
           sent.warning ||
-          `Payment link ${sent.emailed ? "emailed" : "created"} for ${created.orderRef || orderId}.`,
+          `Payment link ${sent.emailed ? "emailed" : "created"}${sent.emailed && invoiceAttachment ? " with invoice attached" : ""} for ${created.orderRef || orderId}.`,
       });
       if (sent.checkoutUrl) {
         setQuote((current) => ({ ...(current || {}), totalFormatted: created.totalFormatted || current?.totalFormatted }));
@@ -1991,6 +2058,55 @@ export function OrderBuilderPage() {
               </div>
             )}
             {fieldErrors.payment ? <p className="mt-3 text-[12px] font-semibold text-sg-danger">{fieldErrors.payment}</p> : null}
+            {fulfillmentMethod === "b2b_shipping" && paymentMethod === "square_payment_link" ? (
+              <div className="mt-4 rounded-[10px] border border-sg-border bg-sg-input-bg/50 p-3">
+                <div className="flex items-start gap-2">
+                  <Icon name="receipt" className="mt-0.5 h-4 w-4 shrink-0 text-sg-primary" />
+                  <div>
+                    <p className="text-[12px] font-bold text-sg-text">Customer invoice PDF <span className="font-medium text-sg-muted">(optional)</span></p>
+                    <p className="mt-1 text-[11px] leading-5 text-sg-muted">Attached only to this B2B payment-link email. PDF, up to 2 MB. The file is not stored with the order.</p>
+                  </div>
+                </div>
+                <input
+                  ref={b2bInvoiceInputRef}
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  className="sr-only"
+                  onChange={(event) => {
+                    selectB2bInvoice(event.target.files?.[0] || null);
+                    event.currentTarget.value = "";
+                  }}
+                />
+                {b2bInvoiceFile ? (
+                  <div className="mt-3 flex flex-col gap-2 rounded-[8px] border border-sg-success/30 bg-sg-success-soft px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="truncate text-[12px] font-bold text-sg-text">{b2bInvoiceFile.name}</p>
+                      <p className="mt-0.5 text-[11px] text-sg-muted">{(b2bInvoiceFile.size / 1024).toFixed(0)} KB · Ready to attach</p>
+                    </div>
+                    <button type="button" className="sg25-btn sg25-btn-secondary shrink-0" onClick={() => setB2bInvoiceFile(null)}>
+                      <Icon name="x" className="h-4 w-4" /> Remove
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className={`mt-3 flex w-full flex-col items-center justify-center rounded-[8px] border border-dashed px-4 py-5 text-center transition ${b2bInvoiceDragActive ? "border-sg-primary bg-sg-primary-soft" : "border-sg-border bg-white hover:border-sg-primary/50 hover:bg-sg-primary-soft/30"}`}
+                    onClick={() => b2bInvoiceInputRef.current?.click()}
+                    onDragEnter={(event) => { event.preventDefault(); setB2bInvoiceDragActive(true); }}
+                    onDragOver={(event) => { event.preventDefault(); setB2bInvoiceDragActive(true); }}
+                    onDragLeave={(event) => { event.preventDefault(); setB2bInvoiceDragActive(false); }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      setB2bInvoiceDragActive(false);
+                      selectB2bInvoice(event.dataTransfer.files?.[0] || null);
+                    }}
+                  >
+                    <span className="text-[12px] font-bold text-sg-text">Drop invoice PDF here</span>
+                    <span className="mt-1 text-[11px] text-sg-muted">or click to choose a file</span>
+                  </button>
+                )}
+              </div>
+            ) : null}
           </section>
         </div>
 

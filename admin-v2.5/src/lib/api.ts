@@ -471,6 +471,13 @@ export interface ManualOrderSendLinkResponse {
   error?: string;
 }
 
+export interface ManualOrderInvoiceAttachment {
+  filename: string;
+  contentBase64: string;
+  contentType: "application/pdf";
+  sizeBytes: number;
+}
+
 export interface AdminOrderShippoActionResponse {
   ok?: boolean;
   order?: Record<string, unknown>;
@@ -793,7 +800,12 @@ export function updateManualOrderDraft(
 }
 
 export function sendManualOrderLink(
-  body: { orderId: string; shipmentDate?: string | null; allowPayLaterLink?: boolean } & Partial<ManualOrderEstimateRequest>,
+  body: {
+    orderId: string;
+    shipmentDate?: string | null;
+    allowPayLaterLink?: boolean;
+    invoiceAttachment?: ManualOrderInvoiceAttachment;
+  } & Partial<ManualOrderEstimateRequest>,
   token?: string,
 ) {
   return postJson<ManualOrderSendLinkResponse>("/api/admin-manual-order-send-link", body, token);
