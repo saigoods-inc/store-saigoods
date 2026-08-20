@@ -307,7 +307,7 @@ function renderCheckoutShell(miniQuote, options = {}) {
           <p id="checkout-address-suggestion-body" class="checkout-address-suggestion__body"></p>
           <button
             type="button"
-            class="button button--primary checkout-address-suggestion__apply"
+            class="button button--secondary checkout-address-suggestion__apply"
             id="checkout-apply-suggested-address"
           >
             Use suggested address
