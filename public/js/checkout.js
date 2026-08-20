@@ -295,12 +295,19 @@ function renderCheckoutShell(miniQuote, options = {}) {
           </label>
         </div>
 
-        <div id="checkout-address-suggestion" class="checkout-address-suggestion" hidden>
-          <p class="checkout-address-suggestion__label">Did you mean this address?</p>
+        <div
+          id="checkout-address-suggestion"
+          class="checkout-address-suggestion"
+          role="region"
+          aria-labelledby="checkout-address-suggestion-title"
+          aria-describedby="checkout-address-suggestion-body"
+          hidden
+        >
+          <p id="checkout-address-suggestion-title" class="checkout-address-suggestion__label">Did you mean this address?</p>
           <p id="checkout-address-suggestion-body" class="checkout-address-suggestion__body"></p>
           <button
             type="button"
-            class="button button--secondary checkout-address-suggestion__apply"
+            class="button button--primary checkout-address-suggestion__apply"
             id="checkout-apply-suggested-address"
           >
             Use suggested address
