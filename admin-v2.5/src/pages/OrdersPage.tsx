@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "../auth/AuthProvider";
 import { useAdminShellHeaderMeta } from "../components/layout/AdminShell";
 import { CustomSelect } from "../components/ui/CustomSelect";
-import { ApiError, completeOrderHandoff, confirmOrderProductShipped, fetchInventoryDashboard, fetchMarketplaceOrders, fetchOrderShipFromDisplay, notifyBuyerShipping, postMarketplaceOrderAction, previewOrderPackingPlan, purchaseOrderShippoAllLabels, purchaseOrderShippoLabel, saveOrderExternalFulfillment, sendManualOrderLink, syncOrderToShippo, updateOrderPackingPlan } from "../lib/api";
+import { ApiError, cancelAndRefundOrder, completeOrderHandoff, confirmOrderProductShipped, fetchInventoryDashboard, fetchMarketplaceOrders, fetchOrderShipFromDisplay, notifyBuyerShipping, postMarketplaceOrderAction, previewOrderPackingPlan, purchaseOrderShippoAllLabels, purchaseOrderShippoLabel, saveOrderExternalFulfillment, sendManualOrderLink, syncOrderToShippo, updateOrderPackingPlan } from "../lib/api";
 import type { AdminOrderPackingPlanResponse, AdminOrderShipFromDisplayResponse, InventoryVariantRow, MarketplaceOrder, PackingPlanContent, PackingPlanParcel, PackingPlanSummary } from "../lib/api";
 import { formatDateTime, formatNumber, formatUsdCents } from "../lib/format";
 import { Icon } from "../lib/icons";
@@ -16,7 +16,7 @@ type OrderTypeFilter = "all" | "online" | "manual" | "walkin";
 type StatusFilter = "all" | "awaiting_payment" | "paid_not_shipped" | "shipped" | "needs_attention" | "cancelled";
 type TimeFilter = "all" | "today" | "week" | "month";
 type Tone = "neutral" | "blue" | "green" | "red" | "amber";
-type OrderActionKey = "sync" | `purchase:${string}` | "packingPreview" | "packingSave" | "packingClear" | "notify" | "arrivalLink" | "externalFulfillment" | "ship";
+type OrderActionKey = "sync" | `purchase:${string}` | "packingPreview" | "packingSave" | "packingClear" | "notify" | "arrivalLink" | "externalFulfillment" | "ship" | "cancel";
 type PurchaseIntent = {
   orderId: string;
   rateObjectId: string;
@@ -30,6 +30,7 @@ type PurchaseIntent = {
 } | null;
 type ShipIntent = { orderId: string; mode: "carrier" | "handoff" | "external"; proofName?: string; paymentProofName?: string } | null;
 type NotifyIntent = { orderId: string } | null;
+type CancelIntent = { orderId: string; orderRef: string; totalCents: number; purchasedLabels: number } | null;
 type HandoffProof = { name: string; sizeLabel: string; dataUrl: string } | null;
 const HANDOFF_PROOF_STORAGE_PREFIX = "sg25-handoff-proof:";
 const ACTIVE_ORDERS_REFRESH_MS = 30_000;
@@ -321,8 +322,12 @@ function attentionReason(order: OrderRow, labels: LabelRow[]) {
 
 function paymentState(order: OrderRow): { label: string; tone: Tone } {
   const workflow = normalize(order.order_status);
+  const paymentStatus = normalize(order.status);
   const flow = normalize(fieldText(order, ["payment_flow"]));
   const manualMethod = normalize(fieldText(order, ["manual_payment_method"]));
+  if (paymentStatus === "cancellation_pending") return { label: "Cancellation in progress", tone: "amber" };
+  if (paymentStatus === "refund_pending") return { label: "Refund pending", tone: "amber" };
+  if (paymentStatus === "refunded") return { label: "Refunded", tone: "red" };
   if (isPaid(order)) {
     const method = normalize(order.payment_method);
     if (method === "cash") return { label: "Paid cash", tone: "green" };
@@ -1353,6 +1358,44 @@ function ResendNotificationModal({
   return createPortal(modal, document.body);
 }
 
+function CancelOrderModal({ intent, busy, onCancel, onConfirm }: {
+  intent: NonNullable<CancelIntent>;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const ready = reason.trim().length >= 3 && confirmation.trim().toUpperCase() === "CANCEL";
+  return createPortal(
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 px-4" role="dialog" aria-modal="true" aria-labelledby="cancel-order-title">
+      <button type="button" className="absolute inset-0 cursor-default" aria-label="Close cancellation" onClick={busy ? undefined : onCancel} />
+      <div className="relative w-full max-w-lg rounded-[10px] border border-sg-border bg-white p-5 shadow-[0_24px_80px_rgba(31,27,24,0.24)]">
+        <h2 id="cancel-order-title" className="text-lg font-bold text-sg-danger">Cancel and refund {intent.orderRef}?</h2>
+        <p className="mt-2 text-[13px] leading-5 text-sg-muted">
+          The system will refund or void {formatUsdCents(intent.totalCents)}, restore inventory, request refunds for {intent.purchasedLabels} purchased shipping label{intent.purchasedLabels === 1 ? "" : "s"}, and email the customer.
+        </p>
+        <p className="mt-3 rounded-[8px] bg-sg-warning-soft px-3 py-2 text-[12px] font-semibold leading-5 text-sg-warning">
+          Square processing fees are not returned. Shippo or UPS label credits may remain pending and will be shown for manual follow-up.
+        </p>
+        <label className="mt-4 block text-[13px] font-semibold">Cancellation reason
+          <textarea className="sg25-input mt-1 min-h-20 w-full p-3" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Customer requested cancellation" />
+        </label>
+        <label className="mt-3 block text-[13px] font-semibold">Type CANCEL to confirm
+          <input className="sg25-input mt-1 h-10 w-full px-3" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" />
+        </label>
+        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button type="button" className="sg25-btn sg25-btn-ghost h-10 px-5 text-[12px]" disabled={busy} onClick={onCancel}>Keep order</button>
+          <button type="button" className="sg25-btn h-10 bg-sg-danger px-5 text-[12px] text-white hover:opacity-90 disabled:opacity-50" disabled={busy || !ready} onClick={() => onConfirm(reason.trim())}>
+            {busy ? "Cancelling and refunding" : "Cancel and refund"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function ProductShippedModal({
   onCancel,
   onConfirm,
@@ -1652,6 +1695,7 @@ function OrderDrawer({
   onSendArrivalPaymentLink,
   onSaveExternalFulfillment,
   onRequestConfirmShipped,
+  onRequestCancel,
   actionBusy,
   actionStatus,
 }: {
@@ -1668,6 +1712,7 @@ function OrderDrawer({
   onSendArrivalPaymentLink: (orderId: string) => Promise<void>;
   onSaveExternalFulfillment: (body: Parameters<typeof saveOrderExternalFulfillment>[0]) => Promise<void>;
   onRequestConfirmShipped: (intent: NonNullable<ShipIntent>) => void;
+  onRequestCancel: (intent: NonNullable<CancelIntent>) => void;
   actionBusy: OrderActionKey | null;
   actionStatus: { tone: "success" | "error"; message: string } | null;
 }) {
@@ -1750,6 +1795,9 @@ function OrderDrawer({
   const hasExternalLabelFile = Boolean(fieldText(order, ["admin_external_label_storage_path"]));
   const externalRecordComplete = Boolean(externalCarrier && externalTracking && hasExternalLabelFile);
   const canConfirmExternalShipped = b2bShippingOrder && paid && externalRecordComplete && !shipped;
+  const cancelStatus = normalize(order.status);
+  const canCancelAndRefund = Boolean(fieldText(order, ["payment_id"])) && orderType(order) !== "walkin" && !shipped &&
+    ["paid", "cancellation_pending", "refund_pending"].includes(cancelStatus);
   const [externalForm, setExternalForm] = useState({
     carrier: externalCarrier,
     service: externalService,
@@ -2591,6 +2639,19 @@ function OrderDrawer({
                       <p className="text-center text-[12px] font-medium text-sg-muted">Notification sent already.</p>
                     </div>
                   ) : null}
+                  {canCancelAndRefund ? (
+                    <div className="mt-4 border-t border-sg-border pt-4">
+                      <button
+                        type="button"
+                        className="sg25-btn h-9 w-full border border-sg-danger bg-white px-4 text-[12px] font-semibold text-sg-danger hover:bg-sg-danger-soft"
+                        disabled={actionBusy === "cancel"}
+                        onClick={() => onRequestCancel({ orderId, orderRef: String(order.order_ref || order.id), totalCents: Math.max(0, Number(order.total_cents) || 0), purchasedLabels: purchasedLabels.length })}
+                      >
+                        <Icon name="x" className="h-4 w-4" />
+                        {cancelStatus === "paid" ? "Cancel and refund" : "Continue cancellation"}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               </section>
 
@@ -2934,6 +2995,7 @@ export function OrdersPage() {
   const [purchaseIntent, setPurchaseIntent] = useState<PurchaseIntent>(null);
   const [shipIntent, setShipIntent] = useState<ShipIntent>(null);
   const [notifyIntent, setNotifyIntent] = useState<NotifyIntent>(null);
+  const [cancelIntent, setCancelIntent] = useState<CancelIntent>(null);
   const [orderPage, setOrderPage] = useState(0);
   const [attentionOpen, setAttentionOpen] = useState(false);
 
@@ -2990,6 +3052,7 @@ export function OrdersPage() {
     setPurchaseIntent(null);
     setShipIntent(null);
     setNotifyIntent(null);
+    setCancelIntent(null);
   }, [selectedOrderId]);
 
   function mergeActionResponse(response: unknown) {
@@ -3125,6 +3188,29 @@ export function OrdersPage() {
     if (!notifyIntent) return;
     await handleNotifyBuyer(notifyIntent.orderId);
     setNotifyIntent(null);
+  }
+
+  async function confirmCancelOrder(reason: string) {
+    if (!cancelIntent) return;
+    const orderId = cancelIntent.orderId;
+    setDrawerActionBusy("cancel");
+    setDrawerActionStatus(null);
+    try {
+      const token = await auth.getAccessToken();
+      const result = await cancelAndRefundOrder(orderId, reason, token);
+      mergeActionResponse(result);
+      await Promise.all([ordersQuery.refetch(), queryClient.invalidateQueries({ queryKey: ["admin-v2.5-summary"] })]);
+      setDrawerActionStatus({
+        tone: result.warning ? "error" : "success",
+        message: result.warning || "Order cancelled. Customer payment refunded, inventory restored, and shipping label refunds requested.",
+      });
+      setCancelIntent(null);
+    } catch (error) {
+      await ordersQuery.refetch();
+      setDrawerActionStatus({ tone: "error", message: error instanceof Error ? error.message : "Could not cancel the order." });
+    } finally {
+      setDrawerActionBusy(null);
+    }
   }
 
   async function handleSendArrivalPaymentLink(orderId: string) {
@@ -3428,6 +3514,7 @@ export function OrdersPage() {
           onSendArrivalPaymentLink={handleSendArrivalPaymentLink}
           onSaveExternalFulfillment={handleSaveExternalFulfillment}
           onRequestConfirmShipped={(intent) => setShipIntent(intent)}
+          onRequestCancel={(intent) => setCancelIntent(intent)}
           actionBusy={drawerActionBusy}
           actionStatus={drawerActionStatus}
         />
@@ -3462,6 +3549,14 @@ export function OrdersPage() {
           busy={drawerActionBusy === "notify"}
           onCancel={() => setNotifyIntent(null)}
           onConfirm={() => void confirmNotifyBuyer()}
+        />
+      ) : null}
+      {cancelIntent ? (
+        <CancelOrderModal
+          intent={cancelIntent}
+          busy={drawerActionBusy === "cancel"}
+          onCancel={() => setCancelIntent(null)}
+          onConfirm={(reason) => void confirmCancelOrder(reason)}
         />
       ) : null}
     </div>

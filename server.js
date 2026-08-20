@@ -32,6 +32,7 @@ import adminOrderBuyerShippingNotifyHandler from "./api/admin-order-buyer-shippi
 import adminOrderConfirmShippedHandler from "./api/admin-order-confirm-shipped.js";
 import adminOrderShipFromDisplayHandler from "./api/admin-order-ship-from-display.js";
 import adminOrderExternalFulfillmentSaveHandler from "./api/admin-order-external-fulfillment-save.js";
+import adminOrderCancelHandler from "./api/admin-order-cancel.js";
 import adminOrderFulfillmentDocLinksHandler from "./api/admin-order-fulfillment-doc-links.js";
 import adminPackagingConfigHandler from "./api/admin-packaging-config.js";
 import adminBundleConfigHandler from "./api/admin-bundle-config.js";
@@ -341,6 +342,15 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/admin-order-shippo-sync" && req.method === "POST") {
       const body = await readJsonBody(req);
       await adminOrderShippoSyncHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-order-cancel" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminOrderCancelHandler(
         { method: "POST", body, headers: req.headers },
         adaptExpressStyleResponse(res),
       );

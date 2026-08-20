@@ -800,6 +800,14 @@ export function confirmOrderProductShipped(orderId: string, token?: string) {
   return postJson<AdminOrderShippoActionResponse>("/api/admin-order-confirm-shipped", { orderId }, token);
 }
 
+export function cancelAndRefundOrder(orderId: string, reason: string, token?: string) {
+  return postJson<AdminOrderShippoActionResponse & { complete?: boolean; warning?: string | null }>(
+    "/api/admin-order-cancel",
+    { orderId, reason },
+    token,
+  );
+}
+
 export function completeOrderHandoff(orderId: string, token?: string) {
   return postJson<AdminOrderShippoActionResponse>("/api/admin-order-fulfillment-handoff", { orderId }, token);
 }
