@@ -171,6 +171,9 @@ test("Order Builder product controls stay unclipped and use polished select and 
   assert.match(source, /rounded-full border border-sg-border bg-white/);
   assert.match(select, /z-50/);
   assert.match(select, /<Icon name="check"/);
+  assert.match(source, /useState<OrderItemRow\[\]>\(\[\]\)/);
+  assert.match(source, /setItemRows\(\(current\) => current\.filter\(\(row\) => row\.id !== itemId\)\)/);
+  assert.match(source, /itemRows\.length \? "Add another item" : "Add item"/);
 });
 
 test("Order Builder uses compact fulfillment choices and disables sticky summary when it grows too tall", () => {
@@ -198,6 +201,19 @@ test("Order Builder discount controls separate discount types from percentage va
   assert.match(source, /quickPercentOptions/);
   assert.match(source, /discountCategoryForMode/);
   assert.match(source, /setDiscountMode\(option\.value === "percent" \? "percent_5"/);
+  assert.match(source, /discountMode === "code"[\s\S]*?className="mt-4 w-full rounded-\[9px\]/);
+  assert.match(source, /discountMode === "custom_amount"[\s\S]*?className="mt-4 w-full rounded-\[9px\]/);
+});
+
+test("cancelled order drawer can send a notification-only refund email", () => {
+  const source = read("admin-v2.5/src/pages/OrdersPage.tsx");
+  const api = read("api/admin-order-cancellation-email.js");
+
+  assert.match(source, /Send refund email/);
+  assert.match(source, /No refund or cancellation is submitted/);
+  assert.match(source, /sendCancelledOrderRefundEmail\(orderId, requestId, token\)/);
+  assert.match(api, /sendCancelledOrderRefundEmail/);
+  assert.doesNotMatch(api, /cancelAndRefundOrder|cancelOrRefundSquarePayment|refundShippoTransaction/);
 });
 
 test("admin-v2.5 operational tables expose details, paging, creation, and export controls", () => {

@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "../auth/AuthProvider";
 import { useAdminShellHeaderMeta } from "../components/layout/AdminShell";
 import { CustomSelect } from "../components/ui/CustomSelect";
-import { ApiError, cancelAndRefundOrder, checkCancelledOrderRefundStatus, completeOrderHandoff, confirmOrderProductShipped, fetchInventoryDashboard, fetchMarketplaceOrders, fetchOrderShipFromDisplay, notifyBuyerShipping, postMarketplaceOrderAction, previewOrderPackingPlan, purchaseOrderShippoAllLabels, purchaseOrderShippoLabel, saveOrderExternalFulfillment, sendManualOrderLink, syncOrderToShippo, updateOrderPackingPlan } from "../lib/api";
+import { ApiError, cancelAndRefundOrder, checkCancelledOrderRefundStatus, completeOrderHandoff, confirmOrderProductShipped, fetchInventoryDashboard, fetchMarketplaceOrders, fetchOrderShipFromDisplay, notifyBuyerShipping, postMarketplaceOrderAction, previewOrderPackingPlan, purchaseOrderShippoAllLabels, purchaseOrderShippoLabel, saveOrderExternalFulfillment, sendCancelledOrderRefundEmail, sendManualOrderLink, syncOrderToShippo, updateOrderPackingPlan } from "../lib/api";
 import type { AdminOrderPackingPlanResponse, AdminOrderShipFromDisplayResponse, InventoryVariantRow, MarketplaceOrder, PackingPlanContent, PackingPlanParcel, PackingPlanSummary } from "../lib/api";
 import { formatDateTime, formatNumber, formatUsdCents } from "../lib/format";
 import { Icon } from "../lib/icons";
@@ -16,7 +16,7 @@ type OrderTypeFilter = "all" | "online" | "manual" | "walkin";
 type StatusFilter = "all" | "awaiting_payment" | "paid_not_shipped" | "shipped" | "needs_attention" | "cancelled";
 type TimeFilter = "all" | "today" | "week" | "month";
 type Tone = "neutral" | "blue" | "green" | "red" | "amber";
-type OrderActionKey = "sync" | `purchase:${string}` | "packingPreview" | "packingSave" | "packingClear" | "notify" | "arrivalLink" | "externalFulfillment" | "ship" | "cancel" | "refundStatus";
+type OrderActionKey = "sync" | `purchase:${string}` | "packingPreview" | "packingSave" | "packingClear" | "notify" | "arrivalLink" | "externalFulfillment" | "ship" | "cancel" | "refundStatus" | "refundEmail";
 type PurchaseIntent = {
   orderId: string;
   rateObjectId: string;
@@ -1751,6 +1751,7 @@ function OrderDrawer({
   onRequestConfirmShipped,
   onRequestCancel,
   onCheckCancellationStatus,
+  onSendRefundEmail,
   actionBusy,
   actionStatus,
 }: {
@@ -1769,6 +1770,7 @@ function OrderDrawer({
   onRequestConfirmShipped: (intent: NonNullable<ShipIntent>) => void;
   onRequestCancel: (intent: NonNullable<CancelIntent>) => void;
   onCheckCancellationStatus: (orderId: string) => Promise<void>;
+  onSendRefundEmail: (orderId: string) => Promise<void>;
   actionBusy: OrderActionKey | null;
   actionStatus: { tone: "success" | "error"; message: string } | null;
 }) {
@@ -2732,6 +2734,20 @@ function OrderDrawer({
                         {actionBusy === "refundStatus" ? "Checking providers" : "Check refund status"}
                       </button>
                       <p className="text-center text-[11px] leading-4 text-sg-muted">This only checks Square and Shippo. It cannot submit another refund.</p>
+                      <button
+                        type="button"
+                        className="sg25-btn sg25-btn-ghost h-9 w-full px-4 text-[12px]"
+                        disabled={actionBusy === "refundEmail" || !fieldText(order, ["customer_email"])}
+                        onClick={() => void onSendRefundEmail(orderId)}
+                      >
+                        <Icon name="receipt" className="h-4 w-4" />
+                        {actionBusy === "refundEmail" ? "Sending refund email" : "Send refund email"}
+                      </button>
+                      <p className="text-center text-[11px] leading-4 text-sg-muted">
+                        {fieldText(order, ["customer_email"])
+                          ? "Sends the current refund status to the customer. No refund or cancellation is submitted."
+                          : "No customer email is saved for this order."}
+                      </p>
                     </div>
                   ) : null}
                 </div>
@@ -3315,6 +3331,17 @@ export function OrdersPage() {
     }
   }
 
+  async function handleSendRefundEmail(orderId: string) {
+    const requestId = typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `email_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    await runDrawerAction(
+      "refundEmail",
+      (token) => sendCancelledOrderRefundEmail(orderId, requestId, token),
+      "Refund status email sent to the customer.",
+    );
+  }
+
   async function handleSendArrivalPaymentLink(orderId: string) {
     setDrawerActionBusy("arrivalLink");
     setDrawerActionStatus(null);
@@ -3618,6 +3645,7 @@ export function OrdersPage() {
           onRequestConfirmShipped={(intent) => setShipIntent(intent)}
           onRequestCancel={(intent) => setCancelIntent(intent)}
           onCheckCancellationStatus={handleCheckCancellationStatus}
+          onSendRefundEmail={handleSendRefundEmail}
           actionBusy={drawerActionBusy}
           actionStatus={drawerActionStatus}
         />

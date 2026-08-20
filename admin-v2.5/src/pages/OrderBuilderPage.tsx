@@ -561,7 +561,7 @@ export function OrderBuilderPage() {
   const [selectedRateId, setSelectedRateId] = useState("");
   const [selectedRateSnapshot, setSelectedRateSnapshot] = useState<ManualOrderShippingRateOption | null>(null);
   const [products, setProducts] = useState<ProductOption[]>(fallbackProducts);
-  const [itemRows, setItemRows] = useState<OrderItemRow[]>(() => [makeOrderItemRow(0)]);
+  const [itemRows, setItemRows] = useState<OrderItemRow[]>([]);
   const [customer, setCustomer] = useState({ name: "", email: "", phone: "" });
   const [address, setAddress] = useState<ManualOrderAddress>({
     line1: "",
@@ -842,7 +842,7 @@ export function OrderBuilderPage() {
   }
 
   function removeItemRow(itemId: string) {
-    setItemRows((current) => current.length > 1 ? current.filter((row) => row.id !== itemId) : [{ ...current[0], quantity: 0 }]);
+    setItemRows((current) => current.filter((row) => row.id !== itemId));
     markDirty();
   }
 
@@ -1465,7 +1465,7 @@ export function OrderBuilderPage() {
               })}
               <button type="button" className="sg25-btn sg25-btn-ghost w-full border-dashed" onClick={addItemRow}>
                 <span aria-hidden="true" className="text-base leading-none">+</span>
-                Add another item
+                {itemRows.length ? "Add another item" : "Add item"}
               </button>
             </div>
           </section>
@@ -1534,7 +1534,7 @@ export function OrderBuilderPage() {
               </div>
             ) : null}
             {discountMode === "code" ? (
-              <div className="mt-4 max-w-sm rounded-[9px] border border-sg-border bg-sg-input-bg/60 p-3.5">
+              <div className="mt-4 w-full rounded-[9px] border border-sg-border bg-sg-input-bg/60 p-3.5">
                 <label className="block min-w-0">
                   <span className="text-[12px] font-bold text-sg-text">Discount code</span>
                   <div className="relative mt-1.5">
@@ -1564,7 +1564,7 @@ export function OrderBuilderPage() {
               </div>
             ) : null}
             {discountMode === "custom_amount" ? (
-              <div className="mt-4 max-w-xs rounded-[9px] border border-sg-border bg-sg-input-bg/60 p-3.5">
+              <div className="mt-4 w-full rounded-[9px] border border-sg-border bg-sg-input-bg/60 p-3.5">
                 <Field
                   label="Fixed amount off"
                   value={customDiscountValue}

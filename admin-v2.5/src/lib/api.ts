@@ -816,6 +816,14 @@ export function checkCancelledOrderRefundStatus(orderId: string, token?: string)
   );
 }
 
+export function sendCancelledOrderRefundEmail(orderId: string, requestId: string, token?: string) {
+  return postJson<AdminOrderShippoActionResponse & { square?: { action?: string; status?: string } }>(
+    "/api/admin-order-cancellation-email",
+    { orderId, requestId },
+    token,
+  );
+}
+
 export function completeOrderHandoff(orderId: string, token?: string) {
   return postJson<AdminOrderShippoActionResponse>("/api/admin-order-fulfillment-handoff", { orderId }, token);
 }
