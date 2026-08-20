@@ -1035,8 +1035,7 @@ export function AdvancedPage() {
   const healthCounts = shippingHealth?.last24Hours?.counts || {};
   const healthFailureCount = Number(healthCounts.failed || 0) + Number(healthCounts.no_rates || 0) + Number(healthCounts.partial || 0);
   const shippoReady = Boolean(
-    healthRuntime?.provider === "shippo" &&
-      healthRuntime?.tokenMode !== "missing" &&
+    healthRuntime?.shippoConfigured === true &&
       Number(healthRuntime?.carrierAccountCount || 0) > 0 &&
       healthRuntime?.warehouseConfigured &&
       healthRuntime?.databasePurchaseLockEnabled,
@@ -1060,9 +1059,28 @@ export function AdvancedPage() {
       : paymentRuntime?.environment === "sandbox"
         ? "Sandbox"
         : paymentRuntime?.environment === "production"
-          ? "Production blocked"
+          ? "Production"
           : "Not configured";
-  const squareEnvironmentTone = paymentUnavailable || paymentRuntime?.sandboxPolicyCompliant !== true ? "danger" : "success";
+  const squareEnvironmentTone = paymentUnavailable || paymentRuntime?.environmentConfigured !== true ? "danger" : "success";
+  const squareEnvironmentDetail = paymentHealthLoading
+    ? "Reading the active server configuration."
+    : paymentUnavailable
+      ? "The payment health endpoint could not read the current server configuration."
+      : paymentRuntime?.environment === "production"
+        ? "Square production credentials are active on the server."
+        : paymentRuntime?.environment === "sandbox"
+          ? "Square sandbox credentials are active on the server."
+          : "Square environment is missing or invalid on the server.";
+  const shippoEnvironmentTone = healthRuntime?.tokenMode === "live"
+    ? "success"
+    : healthRuntime?.tokenMode === "missing"
+      ? "danger"
+      : "warning";
+  const shippoEnvironmentDetail = healthRuntime?.tokenMode === "live"
+    ? "The active server token purchases real postage."
+    : healthRuntime?.tokenMode === "test"
+      ? "The active server token creates test quotes and labels."
+      : "No Shippo API token is configured on the server.";
   const checkoutReady = Boolean(paymentRuntime?.embeddedCheckoutReady || paymentRuntime?.paymentLinkReady);
   const checkoutHealthValue = paymentHealthLoading ? "Checking" : paymentUnavailable ? "Unavailable" : checkoutReady ? "Ready" : "Setup required";
   const checkoutHealthTone = paymentUnavailable || !checkoutReady ? "danger" : "success";
@@ -1619,11 +1637,11 @@ export function AdvancedPage() {
               <div className="rounded-[8px] border border-sg-border px-3 py-3 text-[13px]">
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-semibold">Shippo environment</span>
-                  <StatusPill tone={healthRuntime?.tokenMode === "live" ? "danger" : "warning"}>
+                  <StatusPill tone={shippoEnvironmentTone}>
                     {healthRuntime?.tokenMode === "live" ? "Live" : healthRuntime?.tokenMode === "missing" ? "Missing" : "Test"}
                   </StatusPill>
                 </div>
-                <p className="mt-0.5 text-[12px] leading-4 text-sg-muted">Test mode creates sandbox quotes and labels without buying real postage.</p>
+                <p className="mt-0.5 text-[12px] leading-4 text-sg-muted">{shippoEnvironmentDetail}</p>
               </div>
               <SettingRow
                 label="Shippo provider health"
@@ -1797,7 +1815,7 @@ export function AdvancedPage() {
           <section className="sg25-card p-4 md:p-5">
             <SectionTitle icon="receipt" title="Payment Provider Health" description="Track Square readiness for checkout links, card payments, and webhooks." />
             <div className="mt-5 grid gap-2">
-              <SettingRow label="Square environment" value={squareEnvironmentValue} tone={squareEnvironmentTone} detail="This store is restricted to Square sandbox while shipping stabilization is in progress." />
+              <SettingRow label="Square environment" value={squareEnvironmentValue} tone={squareEnvironmentTone} detail={squareEnvironmentDetail} />
               <SettingRow label="Checkout payment readiness" value={checkoutHealthValue} tone={checkoutHealthTone} detail="Checks the server configuration used by embedded checkout and payment links; it does not submit a payment." />
               <SettingRow label="Webhook signature" value={webhookHealthValue} tone={webhookHealthTone} detail="Checks that the webhook secret matching the active Square environment is configured." />
               {paymentHealthError ? (

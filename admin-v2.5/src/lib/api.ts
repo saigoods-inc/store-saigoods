@@ -139,6 +139,9 @@ export interface ShippingHealthResponse {
   warning?: string;
   runtime?: {
     provider?: string;
+    providerConfigured?: boolean;
+    tokenConfigured?: boolean;
+    shippoConfigured?: boolean;
     tokenMode?: "test" | "live" | "missing";
     carrierAccountCount?: number;
     warehouseConfigured?: boolean;
@@ -168,6 +171,7 @@ export interface PaymentHealthResponse {
   runtime?: {
     provider?: "square";
     environment?: "sandbox" | "production" | "missing" | "invalid";
+    environmentConfigured?: boolean;
     sandboxPolicyCompliant?: boolean;
     accessTokenConfigured?: boolean;
     applicationIdConfigured?: boolean;
@@ -175,6 +179,7 @@ export interface PaymentHealthResponse {
     publicBaseUrlConfigured?: boolean;
     databaseConfigured?: boolean;
     webhookSignatureConfigured?: boolean;
+    coreConfigured?: boolean;
     embeddedCheckoutReady?: boolean;
     paymentLinkReady?: boolean;
     resendApiKeyConfigured?: boolean;
