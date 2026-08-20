@@ -152,11 +152,28 @@ test("Order Builder treats the selected carrier rate as an editable draft until 
   assert.match(source, /setSelectedRateSnapshot\(nextSelected \? rate : null\)/);
   assert.match(source, /rateAmountCents\(selectedRateSnapshot\)/);
   assert.match(source, /errors\.carrierRate = "Select a carrier rate before creating the order\."/);
-  assert.match(source, /const created = await createManualOrder\(request, token\)/);
+  assert.match(source, /await createManualOrder\(request, token\)/);
+  assert.match(source, /await updateManualOrderDraft\(\{ \.\.\.request, orderId: editOrderId \}, token\)/);
   assert.match(source, /status\.message === quote\.userFacingError/);
   assert.match(source, /md:grid-cols-3/);
   assert.match(source, /Build the order one product line at a time/);
   assert.doesNotMatch(source, /Confirm rate|Rate confirmed|Confirming rate|selectedRateConfirmed|confirmedRateId/);
+});
+
+test("expired manual payment links offer unchanged resend or quote-recalculating edit", () => {
+  const orders = read("admin-v2.5/src/pages/OrdersPage.tsx");
+  const builder = read("admin-v2.5/src/pages/OrderBuilderPage.tsx");
+  const prepare = read("api/admin-manual-order-prepare-edit.js");
+
+  assert.match(orders, /label: "Expired"/);
+  assert.match(orders, /Send new payment link/);
+  assert.match(orders, /Edit order first/);
+  assert.match(orders, /prepareManualOrderEdit\(orderId, token\)/);
+  assert.match(builder, /fetchManualOrderDraft\(editOrderId, token\)/);
+  assert.match(builder, /Save changes and send new link/);
+  assert.match(builder, /setQuoteDirty\(true\)/);
+  assert.match(prepare, /deletePaymentLink\(paymentLinkId\)/);
+  assert.match(prepare, /resetExpiredManualPaymentLink\(order\.id\)/);
 });
 
 test("Order Builder product controls stay unclipped and use polished select and quantity controls", () => {

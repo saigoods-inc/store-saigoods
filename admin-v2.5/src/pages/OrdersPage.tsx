@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "../auth/AuthProvider";
 import { useAdminShellHeaderMeta } from "../components/layout/AdminShell";
 import { CustomSelect } from "../components/ui/CustomSelect";
-import { ApiError, cancelAndRefundOrder, checkCancelledOrderRefundStatus, completeOrderHandoff, confirmOrderProductShipped, fetchInventoryDashboard, fetchMarketplaceOrders, fetchOrderShipFromDisplay, notifyBuyerShipping, postMarketplaceOrderAction, previewOrderPackingPlan, purchaseOrderShippoAllLabels, purchaseOrderShippoLabel, saveOrderExternalFulfillment, sendCancelledOrderRefundEmail, sendManualOrderLink, syncOrderToShippo, updateOrderPackingPlan } from "../lib/api";
+import { ApiError, cancelAndRefundOrder, checkCancelledOrderRefundStatus, completeOrderHandoff, confirmOrderProductShipped, fetchInventoryDashboard, fetchMarketplaceOrders, fetchOrderShipFromDisplay, notifyBuyerShipping, postMarketplaceOrderAction, prepareManualOrderEdit, previewOrderPackingPlan, purchaseOrderShippoAllLabels, purchaseOrderShippoLabel, saveOrderExternalFulfillment, sendCancelledOrderRefundEmail, sendManualOrderLink, syncOrderToShippo, updateOrderPackingPlan } from "../lib/api";
 import type { AdminOrderPackingPlanResponse, AdminOrderShipFromDisplayResponse, InventoryVariantRow, MarketplaceOrder, PackingPlanContent, PackingPlanParcel, PackingPlanSummary } from "../lib/api";
 import { formatDateTime, formatNumber, formatUsdCents } from "../lib/format";
 import { Icon } from "../lib/icons";
@@ -16,7 +16,7 @@ type OrderTypeFilter = "all" | "online" | "manual" | "walkin";
 type StatusFilter = "all" | "awaiting_payment" | "paid_not_shipped" | "shipped" | "needs_attention" | "cancelled";
 type TimeFilter = "all" | "today" | "week" | "month";
 type Tone = "neutral" | "blue" | "green" | "red" | "amber";
-type OrderActionKey = "sync" | `purchase:${string}` | "packingPreview" | "packingSave" | "packingClear" | "notify" | "arrivalLink" | "externalFulfillment" | "ship" | "cancel" | "refundStatus" | "refundEmail";
+type OrderActionKey = "sync" | `purchase:${string}` | "packingPreview" | "packingSave" | "packingClear" | "notify" | "arrivalLink" | "editExpired" | "externalFulfillment" | "ship" | "cancel" | "refundStatus" | "refundEmail";
 type PurchaseIntent = {
   orderId: string;
   rateObjectId: string;
@@ -340,6 +340,13 @@ function attentionReason(order: OrderRow, labels: LabelRow[]) {
   return status || tracking || "Address or label needs review";
 }
 
+function isExpiredManualPaymentLink(order: OrderRow) {
+  if (String(order.order_source || "").trim().toLowerCase() !== "manual" || isPaid(order)) return false;
+  if (normalize(fieldText(order, ["payment_link_status"])) === "expired") return true;
+  const expiresAt = new Date(fieldText(order, ["payment_link_expires_at"]) || 0).getTime();
+  return Number.isFinite(expiresAt) && expiresAt > 0 && expiresAt <= Date.now();
+}
+
 function paymentState(order: OrderRow): { label: string; tone: Tone } {
   const workflow = normalize(order.order_status);
   const paymentStatus = normalize(order.status);
@@ -354,6 +361,7 @@ function paymentState(order: OrderRow): { label: string; tone: Tone } {
     if (method === "check") return { label: "Paid check", tone: "green" };
     return { label: "Paid", tone: "green" };
   }
+  if (isExpiredManualPaymentLink(order)) return { label: "Expired", tone: "red" };
   if (workflow === "payment_link_sent") return { label: "Payment link sent", tone: "amber" };
   if (isCancelled(order)) return { label: "Cancelled", tone: "red" };
   if (flow === "pay_later" && manualMethod === "arrival_payment_link") return { label: "Send link upon arrival", tone: "amber" };
@@ -418,6 +426,7 @@ function nextAction(order: OrderRow, labels: LabelRow[]) {
     return needsAttention(order) ? "Review refund status" : "No action required";
   }
   if (isLocalPayLaterOrder(order)) return "Deliver and collect payment";
+  if (isExpiredManualPaymentLink(order)) return "Edit order or send a new link";
   if (!isPaid(order) && !isCancelled(order)) return "Record payment when received";
   if (payment === "Awaiting payment") return "Collect payment";
   if (payment === "Payment link sent") return "Wait for payment";
@@ -1747,6 +1756,7 @@ function OrderDrawer({
   onPurchaseLabel,
   onRequestNotifyBuyer,
   onSendArrivalPaymentLink,
+  onEditExpiredOrder,
   onSaveExternalFulfillment,
   onRequestConfirmShipped,
   onRequestCancel,
@@ -1766,6 +1776,7 @@ function OrderDrawer({
   onPurchaseLabel: (orderId: string, rateObjectId: string) => Promise<void>;
   onRequestNotifyBuyer: (orderId: string) => void;
   onSendArrivalPaymentLink: (orderId: string) => Promise<void>;
+  onEditExpiredOrder: (orderId: string) => Promise<void>;
   onSaveExternalFulfillment: (body: Parameters<typeof saveOrderExternalFulfillment>[0]) => Promise<void>;
   onRequestConfirmShipped: (intent: NonNullable<ShipIntent>) => void;
   onRequestCancel: (intent: NonNullable<CancelIntent>) => void;
@@ -1787,6 +1798,8 @@ function OrderDrawer({
   const rates = shippoRates(order);
   const onlineStoreOrder = isOnlineStoreOrder(order);
   const automaticManualLabel = isAutomaticManualLabelOrder(order);
+  const manualSquareLinkOrder = normalize(fieldText(order, ["order_source"])) === "manual" &&
+    normalize(fieldText(order, ["payment_flow"])) === "square_payment_link";
   const automaticLabelOrder = onlineStoreOrder || automaticManualLabel;
   const automaticWorkflow = normalize(order.order_status);
   const automaticExceptionRetryAllowed = automaticLabelOrder && ["paid_label_retry", "partial_label_failure", "partial_label_purchase", "admin_review_required"].includes(automaticWorkflow);
@@ -1877,10 +1890,8 @@ function OrderDrawer({
   const paymentFlow = paymentFlowLabel(order);
   const paymentLinkSentAt = fieldText(order, ["payment_link_sent_at"]);
   const paymentLinkExpiresAt = fieldText(order, ["payment_link_expires_at"]);
-  const paymentLinkExpired = Boolean(paymentLinkExpiresAt) && new Date(paymentLinkExpiresAt).getTime() <= Date.now();
-  const paymentLinkNeedsResend = automaticManualLabel && !paid && (
-    paymentLinkExpired || normalize(fieldText(order, ["payment_link_status"])) === "expired"
-  );
+  const paymentLinkExpired = isExpiredManualPaymentLink(order);
+  const paymentLinkNeedsResend = manualSquareLinkOrder && paymentLinkExpired;
   const paymentDetailRows = [
     { label: "Method", value: fieldText(order, ["payment_method", "manual_payment_method"]) },
     { label: "Payment flow", value: paymentFlow },
@@ -2566,8 +2577,8 @@ function OrderDrawer({
                 </div>
               </section>
 
-              {paymentLinkUrl ? (
-                <details className="group rounded-[10px] border border-sg-border">
+              {paymentLinkUrl || paymentLinkNeedsResend ? (
+                <details className="group rounded-[10px] border border-sg-border" open={paymentLinkNeedsResend}>
                   <DrawerDisclosureTitle icon="clipboard">Documents</DrawerDisclosureTitle>
                   <div className="grid gap-x-8 gap-y-2 border-t border-sg-border px-4 pb-4 pt-3 text-[13px] sm:grid-cols-[150px_minmax(0,1fr)]">
                     <span className="text-sg-muted">Payment link</span>
@@ -2575,7 +2586,7 @@ function OrderDrawer({
                       {paymentLinkExpired ? "Expired — resend required" : "Active · valid for 48 hours"}
                     </span>
                     {paymentLinkNeedsResend ? (
-                      <div className="sm:col-span-2 sm:pl-[182px]">
+                      <div className="flex flex-wrap gap-2 sm:col-span-2 sm:pl-[182px]">
                         <button
                           type="button"
                           className="sg25-btn sg25-btn-ghost h-9 whitespace-nowrap px-4 text-[12px]"
@@ -2583,8 +2594,20 @@ function OrderDrawer({
                           onClick={() => void onSendArrivalPaymentLink(orderId)}
                         >
                           <Icon name="arrow-up-right" className="h-4 w-4" />
-                          {actionBusy === "arrivalLink" ? "Resending link" : "Resend 48-hour payment link"}
+                          {actionBusy === "arrivalLink" ? "Sending link" : "Send new payment link"}
                         </button>
+                        <button
+                          type="button"
+                          className="sg25-btn sg25-btn-ghost h-9 whitespace-nowrap px-4 text-[12px]"
+                          disabled={actionBusy === "editExpired"}
+                          onClick={() => void onEditExpiredOrder(orderId)}
+                        >
+                          <Icon name="clipboard" className="h-4 w-4" />
+                          {actionBusy === "editExpired" ? "Opening editor" : "Edit order first"}
+                        </button>
+                        <p className="w-full text-[11px] leading-4 text-sg-muted">
+                          Send a fresh 48-hour link with the current order, or edit items and recalculate delivery before sending.
+                        </p>
                       </div>
                     ) : null}
                   </div>
@@ -3354,10 +3377,26 @@ export function OrdersPage() {
       await ordersQuery.refetch();
       setDrawerActionStatus({
         tone: "success",
-        message: result.warning || "Payment link sent for arrival collection.",
+        message: result.warning || "A new 48-hour payment link was sent to the customer.",
       });
     } catch (error) {
       const message = error instanceof ApiError || error instanceof Error ? error.message : "Action failed.";
+      setDrawerActionStatus({ tone: "error", message });
+    } finally {
+      setDrawerActionBusy(null);
+    }
+  }
+
+  async function handleEditExpiredOrder(orderId: string) {
+    setDrawerActionBusy("editExpired");
+    setDrawerActionStatus(null);
+    try {
+      const token = await auth.getAccessToken();
+      await prepareManualOrderEdit(orderId, token);
+      setSelectedOrderId(null);
+      navigate("/order-builder", { state: { editOrderId: orderId } });
+    } catch (error) {
+      const message = error instanceof ApiError || error instanceof Error ? error.message : "Could not open this order for editing.";
       setDrawerActionStatus({ tone: "error", message });
     } finally {
       setDrawerActionBusy(null);
@@ -3644,6 +3683,7 @@ export function OrdersPage() {
           onPurchaseLabel={handlePurchaseLabel}
           onRequestNotifyBuyer={(orderId) => setNotifyIntent({ orderId })}
           onSendArrivalPaymentLink={handleSendArrivalPaymentLink}
+          onEditExpiredOrder={handleEditExpiredOrder}
           onSaveExternalFulfillment={handleSaveExternalFulfillment}
           onRequestConfirmShipped={(intent) => setShipIntent(intent)}
           onRequestCancel={(intent) => setCancelIntent(intent)}

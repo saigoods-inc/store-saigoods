@@ -446,6 +446,7 @@ export interface ManualOrderCreateRequest extends ManualOrderEstimateRequest {
   paymentFlow: "square_payment_link" | "pay_later";
   manualPaymentMethod?: "arrival_payment_link" | null;
   shipmentDate?: string | null;
+  preserveExistingDiscountCode?: boolean;
 }
 
 export interface ManualOrderCreateResponse {
@@ -453,6 +454,10 @@ export interface ManualOrderCreateResponse {
   orderRef?: string;
   totalFormatted?: string;
   order_status?: string;
+}
+
+export interface ManualOrderDraftResponse {
+  order?: Record<string, unknown>;
 }
 
 export interface ManualOrderSendLinkResponse {
@@ -767,6 +772,21 @@ export function verifyManualOrderAddress(address: ManualOrderAddress, token?: st
 
 export function createManualOrder(body: ManualOrderCreateRequest, token?: string) {
   return postJson<ManualOrderCreateResponse>("/api/admin-manual-order-create", body, token);
+}
+
+export function fetchManualOrderDraft(orderId: string, token?: string) {
+  return fetchJson<ManualOrderDraftResponse>(`/api/admin-manual-order-drafts?id=${encodeURIComponent(orderId)}`, token);
+}
+
+export function prepareManualOrderEdit(orderId: string, token?: string) {
+  return postJson<ManualOrderDraftResponse>("/api/admin-manual-order-prepare-edit", { orderId }, token);
+}
+
+export function updateManualOrderDraft(
+  body: ManualOrderCreateRequest & { orderId: string },
+  token?: string,
+) {
+  return postJson<ManualOrderCreateResponse>("/api/admin-manual-order-update-draft", body, token);
 }
 
 export function sendManualOrderLink(

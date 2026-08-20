@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthProvider";
 import { useAdminShellHeaderMeta } from "../components/layout/AdminShell";
@@ -10,7 +10,9 @@ import {
   estimateManualOrder,
   fetchDiscountCodes,
   fetchInventoryDashboard,
+  fetchManualOrderDraft,
   sendManualOrderLink,
+  updateManualOrderDraft,
   verifyManualOrderAddress,
   type ManualOrderAddress,
   type ManualOrderCreateRequest,
@@ -533,6 +535,46 @@ function normalizeAdminDiscountCode(value: string) {
   return normalized && !normalized.startsWith("HC-") ? `HC-${normalized}` : normalized;
 }
 
+function recordValue(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function rowsFromDraftItems(rawItems: unknown, products: ProductOption[]) {
+  if (!Array.isArray(rawItems)) return [];
+  const rows: OrderItemRow[] = [];
+  rawItems.forEach((rawItem, itemIndex) => {
+    const item = recordValue(rawItem);
+    const product = products.find((entry) => entry.slug === String(item.slug || ""));
+    if (!product) return;
+    (["case", "box"] as const).forEach((unit) => {
+      const allocations = recordValue(unit === "case" ? item.quantities : item.boxQuantities);
+      const bundle = getUnitBundle(product, unit);
+      product.sizes.forEach((size) => {
+        const allocated = Math.max(0, Math.floor(Number(allocations[size]) || 0));
+        if (!allocated) return;
+        rows.push({
+          id: `edit-${itemIndex}-${unit}-${size}`,
+          productSlug: product.slug,
+          size,
+          unit,
+          bundleId: bundle.id,
+          quantity: Math.max(1, Math.ceil(allocated / Math.max(1, bundle.units))),
+        });
+      });
+    });
+  });
+  return rows;
+}
+
 function emptyInventoryAvailability(products: ProductOption[]) {
   return Object.fromEntries(
     products.map((product) => [
@@ -544,7 +586,12 @@ function emptyInventoryAvailability(products: ProductOption[]) {
 
 export function OrderBuilderPage() {
   const auth = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
+  const editOrderId = String((location.state as { editOrderId?: unknown } | null)?.editOrderId || "").trim();
+  const [editOrderRef, setEditOrderRef] = useState("");
+  const [editDraftLoaded, setEditDraftLoaded] = useState(!editOrderId);
+  const [editOriginalDiscountCode, setEditOriginalDiscountCode] = useState("");
   const [mode, setMode] = useState<BuilderMode>("remote");
   const [fulfillmentMethod, setFulfillmentMethod] = useState<FulfillmentMethod>("carrier");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("square_payment_link");
@@ -594,6 +641,7 @@ export function OrderBuilderPage() {
   const summaryRef = useRef<HTMLElement | null>(null);
   const carrierRatesRef = useRef<HTMLDivElement | null>(null);
   const shouldScrollToRatesRef = useRef(false);
+  const editDraftLoadingRef = useRef(false);
 
   useAdminShellHeaderMeta(<span>Updated {formatDateTime(updatedAt)}</span>);
 
@@ -633,6 +681,76 @@ export function OrderBuilderPage() {
     void loadCatalog();
     return () => { alive = false; };
   }, []);
+
+  useEffect(() => {
+    if (!editOrderId || editDraftLoaded || editDraftLoadingRef.current) return;
+    editDraftLoadingRef.current = true;
+    async function loadDraftForEditing() {
+      try {
+        const token = await auth.getAccessToken();
+        const response = await fetchManualOrderDraft(editOrderId, token);
+        if (!response.order) return;
+        const order = response.order;
+        const shippingAddress = recordValue(order.shipping_address);
+        const fulfillment = String(order.fulfillment_method || "carrier") as FulfillmentMethod;
+        const snapshot = recordValue(order.quoted_address_snapshot_json);
+        const manualDiscount = recordValue(snapshot.manualDiscount);
+        const discountType = String(manualDiscount.type || "none").toLowerCase();
+        const discountValue = Number(manualDiscount.value ?? manualDiscount.percent ?? manualDiscount.amountCents) || 0;
+        const existingCode = String(order.discount_code_used || "").trim();
+
+        setEditOrderRef(String(order.order_ref || editOrderId));
+        setEditOriginalDiscountCode(normalizeAdminDiscountCode(existingCode));
+        setMode("remote");
+        setCustomer({
+          name: String(order.customer_name || ""),
+          email: String(order.customer_email || ""),
+          phone: String(order.customer_phone || ""),
+        });
+        setAddress({
+          line1: String(shippingAddress.line1 || shippingAddress.address1 || ""),
+          line2: String(shippingAddress.line2 || shippingAddress.address2 || ""),
+          city: String(shippingAddress.city || ""),
+          state: String(shippingAddress.state || "TN"),
+          postalCode: String(shippingAddress.postalCode || shippingAddress.zip || ""),
+          country: String(shippingAddress.country || "US"),
+        });
+        setItemRows(rowsFromDraftItems(order.items, products));
+        setFulfillmentMethod(["carrier", "local_delivery", "pickup", "b2b_shipping"].includes(fulfillment) ? fulfillment : "carrier");
+        setPaymentMethod("square_payment_link");
+        setShipmentDate(String(order.shippo_shipment_date || todayYmd()));
+        if (fulfillment === "b2b_shipping") {
+          setCustomB2bShipping((Math.max(0, Number(order.shipping_cents) || 0) / 100).toFixed(2));
+        }
+        if (existingCode && discountType === "percent") {
+          const percent = Math.max(0, Math.round(discountValue));
+          setDiscountMode("code");
+          setDiscountCode(existingCode);
+          setDiscountCodeCheck({ code: normalizeAdminDiscountCode(existingCode), status: "valid", message: "Existing order discount", percent });
+        } else if (discountType === "percent" && discountValue > 0) {
+          const percent = Math.round(discountValue);
+          setDiscountMode(percent === 5 ? "percent_5" : percent === 10 ? "percent_10" : percent === 15 ? "percent_15" : "custom_percent");
+          if (![5, 10, 15].includes(percent)) setCustomDiscountValue(String(percent));
+        } else if (discountType === "amount" && discountValue > 0) {
+          setDiscountMode("custom_amount");
+          setCustomDiscountValue((discountValue / 100).toFixed(2));
+        }
+        setQuote(null);
+        setQuoteDirty(true);
+        setQuoteReceivedAt(null);
+        setSelectedRateId("");
+        setSelectedRateSnapshot(null);
+        setAddressVerification({ status: "idle", fingerprint: "", suggestion: null, message: "Verify the address to get current shipping rates." });
+        setStatus({ tone: "warning", message: `Editing expired order ${String(order.order_ref || editOrderId)}. Review it and get current totals before sending a new link.` });
+        setEditDraftLoaded(true);
+      } catch (error) {
+        setStatus({ tone: "danger", message: error instanceof Error ? error.message : "Could not load this expired order." });
+      } finally {
+        editDraftLoadingRef.current = false;
+      }
+    }
+    void loadDraftForEditing();
+  }, [auth, editDraftLoaded, editOrderId, products]);
 
   useEffect(() => {
     let alive = true;
@@ -1206,7 +1324,7 @@ export function OrderBuilderPage() {
     const validation = validateRemoteOrder(true);
     if (validation) return;
     setBusy("send");
-    setStatus({ tone: "muted", message: "Creating draft order..." });
+    setStatus({ tone: "muted", message: editOrderId ? "Saving order changes..." : "Creating draft order..." });
     try {
       const token = await auth.getAccessToken();
       const paymentFlow = paymentMethod === "square_payment_link" ? "square_payment_link" : "pay_later";
@@ -1215,8 +1333,14 @@ export function OrderBuilderPage() {
         paymentFlow,
         manualPaymentMethod: paymentMethod === "arrival_payment_link" ? "arrival_payment_link" : null,
         shipmentDate: shipmentDate || null,
+        ...(editOrderId && editOriginalDiscountCode && discountMode === "code" &&
+        discountCodeCheck?.status === "valid" && discountCodeCheck.code === editOriginalDiscountCode
+          ? { preserveExistingDiscountCode: true }
+          : {}),
       };
-      const created = await createManualOrder(request, token);
+      const created = editOrderId
+        ? await updateManualOrderDraft({ ...request, orderId: editOrderId }, token)
+        : await createManualOrder(request, token);
       const orderId = String(created.orderId || "").trim();
       if (!orderId) {
         throw new Error("The order may have been created, but no order ID was returned. Check Orders before retrying.");
@@ -1231,11 +1355,11 @@ export function OrderBuilderPage() {
               ? `Arrival-link order created for ${created.orderRef || orderId}.`
               : `Pay-later order created for ${created.orderRef || orderId}.`,
         });
-        navigate("/orders", { state: { openOrderId: orderId, orderCreated: true } });
+        navigate("/orders", { state: { openOrderId: orderId, orderCreated: !editOrderId } });
         return;
       }
 
-      setStatus({ tone: "muted", message: "Draft created. Creating Square payment link..." });
+      setStatus({ tone: "muted", message: editOrderId ? "Changes saved. Creating a new Square payment link..." : "Draft created. Creating Square payment link..." });
       const selectedRatePayload = buildEstimateRequest();
       const sent = await sendManualOrderLink({ ...selectedRatePayload, orderId, shipmentDate: shipmentDate || null }, token);
       setQuoteDirty(false);
@@ -1248,7 +1372,7 @@ export function OrderBuilderPage() {
       if (sent.checkoutUrl) {
         setQuote((current) => ({ ...(current || {}), totalFormatted: created.totalFormatted || current?.totalFormatted }));
       }
-      navigate("/orders", { state: { openOrderId: orderId, orderCreated: true } });
+      navigate("/orders", { state: { openOrderId: orderId, orderCreated: !editOrderId } });
     } catch (error) {
       const freshRates = shippingRateOptionsFromError(error);
       if (freshRates && fulfillmentMethod === "carrier") {
@@ -1275,7 +1399,7 @@ export function OrderBuilderPage() {
         : status?.tone === "warning"
           ? "bg-sg-amber-soft text-sg-amber"
           : "bg-sg-input-bg text-sg-muted";
-  const actionsDisabled = busy !== null || mode !== "remote";
+  const actionsDisabled = busy !== null || mode !== "remote" || !editDraftLoaded;
   const automaticFreeLocalDelivery = fulfillmentMethod === "carrier" && quote?.freeDelivery?.applied === true;
   const availablePaymentOptions = paymentOptionsForFulfillment(fulfillmentMethod);
   const displayQuote = quoteDirty || (fulfillmentMethod === "carrier" && Boolean(selectedRateId)) ? null : quote;
@@ -1319,8 +1443,12 @@ export function OrderBuilderPage() {
     <div className="space-y-4">
       <section className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-4xl font-bold">Order Builder</h1>
-          <p className="mt-1 text-[15px] text-sg-muted">Build call-in orders with backend pricing, discounts, fulfillment, and payment handoff.</p>
+          <h1 className="text-4xl font-bold">{editOrderId ? "Edit expired order" : "Order Builder"}</h1>
+          <p className="mt-1 text-[15px] text-sg-muted">
+            {editOrderId
+              ? `Update ${editOrderRef || editOrderId}, recalculate shipping, and send a fresh payment link.`
+              : "Build call-in orders with backend pricing, discounts, fulfillment, and payment handoff."}
+          </p>
         </div>
         <div className="flex rounded-full border border-sg-border bg-sg-input-bg p-1">
           <button type="button" className={modeButtonClass(mode === "remote")} onClick={() => setMode("remote")}>
@@ -1890,9 +2018,9 @@ export function OrderBuilderPage() {
             {createReadinessMessage ? <p className="text-center text-[11px] font-medium text-sg-muted">{createReadinessMessage}</p> : null}
             <button type="button" className="sg25-btn sg25-btn-primary w-full" disabled={createDisabled} onClick={() => void handleCreateAndSend()}>
               {busy === "send"
-                ? "Creating..."
+                ? editOrderId ? "Saving and sending..." : "Creating..."
                 : paymentMethod === "square_payment_link"
-                  ? "Create and send link"
+                  ? editOrderId ? "Save changes and send new link" : "Create and send link"
                   : paymentMethod === "arrival_payment_link"
                     ? "Create arrival-link order"
                     : "Create pay-later order"}

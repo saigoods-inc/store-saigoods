@@ -219,6 +219,7 @@ export default async function handler(req, res) {
         fulfillmentMethod: parsed.fulfillmentMethod,
         paymentFlow: parsed.paymentFlow,
         shipmentDate: parsed.shipmentDate,
+        preserveExistingDiscountCode: rawBody.preserveExistingDiscountCode === true,
       },
     );
 
