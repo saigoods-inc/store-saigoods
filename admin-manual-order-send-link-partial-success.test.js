@@ -283,7 +283,7 @@ test("B2B invoice validation accepts only a real, bounded PDF", () => {
       contentBase64: Buffer.alloc(MAX_B2B_INVOICE_BYTES + 1, 1).toString("base64"),
       sizeBytes: MAX_B2B_INVOICE_BYTES + 1,
     }),
-    /2 MB or smaller/i,
+    /4 MB or smaller/i,
   );
 });
 
@@ -314,7 +314,7 @@ test("Order Builder exposes invoice upload only inside B2B Square-link flow", ()
   assert.match(source, /Customer invoice PDF/);
   assert.match(source, /Drop invoice PDF here/);
   assert.match(source, /accept="application\/pdf,\.pdf"/);
-  assert.match(source, /MAX_B2B_INVOICE_BYTES = 2 \* 1024 \* 1024/);
+  assert.match(source, /MAX_B2B_INVOICE_BYTES = 4 \* 1024 \* 1024/);
   assert.match(source, /The file is not stored with the order/);
 });
 

@@ -15,7 +15,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createPaymentLink, deletePaymentLink } from "../lib/square.js";
 import { manualPaymentAccessUrl } from "../lib/manual-payment-link-access.js";
 
-export const MAX_B2B_INVOICE_BYTES = 2 * 1024 * 1024;
+export const MAX_B2B_INVOICE_BYTES = 4 * 1024 * 1024;
 
 function invoiceValidationError(message) {
   const error = new Error(message);
@@ -42,7 +42,7 @@ export function parseB2bInvoiceAttachment(input) {
 
   const content = Buffer.from(contentBase64, "base64");
   if (!content.length || content.length > MAX_B2B_INVOICE_BYTES || declaredSize !== content.length) {
-    throw invoiceValidationError("The B2B invoice PDF must be 2 MB or smaller.");
+    throw invoiceValidationError("The B2B invoice PDF must be 4 MB or smaller.");
   }
   if (content.subarray(0, 5).toString("ascii") !== "%PDF-") {
     throw invoiceValidationError("The selected B2B invoice is not a valid PDF file.");

@@ -87,7 +87,7 @@ type AddressVerificationState = {
 type InventoryAvailability = Record<ProductSlug, Record<SizeCode, { caseAvailable: number | null; boxAvailable: number | null; boxesPerCase: number; tracked: boolean }>>;
 const HARDIN_DISCOUNT_PERCENT = 7;
 const CARRIER_RATE_AUTO_REFRESH_MS = 15 * 60 * 1000;
-const MAX_B2B_INVOICE_BYTES = 2 * 1024 * 1024;
+const MAX_B2B_INVOICE_BYTES = 4 * 1024 * 1024;
 const usStateOptions = [
   { value: "AL", label: "AL" },
   { value: "AK", label: "AK" },
@@ -310,7 +310,7 @@ async function readB2bInvoicePdf(file: File): Promise<ManualOrderInvoiceAttachme
     throw new Error("Select a PDF invoice file.");
   }
   if (!file.size || file.size > MAX_B2B_INVOICE_BYTES) {
-    throw new Error("The invoice PDF must be 2 MB or smaller.");
+    throw new Error("The invoice PDF must be 4 MB or smaller.");
   }
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (new TextDecoder("ascii").decode(bytes.slice(0, 5)) !== "%PDF-") {
@@ -1030,7 +1030,7 @@ export function OrderBuilderPage() {
     }
     if (!file.size || file.size > MAX_B2B_INVOICE_BYTES) {
       setB2bInvoiceFile(null);
-      setStatus({ tone: "danger", message: "The invoice PDF must be 2 MB or smaller." });
+      setStatus({ tone: "danger", message: "The invoice PDF must be 4 MB or smaller." });
       return;
     }
     setB2bInvoiceFile(file);
@@ -2064,7 +2064,7 @@ export function OrderBuilderPage() {
                   <Icon name="receipt" className="mt-0.5 h-4 w-4 shrink-0 text-sg-primary" />
                   <div>
                     <p className="text-[12px] font-bold text-sg-text">Customer invoice PDF <span className="font-medium text-sg-muted">(optional)</span></p>
-                    <p className="mt-1 text-[11px] leading-5 text-sg-muted">Attached only to this B2B payment-link email. PDF, up to 2 MB. The file is not stored with the order.</p>
+                    <p className="mt-1 text-[11px] leading-5 text-sg-muted">Attached only to this B2B payment-link email. PDF, up to 4 MB. The file is not stored with the order.</p>
                   </div>
                 </div>
                 <input
