@@ -365,9 +365,12 @@ export interface AddressVerificationResponse {
 
 export interface ManualOrderItem {
   slug: string;
+  clientLineId?: string;
   bundleLines?: Array<{ id: string; qty: number }>;
   quantities?: Record<string, number>;
   boxQuantities?: Record<string, number>;
+  b2bNegotiatedUnitPriceCents?: number;
+  b2bNegotiationReason?: string;
 }
 
 export interface ManualOrderEstimateRequest {

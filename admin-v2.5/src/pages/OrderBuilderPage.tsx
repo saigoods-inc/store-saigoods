@@ -71,6 +71,9 @@ type OrderItemRow = {
   unit: "case" | "box";
   bundleId: string;
   quantity: number;
+  pricingMode: "catalog" | "negotiated";
+  negotiatedUnitPrice: string;
+  negotiationReason: string;
 };
 
 type AddressVerificationState = {
@@ -230,10 +233,13 @@ function makeOrderItemRow(index: number, product = fallbackProducts[0], unit: "c
     unit,
     bundleId: bundle.id,
     quantity: 0,
+    pricingMode: "catalog",
+    negotiatedUnitPrice: "",
+    negotiationReason: "",
   };
 }
 
-function priceOrderRows(rows: OrderItemRow[], products: ProductOption[]) {
+function priceOrderRows(rows: OrderItemRow[], products: ProductOption[], allowNegotiatedPricing = false) {
   const caseCounts = new Map<ProductSlug, number>();
   for (const row of rows) {
     const product = getProduct(products, row.productSlug);
@@ -249,14 +255,19 @@ function priceOrderRows(rows: OrderItemRow[], products: ProductOption[]) {
     const quantity = Math.max(0, Math.floor(row.quantity || 0));
     const rule = product.volumePricing;
     const eligible = bundle.kind === "case" && rule?.active === true && (caseCounts.get(product.slug) || 0) >= rule.minCases && rule.pricePerCaseCents > 0;
-    const unitPrice = eligible ? Math.min(bundle.priceCents, bundle.units * rule.pricePerCaseCents) : bundle.priceCents;
-    if (eligible && unitPrice < bundle.priceCents) appliedProducts.add(product.slug);
+    const catalogUnitPrice = eligible ? Math.min(bundle.priceCents, bundle.units * rule.pricePerCaseCents) : bundle.priceCents;
+    const negotiatedUnitPrice = parseDollarsToCents(row.negotiatedUnitPrice);
+    const unitPrice = allowNegotiatedPricing && row.pricingMode === "negotiated" && negotiatedUnitPrice > 0
+      ? negotiatedUnitPrice
+      : catalogUnitPrice;
+    if (eligible && catalogUnitPrice < bundle.priceCents) appliedProducts.add(product.slug);
     const lineTotal = unitPrice * quantity;
     totalCents += lineTotal;
     lineTotals.set(row.id, lineTotal);
   }
-  const blocksDiscount = [...appliedProducts].some((slug) => getProduct(products, slug).volumePricing?.allowDiscountStacking !== true);
-  return { totalCents, lineTotals, appliedProducts, blocksDiscount };
+  const negotiatedApplied = allowNegotiatedPricing && rows.some((row) => row.pricingMode === "negotiated" && Math.max(0, Math.floor(row.quantity || 0)) > 0);
+  const blocksDiscount = negotiatedApplied || [...appliedProducts].some((slug) => getProduct(products, slug).volumePricing?.allowDiscountStacking !== true);
+  return { totalCents, lineTotals, appliedProducts, blocksDiscount, negotiatedApplied };
 }
 
 function modeButtonClass(active: boolean) {
@@ -555,6 +566,28 @@ function rowsFromDraftItems(rawItems: unknown, products: ProductOption[]) {
     const item = recordValue(rawItem);
     const product = products.find((entry) => entry.slug === String(item.slug || ""));
     if (!product) return;
+    const bundleLines = Array.isArray(item.bundleLines) ? item.bundleLines : [];
+    const pricing = recordValue(item.b2bPricing);
+    if (bundleLines.length === 1 && item.clientLineId) {
+      const rawBundle = recordValue(bundleLines[0]);
+      const bundle = product.bundles.find((entry) => entry.id === String(rawBundle.id || ""));
+      if (bundle) {
+        const allocations = recordValue(bundle.kind === "case" ? item.quantities : item.boxQuantities);
+        const size = product.sizes.find((entry) => Number(allocations[entry]) > 0) || product.defaultSize;
+        rows.push({
+          id: String(item.clientLineId),
+          productSlug: product.slug,
+          size,
+          unit: bundle.kind,
+          bundleId: bundle.id,
+          quantity: Math.max(1, Math.floor(Number(rawBundle.qty) || 1)),
+          pricingMode: pricing.mode === "negotiated" ? "negotiated" : "catalog",
+          negotiatedUnitPrice: pricing.mode === "negotiated" ? (Math.max(0, Number(pricing.unitPriceCents) || 0) / 100).toFixed(2) : "",
+          negotiationReason: pricing.mode === "negotiated" ? String(pricing.reason || "") : "",
+        });
+        return;
+      }
+    }
     (["case", "box"] as const).forEach((unit) => {
       const allocations = recordValue(unit === "case" ? item.quantities : item.boxQuantities);
       const bundle = getUnitBundle(product, unit);
@@ -568,6 +601,9 @@ function rowsFromDraftItems(rawItems: unknown, products: ProductOption[]) {
           unit,
           bundleId: bundle.id,
           quantity: Math.max(1, Math.ceil(allocated / Math.max(1, bundle.units))),
+          pricingMode: "catalog",
+          negotiatedUnitPrice: "",
+          negotiationReason: "",
         });
       });
     });
@@ -807,6 +843,29 @@ export function OrderBuilderPage() {
   }, []);
 
   const selectedItems = useMemo<ManualOrderItem[]>(() => {
+    if (fulfillmentMethod === "b2b_shipping") {
+      return itemRows.flatMap((row) => {
+        const quantity = Math.max(0, Math.floor(row.quantity || 0));
+        if (!quantity) return [];
+        const product = getProduct(products, row.productSlug);
+        const bundle = getSelectedBundle(product, row);
+        const quantities = emptySizeMap(product.sizes);
+        const boxQuantities = emptySizeMap(product.sizes);
+        const allocation = bundle.kind === "case" ? quantities : boxQuantities;
+        allocation[row.size] = quantity * bundle.units;
+        return [{
+          slug: product.slug,
+          clientLineId: row.id,
+          bundleLines: [{ id: bundle.id, qty: quantity }],
+          quantities,
+          boxQuantities,
+          ...(row.pricingMode === "negotiated" ? {
+            b2bNegotiatedUnitPriceCents: parseDollarsToCents(row.negotiatedUnitPrice),
+            b2bNegotiationReason: row.negotiationReason.trim(),
+          } : {}),
+        }];
+      });
+    }
     const grouped = new Map<ProductSlug, ManualOrderItem>();
     for (const row of itemRows) {
       const quantity = Math.max(0, Math.floor(row.quantity || 0));
@@ -827,10 +886,10 @@ export function OrderBuilderPage() {
       grouped.set(product.slug, current);
     }
     return [...grouped.values()];
-  }, [itemRows, products]);
+  }, [fulfillmentMethod, itemRows, products]);
 
   const summaryProductLines = useMemo(() => {
-    const pricedRows = priceOrderRows(itemRows, products);
+    const pricedRows = priceOrderRows(itemRows, products, fulfillmentMethod === "b2b_shipping");
     const grouped = new Map<string, { key: string; name: string; detail: string; totalCents: number; cases: number; boxes: number; size: SizeCode }>();
     for (const row of itemRows) {
       const quantity = Math.max(0, Math.floor(row.quantity || 0));
@@ -855,10 +914,10 @@ export function OrderBuilderPage() {
       ].join(" · "),
       total: formatUsdCents(line.totalCents),
     }));
-  }, [itemRows, products]);
+  }, [fulfillmentMethod, itemRows, products]);
 
   const previewTotals = useMemo(() => {
-    const pricedRows = priceOrderRows(itemRows, products);
+    const pricedRows = priceOrderRows(itemRows, products, fulfillmentMethod === "b2b_shipping");
     const subtotalCents = pricedRows.totalCents;
     const discountCents =
       discountMode === "percent_5"
@@ -897,6 +956,7 @@ export function OrderBuilderPage() {
       discountCents: allowedDiscountCents,
       volumePricingApplied: pricedRows.appliedProducts.size > 0,
       volumePricingBlocksDiscount: pricedRows.blocksDiscount,
+      negotiatedPricingApplied: pricedRows.negotiatedApplied,
       subtotalCents: discountedSubtotalCents,
       shippingCents,
       taxCents,
@@ -1035,6 +1095,14 @@ export function OrderBuilderPage() {
       if (max != null && quantity > max) {
         errors[`item-${row.id}`] = `Item ${index + 1} exceeds the shared stock available for this product and size.`;
       }
+      if (fulfillmentMethod === "b2b_shipping" && row.pricingMode === "negotiated") {
+        const negotiatedCents = parseDollarsToCents(row.negotiatedUnitPrice);
+        if (negotiatedCents < 1 || negotiatedCents > 10_000_000) {
+          errors[`item-${row.id}`] = `Item ${index + 1} needs a negotiated unit price between $0.01 and $100,000.00.`;
+        } else if (row.negotiationReason.trim().length < 3) {
+          errors[`item-${row.id}`] = `Item ${index + 1} needs a short negotiation reason.`;
+        }
+      }
     });
 
     if (discountMode === "code") {
@@ -1055,7 +1123,9 @@ export function OrderBuilderPage() {
       errors.discount = "Enter a custom dollar amount greater than $0.00.";
     }
     if (discountMode !== "none" && previewTotals.volumePricingBlocksDiscount) {
-      errors.discount = "This automatic volume price cannot be combined with another discount.";
+      errors.discount = previewTotals.negotiatedPricingApplied
+        ? "Negotiated B2B prices cannot be combined with another discount."
+        : "This automatic volume price cannot be combined with another discount.";
     }
 
     if (fulfillmentMethod === "carrier" || fulfillmentMethod === "b2b_shipping") {
@@ -1428,6 +1498,8 @@ export function OrderBuilderPage() {
             : "Check totals before creating the order."
         : "";
   const createDisabled = actionsDisabled || Boolean(createReadinessMessage);
+  const displayedRowPricing = priceOrderRows(itemRows, products, fulfillmentMethod === "b2b_shipping");
+  const catalogRowPricing = priceOrderRows(itemRows, products, false);
 
   useEffect(() => {
     if (!hasVisibleCarrierRates || !shouldScrollToRatesRef.current) return;
@@ -1470,8 +1542,8 @@ export function OrderBuilderPage() {
       ) : null}
 
       <section className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="space-y-4">
-          <section className="sg25-card p-4 sm:p-5">
+        <div className="flex flex-col gap-4">
+          <section className="sg25-card order-1 p-4 sm:p-5">
             <div className="flex items-center gap-2">
               <Icon name="tag" className="h-4 w-4 text-sg-primary" />
               <h2 className="text-lg font-bold">Customer</h2>
@@ -1483,7 +1555,7 @@ export function OrderBuilderPage() {
             </div>
           </section>
 
-          <section className="sg25-card overflow-hidden p-0">
+          <section className="sg25-card order-3 overflow-hidden p-0">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3 px-4 pt-4 sm:px-5 sm:pt-5">
                 <span className="flex h-9 w-9 items-center justify-center rounded-full bg-sg-primary-soft text-sg-primary">
@@ -1579,13 +1651,54 @@ export function OrderBuilderPage() {
                         />
                       </div>
                     </div>
+                    {fulfillmentMethod === "b2b_shipping" ? (
+                      <div className="mt-3 rounded-[10px] border border-sg-border bg-sg-input-bg/45 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-[11px] font-bold uppercase text-sg-muted">B2B product price</p>
+                            <p className="mt-0.5 text-[11px] text-sg-muted">Automatic catalog price: {formatUsdCents(Math.round((catalogRowPricing.lineTotals.get(row.id) || 0) / Math.max(1, row.quantity)))}/unit</p>
+                          </div>
+                          <div className="flex rounded-full bg-white p-1" role="group" aria-label={`Item ${index + 1} price type`}>
+                            {(["catalog", "negotiated"] as const).map((pricingMode) => (
+                              <button
+                                key={pricingMode}
+                                type="button"
+                                aria-pressed={row.pricingMode === pricingMode}
+                                className={modeButtonClass(row.pricingMode === pricingMode)}
+                                onClick={() => patchItemRow(row.id, { pricingMode })}
+                              >
+                                {pricingMode === "catalog" ? "Catalog price" : "Negotiated price"}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        {row.pricingMode === "negotiated" ? (
+                          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                            <Field
+                              label="Negotiated unit price"
+                              value={row.negotiatedUnitPrice}
+                              onChange={(value) => patchItemRow(row.id, { negotiatedUnitPrice: value })}
+                              placeholder="e.g. 69.00"
+                              compact
+                            />
+                            <Field
+                              label="Reason / agreement note"
+                              value={row.negotiationReason}
+                              onChange={(value) => patchItemRow(row.id, { negotiationReason: value })}
+                              placeholder="e.g. Contract price approved"
+                              compact
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-sg-border pt-3 text-[11px]">
                       <span className={sellableBoxes === 0 ? "font-semibold text-sg-danger" : "text-sg-muted"}>
                         {sellableBoxes == null
                           ? "Inventory not capped"
                           : `${formatInteger(sellableBoxes)} sellable boxes · ${formatInteger(inventory?.caseAvailable ?? 0)} cartons + ${formatInteger(inventory?.boxAvailable ?? 0)} loose`}
                       </span>
-                      <span className="rounded-full bg-sg-input-bg px-3 py-1 font-bold text-sg-text">Line total {formatUsdCents(bundle.priceCents * row.quantity)}</span>
+                      <span className="rounded-full bg-sg-input-bg px-3 py-1 font-bold text-sg-text">Line total {formatUsdCents(displayedRowPricing.lineTotals.get(row.id) || 0)}</span>
                     </div>
                     {rowError ? <p className="mt-2 text-[11px] font-semibold text-sg-danger">{rowError}</p> : null}
                   </article>
@@ -1598,7 +1711,7 @@ export function OrderBuilderPage() {
             </div>
           </section>
 
-          <section className="sg25-card p-4 sm:p-5">
+          <section className="sg25-card order-4 p-4 sm:p-5">
             <div className="flex items-center gap-2">
               <Icon name="tag" className="h-4 w-4 text-sg-primary" />
               <div>
@@ -1711,7 +1824,7 @@ export function OrderBuilderPage() {
             ) : null}
           </section>
 
-          <section className="sg25-card p-4 sm:p-5">
+          <section className="sg25-card order-2 p-4 sm:p-5">
             <div className="flex items-center gap-2">
               <Icon name="truck" className="h-4 w-4 text-sg-primary" />
               <h2 className="text-lg font-bold">Fulfillment</h2>
@@ -1846,7 +1959,7 @@ export function OrderBuilderPage() {
             ) : null}
           </section>
 
-          <section className="sg25-card p-4 sm:p-5">
+          <section className="sg25-card order-5 p-4 sm:p-5">
             <div className="flex items-center gap-2">
               <Icon name="receipt" className="h-4 w-4 text-sg-primary" />
               <h2 className="text-lg font-bold">Payment</h2>
