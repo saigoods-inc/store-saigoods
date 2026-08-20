@@ -1858,6 +1858,7 @@ function OrderDrawer({
   const canCancelAndRefund = Boolean(fieldText(order, ["payment_id"])) && orderType(order) !== "walkin" && !shipped &&
     cancelStatus === "paid";
   const customerRefundComplete = cancelStatus === "refunded";
+  const cancellationEmailSentAt = fieldText(order, ["cancellation_email_sent_at"]);
   const labelRefundState = cancellationLabelRefundState(order, labels);
   const labelRefundComplete = labelRefundState === "complete";
   const labelRefundAttention = labelRefundState === "attention";
@@ -2741,11 +2742,13 @@ function OrderDrawer({
                         onClick={() => void onSendRefundEmail(orderId)}
                       >
                         <Icon name="receipt" className="h-4 w-4" />
-                        {actionBusy === "refundEmail" ? "Sending refund email" : "Send refund email"}
+                        {actionBusy === "refundEmail" ? "Sending refund email" : cancellationEmailSentAt ? "Send refund email again" : "Send refund email"}
                       </button>
                       <p className="text-center text-[11px] leading-4 text-sg-muted">
                         {fieldText(order, ["customer_email"])
-                          ? "Sends the current refund status to the customer. No refund or cancellation is submitted."
+                          ? cancellationEmailSentAt
+                            ? `Refund email last sent ${formatDateTime(cancellationEmailSentAt)}. Sending again only emails the current status; it does not submit another refund or cancellation.`
+                            : "No refund email has been recorded yet. Sending it only emails the current status; it does not submit another refund or cancellation."
                           : "No customer email is saved for this order."}
                       </p>
                     </div>

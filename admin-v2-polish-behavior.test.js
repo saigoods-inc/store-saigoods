@@ -210,7 +210,10 @@ test("cancelled order drawer can send a notification-only refund email", () => {
   const api = read("api/admin-order-cancellation-email.js");
 
   assert.match(source, /Send refund email/);
-  assert.match(source, /No refund or cancellation is submitted/);
+  assert.match(source, /Send refund email again/);
+  assert.match(source, /cancellation_email_sent_at/);
+  assert.match(source, /Refund email last sent/);
+  assert.match(source, /does not submit another refund or cancellation/);
   assert.match(source, /sendCancelledOrderRefundEmail\(orderId, requestId, token\)/);
   assert.match(api, /sendCancelledOrderRefundEmail/);
   assert.doesNotMatch(api, /cancelAndRefundOrder|cancelOrRefundSquarePayment|refundShippoTransaction/);
