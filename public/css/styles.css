@@ -3605,6 +3605,7 @@ button {
 }
 
 .search-form {
+  display: none;
   position: absolute;
   left: 50%;
   width: 100%;
@@ -3706,6 +3707,9 @@ button {
 }
 
 .need-card .need-card__number {
+  position: absolute;
+  top: 1.5rem;
+  right: 1.5rem;
   width: 2rem;
   height: 2rem;
   background: #ffffff;
@@ -3765,6 +3769,7 @@ button {
   }
 
   .search-form {
+    display: none;
     position: static;
     grid-column: 2;
     width: 100%;
@@ -3792,5 +3797,17 @@ button {
 
   .store-benefits__grid {
     grid-template-columns: 1fr;
+  }
+
+  .store-benefits__grid > div,
+  .store-benefits__grid > div:first-child,
+  .store-benefits__grid > div:nth-child(3) {
+    padding: 1rem 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .store-benefits__grid > div:last-child {
+    border-bottom: 0;
   }
 }
