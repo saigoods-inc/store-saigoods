@@ -248,6 +248,7 @@ test("admin-v2.5 operational tables expose details, paging, creation, and export
   assert.doesNotMatch(summary, /lg:absolute lg:inset-0/);
   assert.match(summary, /Business snapshot/);
   assert.match(summary, /Operations overview/);
+  assert.match(summary, /className="mt-auto pt-4"/);
   assert.doesNotMatch(summary, /Core results for the selected channel and time range\./);
   assert.doesNotMatch(summary, /Items needing attention, processing costs, shipping, and stock value\./);
   assert.match(orders, /Orders needing attention/);
