@@ -3766,6 +3766,8 @@ button {
 @media (max-width: 760px) {
   .navbar {
     grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto;
+    column-gap: 0.75rem;
   }
 
   .search-form {
@@ -3778,8 +3780,13 @@ button {
   }
 
   .store-nav {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    justify-content: flex-end;
+    gap: 0.7rem;
+    overflow: visible;
+    padding-top: 0;
   }
 
   .hero__grid {
@@ -3809,5 +3816,20 @@ button {
 
   .store-benefits__grid > div:last-child {
     border-bottom: 0;
+  }
+}
+
+@media (max-width: 300px) {
+  .navbar {
+    grid-template-rows: auto auto;
+  }
+
+  .store-nav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: start;
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-top: 0.2rem;
   }
 }
