@@ -448,7 +448,7 @@ export interface ManualOrderQuoteResponse {
 
 export interface ManualOrderCreateRequest extends ManualOrderEstimateRequest {
   paymentFlow: "square_payment_link" | "pay_later";
-  manualPaymentMethod?: "arrival_payment_link" | null;
+  manualPaymentMethod?: "arrival_payment_link" | "tap_to_pay" | null;
   shipmentDate?: string | null;
   preserveExistingDiscountCode?: boolean;
 }
@@ -470,6 +470,32 @@ export interface ManualOrderSendLinkResponse {
   emailed?: boolean;
   warning?: string;
   error?: string;
+}
+
+export interface TapToPayConfigResponse {
+  enabled: boolean;
+  environment: "staging";
+  simulationEnabled: boolean;
+  reason?: string;
+}
+
+export interface TapToPayStartResponse {
+  ok?: boolean;
+  orderId: string;
+  orderRef?: string;
+  amountCents: number;
+  state: string;
+  iosUrl: string;
+  androidUrl: string;
+  simulationUrl?: string | null;
+}
+
+export interface TapToPayFinalizeResponse {
+  ok?: boolean;
+  order?: Record<string, unknown>;
+  idempotent?: boolean;
+  paymentId?: string;
+  entryMethod?: string | null;
 }
 
 export interface ManualOrderInvoiceAttachment {
@@ -810,6 +836,21 @@ export function sendManualOrderLink(
   token?: string,
 ) {
   return postJson<ManualOrderSendLinkResponse>("/api/admin-manual-order-send-link", body, token);
+}
+
+export function fetchTapToPayConfig(token?: string) {
+  return fetchJson<TapToPayConfigResponse>("/api/admin-tap-to-pay-config", token);
+}
+
+export function startTapToPay(orderId: string, token?: string) {
+  return postJson<TapToPayStartResponse>("/api/admin-tap-to-pay-start", { orderId }, token);
+}
+
+export function finalizeTapToPay(
+  body: { state: string; transactionId: string; simulation?: boolean },
+  token?: string,
+) {
+  return postJson<TapToPayFinalizeResponse>("/api/admin-tap-to-pay-finalize", body, token);
 }
 
 export function syncOrderToShippo(orderId: string, token?: string) {

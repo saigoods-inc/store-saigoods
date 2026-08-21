@@ -11,6 +11,7 @@ import {
   fetchDiscountCodes,
   fetchInventoryDashboard,
   fetchManualOrderDraft,
+  fetchTapToPayConfig,
   sendManualOrderLink,
   updateManualOrderDraft,
   verifyManualOrderAddress,
@@ -27,7 +28,7 @@ import { Icon } from "../lib/icons";
 type BuilderMode = "remote" | "walk-in";
 type FulfillmentMethod = "carrier" | "local_delivery" | "pickup" | "b2b_shipping";
 type BackendFulfillmentMethod = "carrier" | "local_delivery" | "pickup" | "b2b_shipping";
-type PaymentMethod = "square_payment_link" | "pay_later" | "arrival_payment_link";
+type PaymentMethod = "square_payment_link" | "pay_later" | "arrival_payment_link" | "tap_to_pay";
 type DiscountMode = "none" | "code" | "percent_5" | "percent_10" | "percent_15" | "custom_percent" | "custom_amount";
 type DiscountCategory = "none" | "code" | "percent" | "amount";
 type ProductSlug = "nitrile-standard" | "black-nitrile-general" | "black-nitrile-heavy-duty";
@@ -199,6 +200,7 @@ const paymentOptions: Array<{ value: PaymentMethod; label: string; icon: "receip
   { value: "square_payment_link", label: "Send payment link email", icon: "arrow-up-right" },
   { value: "pay_later", label: "Pay later (Cash or Cheque)", icon: "receipt" },
   { value: "arrival_payment_link", label: "Send link upon arrival", icon: "logout" },
+  { value: "tap_to_pay", label: "Tap to Pay in Orders (staging)", icon: "receipt" },
 ];
 
 const discountCategoryOptions: Array<{ value: DiscountCategory; label: string }> = [
@@ -561,11 +563,12 @@ function quoteValue(quote: ManualOrderQuoteResponse | null, key: keyof ManualOrd
   return typeof value === "string" && value ? value : formatUsdCents(fallbackCents);
 }
 
-function paymentOptionsForFulfillment(method: FulfillmentMethod) {
-  if (method === "carrier") return paymentOptions.filter((option) => option.value === "square_payment_link");
-  if (method === "b2b_shipping") return paymentOptions.filter((option) => option.value !== "arrival_payment_link");
-  if (method === "local_delivery") return paymentOptions;
-  return paymentOptions.filter((option) => option.value === "pay_later");
+function paymentOptionsForFulfillment(method: FulfillmentMethod, tapToPayEnabled = false) {
+  const visible = paymentOptions.filter((option) => option.value !== "tap_to_pay" || tapToPayEnabled);
+  if (method === "carrier") return visible.filter((option) => option.value === "square_payment_link");
+  if (method === "b2b_shipping") return visible.filter((option) => option.value !== "arrival_payment_link" && option.value !== "tap_to_pay");
+  if (method === "local_delivery") return visible;
+  return visible.filter((option) => option.value === "pay_later");
 }
 
 function sizeLabel(size: SizeCode) {
@@ -664,6 +667,7 @@ export function OrderBuilderPage() {
   const [mode, setMode] = useState<BuilderMode>("remote");
   const [fulfillmentMethod, setFulfillmentMethod] = useState<FulfillmentMethod>("carrier");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("square_payment_link");
+  const [tapToPayEnabled, setTapToPayEnabled] = useState(false);
   const [discountMode, setDiscountMode] = useState<DiscountMode>("none");
   const [discountCode, setDiscountCode] = useState("");
   const [discountCodeCheck, setDiscountCodeCheck] = useState<{
@@ -708,6 +712,16 @@ export function OrderBuilderPage() {
   const [isCarrierRatesRefreshing, setIsCarrierRatesRefreshing] = useState(false);
   const [inventoryAvailability, setInventoryAvailability] = useState<InventoryAvailability>(() => emptyInventoryAvailability(fallbackProducts));
   const [summaryCanStick, setSummaryCanStick] = useState(true);
+
+  useEffect(() => {
+    if (!auth.session) return;
+    let cancelled = false;
+    void auth.getAccessToken()
+      .then((token) => fetchTapToPayConfig(token))
+      .then((config) => { if (!cancelled) setTapToPayEnabled(config.enabled === true); })
+      .catch(() => { if (!cancelled) setTapToPayEnabled(false); });
+    return () => { cancelled = true; };
+  }, [auth]);
   const [updatedAt] = useState(() => new Date().toISOString());
   const summaryRef = useRef<HTMLElement | null>(null);
   const carrierRatesRef = useRef<HTMLDivElement | null>(null);
@@ -1006,12 +1020,12 @@ export function OrderBuilderPage() {
   }, [quote, selectedRateId, selectedRateSnapshot]);
 
   useEffect(() => {
-    const options = paymentOptionsForFulfillment(fulfillmentMethod);
+    const options = paymentOptionsForFulfillment(fulfillmentMethod, tapToPayEnabled);
     if (!options.length) return;
     if (!options.some((option) => option.value === paymentMethod)) {
       setPaymentMethod(options[0].value);
     }
-  }, [fulfillmentMethod, paymentMethod]);
+  }, [fulfillmentMethod, paymentMethod, tapToPayEnabled]);
 
   useEffect(() => {
     if (fulfillmentMethod !== "b2b_shipping" || paymentMethod !== "square_payment_link") {
@@ -1211,7 +1225,7 @@ export function OrderBuilderPage() {
         errors.b2b = "Enter a B2B freight charge between $0.01 and $100,000.00.";
       }
     }
-    if (forCreate && !paymentOptionsForFulfillment(fulfillmentMethod).some((option) => option.value === paymentMethod)) {
+    if (forCreate && !paymentOptionsForFulfillment(fulfillmentMethod, tapToPayEnabled).some((option) => option.value === paymentMethod)) {
       errors.payment = "Select a payment method available for this fulfillment method.";
     }
 
@@ -1473,7 +1487,8 @@ export function OrderBuilderPage() {
       const request: ManualOrderCreateRequest = {
         ...buildEstimateRequest(),
         paymentFlow,
-        manualPaymentMethod: paymentMethod === "arrival_payment_link" ? "arrival_payment_link" : null,
+        manualPaymentMethod:
+          paymentMethod === "arrival_payment_link" ? "arrival_payment_link" : paymentMethod === "tap_to_pay" ? "tap_to_pay" : null,
         shipmentDate: shipmentDate || null,
         ...(editOrderId && editOriginalDiscountCode && discountMode === "code" &&
         discountCodeCheck?.status === "valid" && discountCodeCheck.code === editOriginalDiscountCode
@@ -1495,6 +1510,8 @@ export function OrderBuilderPage() {
           message:
             paymentMethod === "arrival_payment_link"
               ? `Arrival-link order created for ${created.orderRef || orderId}.`
+              : paymentMethod === "tap_to_pay"
+                ? `Tap to Pay staging order created for ${created.orderRef || orderId}.`
               : `Pay-later order created for ${created.orderRef || orderId}.`,
         });
         navigate("/orders", { state: { openOrderId: orderId, orderCreated: !editOrderId } });
@@ -1548,7 +1565,7 @@ export function OrderBuilderPage() {
           : "bg-sg-input-bg text-sg-muted";
   const actionsDisabled = busy !== null || mode !== "remote" || !editDraftLoaded;
   const automaticFreeLocalDelivery = fulfillmentMethod === "carrier" && quote?.freeDelivery?.applied === true;
-  const availablePaymentOptions = paymentOptionsForFulfillment(fulfillmentMethod);
+  const availablePaymentOptions = paymentOptionsForFulfillment(fulfillmentMethod, tapToPayEnabled);
   const displayQuote = quoteDirty || (fulfillmentMethod === "carrier" && Boolean(selectedRateId)) ? null : quote;
   const summaryWarnings = visibleQuoteWarnings(quote);
   const visibleCarrierRates = (quote?.shippingRateOptions || []).filter((rate) => String(rate.provider || "").toLowerCase() !== "local");
@@ -2262,6 +2279,8 @@ export function OrderBuilderPage() {
                   ? editOrderId ? "Save changes and send new link" : "Create and send link"
                   : paymentMethod === "arrival_payment_link"
                     ? "Create arrival-link order"
+                    : paymentMethod === "tap_to_pay"
+                      ? "Create Tap to Pay order"
                     : "Create pay-later order"}
               <Icon name="arrow-up-right" className="h-4 w-4" />
             </button>

@@ -43,6 +43,9 @@ import adminSummaryHandler from "./api/admin-summary.js";
 import adminShippingHealthHandler from "./api/admin-shipping-health.js";
 import adminPaymentHealthHandler from "./api/admin-payment-health.js";
 import adminPaymentFeeConfigHandler from "./api/admin-payment-fee-config.js";
+import adminTapToPayConfigHandler from "./api/admin-tap-to-pay-config.js";
+import adminTapToPayStartHandler from "./api/admin-tap-to-pay-start.js";
+import adminTapToPayFinalizeHandler from "./api/admin-tap-to-pay-finalize.js";
 import adminManualOrderRecordPaymentHandler from "./api/admin-manual-order-record-payment.js";
 import adminManualOrderSendLinkHandler from "./api/admin-manual-order-send-link.js";
 import adminManualOrderUpdateDraftHandler from "./api/admin-manual-order-update-draft.js";
@@ -335,6 +338,32 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/admin-manual-order-record-payment" && req.method === "POST") {
       const body = await readJsonBody(req);
       await adminManualOrderRecordPaymentHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-tap-to-pay-config" && req.method === "GET") {
+      await adminTapToPayConfigHandler(
+        { method: "GET", headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-tap-to-pay-start" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminTapToPayStartHandler(
+        { method: "POST", body, headers: req.headers },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-tap-to-pay-finalize" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      await adminTapToPayFinalizeHandler(
         { method: "POST", body, headers: req.headers },
         adaptExpressStyleResponse(res),
       );

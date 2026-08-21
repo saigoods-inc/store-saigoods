@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "../auth/AuthProvider";
 import { useAdminShellHeaderMeta } from "../components/layout/AdminShell";
 import { CustomSelect } from "../components/ui/CustomSelect";
-import { ApiError, cancelAndRefundOrder, checkCancelledOrderRefundStatus, completeOrderHandoff, confirmOrderProductShipped, fetchInventoryDashboard, fetchMarketplaceOrders, fetchOrderShipFromDisplay, notifyBuyerShipping, postMarketplaceOrderAction, prepareManualOrderEdit, previewOrderPackingPlan, purchaseOrderShippoAllLabels, purchaseOrderShippoLabel, saveOrderExternalFulfillment, sendCancelledOrderRefundEmail, sendManualOrderLink, syncOrderToShippo, updateOrderPackingPlan } from "../lib/api";
+import { ApiError, cancelAndRefundOrder, checkCancelledOrderRefundStatus, completeOrderHandoff, confirmOrderProductShipped, fetchInventoryDashboard, fetchMarketplaceOrders, fetchOrderShipFromDisplay, fetchTapToPayConfig, finalizeTapToPay, notifyBuyerShipping, postMarketplaceOrderAction, prepareManualOrderEdit, previewOrderPackingPlan, purchaseOrderShippoAllLabels, purchaseOrderShippoLabel, saveOrderExternalFulfillment, sendCancelledOrderRefundEmail, sendManualOrderLink, startTapToPay, syncOrderToShippo, updateOrderPackingPlan } from "../lib/api";
 import type { AdminOrderPackingPlanResponse, AdminOrderShipFromDisplayResponse, InventoryVariantRow, MarketplaceOrder, PackingPlanContent, PackingPlanParcel, PackingPlanSummary } from "../lib/api";
 import { formatDateTime, formatNumber, formatUsdCents } from "../lib/format";
 import { Icon } from "../lib/icons";
@@ -16,7 +16,7 @@ type OrderTypeFilter = "all" | "online" | "manual" | "walkin";
 type StatusFilter = "all" | "awaiting_payment" | "paid_not_shipped" | "shipped" | "needs_attention" | "cancelled";
 type TimeFilter = "all" | "today" | "week" | "month";
 type Tone = "neutral" | "blue" | "green" | "red" | "amber";
-type OrderActionKey = "sync" | `purchase:${string}` | "packingPreview" | "packingSave" | "packingClear" | "notify" | "arrivalLink" | "editExpired" | "externalFulfillment" | "ship" | "cancel" | "refundStatus" | "refundEmail";
+type OrderActionKey = "sync" | `purchase:${string}` | "packingPreview" | "packingSave" | "packingClear" | "notify" | "arrivalLink" | "tapToPay" | "editExpired" | "externalFulfillment" | "ship" | "cancel" | "refundStatus" | "refundEmail";
 type PurchaseIntent = {
   orderId: string;
   rateObjectId: string;
@@ -34,6 +34,39 @@ type CancelIntent = { orderId: string; orderRef: string; totalCents: number; pur
 type HandoffProof = { name: string; sizeLabel: string; dataUrl: string } | null;
 const HANDOFF_PROOF_STORAGE_PREFIX = "sg25-handoff-proof:";
 const ACTIVE_ORDERS_REFRESH_MS = 30_000;
+
+function tapToPayCallback(search: string) {
+  const params = new URLSearchParams(search);
+  const simulation = params.get("tap_to_pay_simulation") === "success";
+  if (simulation) {
+    return {
+      state: params.get("tap_to_pay_state") || "",
+      transactionId: params.get("tap_to_pay_transaction_id") || "",
+      errorCode: "",
+      simulation: true,
+    };
+  }
+  const iosData = params.get("data");
+  if (iosData) {
+    try {
+      const data = JSON.parse(iosData) as Record<string, unknown>;
+      return {
+        state: String(data.state || ""),
+        transactionId: String(data.transaction_id || ""),
+        errorCode: String(data.error_code || ""),
+        simulation: false,
+      };
+    } catch {
+      return { state: "", transactionId: "", errorCode: "invalid_callback", simulation: false };
+    }
+  }
+  return {
+    state: params.get("com.squareup.pos.REQUEST_METADATA") || params.get("tap_to_pay_state") || "",
+    transactionId: params.get("com.squareup.pos.SERVER_TRANSACTION_ID") || "",
+    errorCode: params.get("com.squareup.pos.ERROR_CODE") || params.get("tap_to_pay_error") || "",
+    simulation: false,
+  };
+}
 
 async function fileToExternalPayload(file: File) {
   const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -365,6 +398,7 @@ function paymentState(order: OrderRow): { label: string; tone: Tone } {
   if (workflow === "payment_link_sent") return { label: "Payment link sent", tone: "amber" };
   if (isCancelled(order)) return { label: "Cancelled", tone: "red" };
   if (flow === "pay_later" && manualMethod === "arrival_payment_link") return { label: "Send link upon arrival", tone: "amber" };
+  if (flow === "pay_later" && manualMethod === "tap_to_pay") return { label: "Tap to Pay pending", tone: "amber" };
   if (flow === "pay_later") return { label: "Pay later", tone: "amber" };
   if (flow === "square_payment_link") return { label: "Send payment link", tone: "amber" };
   if (workflow === "draft") return { label: "Draft", tone: "neutral" };
@@ -413,6 +447,7 @@ function isLocalPayLaterOrder(order: OrderRow) {
     orderType(order) !== "walkin" &&
     !isB2bShippingOrder(order) &&
     !isPaid(order) &&
+    method !== "tap_to_pay" &&
     (flow === "pay_later" || method === "cash" || method === "check")
   );
 }
@@ -426,6 +461,7 @@ function nextAction(order: OrderRow, labels: LabelRow[]) {
     return needsAttention(order) ? "Review refund status" : "No action required";
   }
   if (isLocalPayLaterOrder(order)) return "Deliver and collect payment";
+  if (normalize(fieldText(order, ["manual_payment_method"])) === "tap_to_pay" && !isPaid(order)) return "Collect Tap to Pay";
   if (isExpiredManualPaymentLink(order)) return "Edit order or send a new link";
   if (!isPaid(order) && !isCancelled(order)) return "Record payment when received";
   if (payment === "Awaiting payment") return "Collect payment";
@@ -1756,6 +1792,9 @@ function OrderDrawer({
   onPurchaseLabel,
   onRequestNotifyBuyer,
   onSendArrivalPaymentLink,
+  onStartTapToPay,
+  tapToPayEnabled,
+  tapToPaySimulationEnabled,
   onEditExpiredOrder,
   onSaveExternalFulfillment,
   onRequestConfirmShipped,
@@ -1776,6 +1815,9 @@ function OrderDrawer({
   onPurchaseLabel: (orderId: string, rateObjectId: string) => Promise<void>;
   onRequestNotifyBuyer: (orderId: string) => void;
   onSendArrivalPaymentLink: (orderId: string) => Promise<void>;
+  onStartTapToPay: (orderId: string, simulate?: boolean) => Promise<void>;
+  tapToPayEnabled: boolean;
+  tapToPaySimulationEnabled: boolean;
   onEditExpiredOrder: (orderId: string) => Promise<void>;
   onSaveExternalFulfillment: (body: Parameters<typeof saveOrderExternalFulfillment>[0]) => Promise<void>;
   onRequestConfirmShipped: (intent: NonNullable<ShipIntent>) => void;
@@ -1852,6 +1894,7 @@ function OrderDrawer({
   const cancelled = isCancelled(order);
   const paymentLinkUrl = fieldText(order, ["payment_link_url"]);
   const arrivalLinkOrder = normalize(fieldText(order, ["manual_payment_method"])) === "arrival_payment_link";
+  const tapToPayOrder = normalize(fieldText(order, ["manual_payment_method"])) === "tap_to_pay";
   const localPayLaterPending = isLocalPayLaterOrder(order);
   const requiresPaymentProof = localPayLaterPending && !arrivalLinkOrder;
   const canSyncShippo = carrierOrder && paid && !labelPurchased;
@@ -2626,6 +2669,35 @@ function OrderDrawer({
                   </div>
                 </details>
               ) : null}
+
+              {tapToPayOrder && !paid ? (
+                <section className="rounded-[10px] border border-sg-primary/30 bg-sg-primary-soft/40 p-4">
+                  <DrawerSectionTitle icon="receipt">Tap to Pay staging</DrawerSectionTitle>
+                  <p className="mt-3 text-[13px] leading-5 text-sg-muted">
+                    Open this order on an approved iPhone or Android phone. Square Point of Sale will collect the locked total, then return here for server verification.
+                  </p>
+                  <button
+                    type="button"
+                    className="sg25-btn sg25-btn-primary mt-3 h-10 w-full justify-center px-4 text-[12px]"
+                    disabled={!tapToPayEnabled || actionBusy === "tapToPay"}
+                    onClick={() => void onStartTapToPay(orderId, false)}
+                  >
+                    <Icon name="receipt" className="h-4 w-4" />
+                    {actionBusy === "tapToPay" ? "Opening Square" : "Pay now with Square"}
+                  </button>
+                  {tapToPaySimulationEnabled ? (
+                    <button
+                      type="button"
+                      className="sg25-btn sg25-btn-ghost mt-2 h-9 w-full justify-center px-4 text-[12px]"
+                      disabled={actionBusy === "tapToPay"}
+                      onClick={() => void onStartTapToPay(orderId, true)}
+                    >
+                      Simulate successful payment
+                    </button>
+                  ) : null}
+                  {!tapToPayEnabled ? <p className="mt-2 text-center text-[11px] font-semibold text-sg-danger">Staging is not configured for this admin.</p> : null}
+                </section>
+              ) : null}
             </div>
 
             <div className="space-y-4">
@@ -3150,6 +3222,48 @@ export function OrdersPage() {
     enabled: Boolean(auth.client && auth.session),
   });
 
+  const tapToPayConfigQuery = useQuery({
+    queryKey: ["admin-v2.5-tap-to-pay-config"],
+    queryFn: async () => fetchTapToPayConfig(await auth.getAccessToken()),
+    enabled: Boolean(auth.client && auth.session),
+    staleTime: 60_000,
+    retry: false,
+  });
+
+  const tapCallbackHandledRef = useRef("");
+
+  useEffect(() => {
+    const callback = tapToPayCallback(location.search);
+    if (!callback.state && !callback.errorCode) return;
+    const callbackKey = location.search;
+    if (tapCallbackHandledRef.current === callbackKey) return;
+    tapCallbackHandledRef.current = callbackKey;
+    navigate("/orders", { replace: true, state: null });
+    if (callback.errorCode) {
+      setDrawerActionStatus({ tone: "error", message: `Tap to Pay was not completed (${callback.errorCode.replaceAll("_", " ")}).` });
+      return;
+    }
+    setDrawerActionBusy("tapToPay");
+    setDrawerActionStatus(null);
+    void auth.getAccessToken()
+      .then((token) => finalizeTapToPay({
+        state: callback.state,
+        transactionId: callback.transactionId,
+        simulation: callback.simulation,
+      }, token))
+      .then(async (result) => {
+        const orderId = String(result.order?.id || "");
+        if (orderId) setSelectedOrderId(orderId);
+        await ordersQuery.refetch();
+        setDrawerActionStatus({ tone: "success", message: "Square payment verified. The order is paid and ready for local delivery." });
+      })
+      .catch(async (error) => {
+        await ordersQuery.refetch();
+        setDrawerActionStatus({ tone: "error", message: error instanceof Error ? error.message : "Tap to Pay could not be verified." });
+      })
+      .finally(() => setDrawerActionBusy(null));
+  }, [auth, location.search, navigate, ordersQuery]);
+
   useAdminShellHeaderMeta(
     ordersQuery.dataUpdatedAt ? <span>Updated {formatDateTime(new Date(ordersQuery.dataUpdatedAt).toISOString())}</span> : null,
   );
@@ -3383,6 +3497,28 @@ export function OrdersPage() {
       const message = error instanceof ApiError || error instanceof Error ? error.message : "Action failed.";
       setDrawerActionStatus({ tone: "error", message });
     } finally {
+      setDrawerActionBusy(null);
+    }
+  }
+
+  async function handleStartTapToPay(orderId: string, simulate = false) {
+    setDrawerActionBusy("tapToPay");
+    setDrawerActionStatus(null);
+    try {
+      const token = await auth.getAccessToken();
+      const started = await startTapToPay(orderId, token);
+      if (simulate) {
+        if (!started.simulationUrl) throw new Error("Tap to Pay simulation is not enabled.");
+        window.location.assign(started.simulationUrl);
+        return;
+      }
+      const userAgent = navigator.userAgent || "";
+      const isAndroid = /Android/i.test(userAgent);
+      const isIos = /iPhone|iPod/i.test(userAgent);
+      if (!isAndroid && !isIos) throw new Error("Open this order on an approved iPhone or Android phone.");
+      window.location.assign(isAndroid ? started.androidUrl : started.iosUrl);
+    } catch (error) {
+      setDrawerActionStatus({ tone: "error", message: error instanceof Error ? error.message : "Could not open Square Point of Sale." });
       setDrawerActionBusy(null);
     }
   }
@@ -3683,6 +3819,9 @@ export function OrdersPage() {
           onPurchaseLabel={handlePurchaseLabel}
           onRequestNotifyBuyer={(orderId) => setNotifyIntent({ orderId })}
           onSendArrivalPaymentLink={handleSendArrivalPaymentLink}
+          onStartTapToPay={handleStartTapToPay}
+          tapToPayEnabled={tapToPayConfigQuery.data?.enabled === true}
+          tapToPaySimulationEnabled={tapToPayConfigQuery.data?.simulationEnabled === true}
           onEditExpiredOrder={handleEditExpiredOrder}
           onSaveExternalFulfillment={handleSaveExternalFulfillment}
           onRequestConfirmShipped={(intent) => setShipIntent(intent)}

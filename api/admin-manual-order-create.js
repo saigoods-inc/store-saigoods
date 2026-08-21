@@ -9,7 +9,8 @@ import {
 } from "../lib/manual-order-fulfillment.js";
 import { createManualOrderDraft } from "../lib/orders.js";
 import { normalizeDiscountCode } from "../lib/discount-codes.js";
-import { assertReportsAuthorized } from "../lib/reports-auth.js";
+import { assertReportsAuthorized, getReportsActor } from "../lib/reports-auth.js";
+import { assertTapToPayActor, assertTapToPayEnabled } from "../lib/tap-to-pay.js";
 import {
   selectManualOrderRateFromToken,
   verifyManualOrderQuoteToken,
@@ -62,7 +63,12 @@ function parseCreateBody(body) {
   const fulfillmentMethod = normalizeFulfillmentMethod(body?.fulfillmentMethod);
   const paymentFlow = normalizePaymentFlow(body?.paymentFlow);
   const rawManualPaymentMethod = String(body?.manualPaymentMethod || "").trim().toLowerCase();
-  const manualPaymentMethod = rawManualPaymentMethod === "arrival_payment_link" ? "arrival_payment_link" : null;
+  const manualPaymentMethod = ["arrival_payment_link", "tap_to_pay"].includes(rawManualPaymentMethod)
+    ? rawManualPaymentMethod
+    : null;
+  if (manualPaymentMethod === "tap_to_pay" && fulfillmentMethod !== "local_delivery") {
+    return { error: "Tap to Pay staging is available only for local delivery orders." };
+  }
   const addr = body?.address;
   if (fulfillmentMethod === "carrier" || fulfillmentMethod === "b2b_shipping") {
     if (!addr || typeof addr !== "object") {
@@ -145,6 +151,10 @@ export default async function handler(req, res) {
     if (parsed.error) {
       res.status(400).json({ error: parsed.error });
       return;
+    }
+    if (parsed.manualPaymentMethod === "tap_to_pay") {
+      const tapConfig = assertTapToPayEnabled();
+      assertTapToPayActor(await getReportsActor(req), tapConfig);
     }
 
     // Carrier drafts reuse a signed estimate instead of recomputing it in this
