@@ -152,11 +152,28 @@ test("Order Builder treats the selected carrier rate as an editable draft until 
   assert.match(source, /setSelectedRateSnapshot\(nextSelected \? rate : null\)/);
   assert.match(source, /rateAmountCents\(selectedRateSnapshot\)/);
   assert.match(source, /errors\.carrierRate = "Select a carrier rate before creating the order\."/);
-  assert.match(source, /const created = await createManualOrder\(request, token\)/);
+  assert.match(source, /await createManualOrder\(request, token\)/);
+  assert.match(source, /await updateManualOrderDraft\(\{ \.\.\.request, orderId: editOrderId \}, token\)/);
   assert.match(source, /status\.message === quote\.userFacingError/);
   assert.match(source, /md:grid-cols-3/);
   assert.match(source, /Build the order one product line at a time/);
   assert.doesNotMatch(source, /Confirm rate|Rate confirmed|Confirming rate|selectedRateConfirmed|confirmedRateId/);
+});
+
+test("expired manual payment links offer unchanged resend or quote-recalculating edit", () => {
+  const orders = read("admin-v2.5/src/pages/OrdersPage.tsx");
+  const builder = read("admin-v2.5/src/pages/OrderBuilderPage.tsx");
+  const prepare = read("api/admin-manual-order-prepare-edit.js");
+
+  assert.match(orders, /label: "Expired"/);
+  assert.match(orders, /Send new payment link/);
+  assert.match(orders, /Edit order first/);
+  assert.match(orders, /prepareManualOrderEdit\(orderId, token\)/);
+  assert.match(builder, /fetchManualOrderDraft\(editOrderId, token\)/);
+  assert.match(builder, /Save changes and send new link/);
+  assert.match(builder, /setQuoteDirty\(true\)/);
+  assert.match(prepare, /deletePaymentLink\(paymentLinkId\)/);
+  assert.match(prepare, /resetExpiredManualPaymentLink\(order\.id\)/);
 });
 
 test("Order Builder product controls stay unclipped and use polished select and quantity controls", () => {
@@ -171,6 +188,9 @@ test("Order Builder product controls stay unclipped and use polished select and 
   assert.match(source, /rounded-full border border-sg-border bg-white/);
   assert.match(select, /z-50/);
   assert.match(select, /<Icon name="check"/);
+  assert.match(source, /useState<OrderItemRow\[\]>\(\[\]\)/);
+  assert.match(source, /setItemRows\(\(current\) => current\.filter\(\(row\) => row\.id !== itemId\)\)/);
+  assert.match(source, /itemRows\.length \? "Add another item" : "Add item"/);
 });
 
 test("Order Builder uses compact fulfillment choices and disables sticky summary when it grows too tall", () => {
@@ -198,6 +218,22 @@ test("Order Builder discount controls separate discount types from percentage va
   assert.match(source, /quickPercentOptions/);
   assert.match(source, /discountCategoryForMode/);
   assert.match(source, /setDiscountMode\(option\.value === "percent" \? "percent_5"/);
+  assert.match(source, /discountMode === "code"[\s\S]*?className="mt-4 w-full rounded-\[9px\]/);
+  assert.match(source, /discountMode === "custom_amount"[\s\S]*?className="mt-4 w-full rounded-\[9px\]/);
+});
+
+test("cancelled order drawer can send a notification-only refund email", () => {
+  const source = read("admin-v2.5/src/pages/OrdersPage.tsx");
+  const api = read("api/admin-order-cancellation-email.js");
+
+  assert.match(source, /Send refund email/);
+  assert.match(source, /Send refund email again/);
+  assert.match(source, /cancellation_email_sent_at/);
+  assert.match(source, /Refund email last sent/);
+  assert.match(source, /does not submit another refund or cancellation/);
+  assert.match(source, /sendCancelledOrderRefundEmail\(orderId, requestId, token\)/);
+  assert.match(api, /sendCancelledOrderRefundEmail/);
+  assert.doesNotMatch(api, /cancelAndRefundOrder|cancelOrRefundSquarePayment|refundShippoTransaction/);
 });
 
 test("admin-v2.5 operational tables expose details, paging, creation, and export controls", () => {
@@ -212,6 +248,7 @@ test("admin-v2.5 operational tables expose details, paging, creation, and export
   assert.doesNotMatch(summary, /lg:absolute lg:inset-0/);
   assert.match(summary, /Business snapshot/);
   assert.match(summary, /Operations overview/);
+  assert.match(summary, /className="mt-auto pt-4"/);
   assert.doesNotMatch(summary, /Core results for the selected channel and time range\./);
   assert.doesNotMatch(summary, /Items needing attention, processing costs, shipping, and stock value\./);
   assert.match(orders, /Orders needing attention/);

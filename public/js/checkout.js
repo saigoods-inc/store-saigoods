@@ -295,8 +295,15 @@ function renderCheckoutShell(miniQuote, options = {}) {
           </label>
         </div>
 
-        <div id="checkout-address-suggestion" class="checkout-address-suggestion" hidden>
-          <p class="checkout-address-suggestion__label">Did you mean this address?</p>
+        <div
+          id="checkout-address-suggestion"
+          class="checkout-address-suggestion"
+          role="region"
+          aria-labelledby="checkout-address-suggestion-title"
+          aria-describedby="checkout-address-suggestion-body"
+          hidden
+        >
+          <p id="checkout-address-suggestion-title" class="checkout-address-suggestion__label">Did you mean this address?</p>
           <p id="checkout-address-suggestion-body" class="checkout-address-suggestion__body"></p>
           <button
             type="button"
@@ -331,7 +338,7 @@ function renderCheckoutShell(miniQuote, options = {}) {
           hidden
         >
           <h2 id="checkout-shipping-rates-title" class="checkout-section-title">Shipping service</h2>
-          <p class="checkout-card-hint">Select one service to continue.</p>
+          <p id="checkout-shipping-rates-hint" class="checkout-card-hint">Select one service to continue.</p>
           <div id="checkout-shipping-rates-list" class="checkout-shipping-rates__list"></div>
         </section>
 
@@ -658,6 +665,31 @@ function shippingChoiceBadge(rate) {
   return "";
 }
 
+function cheapestShippingRate(rates) {
+  const list = Array.isArray(rates) ? rates : [];
+  const tagged = list.find((rate) =>
+    Array.isArray(rate?.choiceRoles) && rate.choiceRoles.includes("cheapest"),
+  );
+  if (tagged) return tagged;
+  return [...list].sort((a, b) => {
+    const aCents = Number(a?.totalAmountCents ?? a?.amountCents);
+    const bCents = Number(b?.totalAmountCents ?? b?.amountCents);
+    const safeA = Number.isFinite(aCents) ? aCents : Number.POSITIVE_INFINITY;
+    const safeB = Number.isFinite(bCents) ? bCents : Number.POSITIVE_INFINITY;
+    return safeA - safeB;
+  })[0] || null;
+}
+
+function updateShippingRateHint(hint, rate) {
+  if (!hint || !rate) return;
+  const isLocal =
+    String(rate.provider || "").trim().toLowerCase() === "local" ||
+    String(rate.serviceCode || "").trim().toLowerCase() === "local_delivery";
+  hint.textContent = isLocal
+    ? "Free local delivery selected."
+    : `${rate.serviceLabel || "Shipping service"} selected. Choose another service if preferred.`;
+}
+
 function applySelectedShippingRate(rate) {
   if (!latestEstimate || !rate) return;
   const shippingCents = Math.max(0, Math.round(Number(rate.totalAmountCents ?? rate.amountCents) || 0));
@@ -693,17 +725,23 @@ function applySelectedShippingRate(rate) {
 function renderShippingRateChoices(data, previousSelection = null) {
   const section = document.getElementById("checkout-shipping-rates");
   const list = document.getElementById("checkout-shipping-rates-list");
+  const hint = document.getElementById("checkout-shipping-rates-hint");
   if (!section || !list) return;
   const rates = Array.isArray(data?.shippingRateOptions) ? data.shippingRateOptions : [];
   section.hidden = rates.length === 0;
   if (!rates.length) {
     list.innerHTML = "";
+    if (hint) hint.textContent = "Select one service to continue.";
     return;
   }
   const preserved = previousSelection
     ? rates.find((rate) => shippingRateEquivalent(previousSelection, rate)) || null
-    : rates.find((rate) => rate?.automatic === true || String(rate?.provider || "").toLowerCase() === "local") || null;
-  selectedShippingRate = preserved;
+    : null;
+  const automaticLocalRate = rates.find(
+    (rate) => rate?.automatic === true || String(rate?.provider || "").toLowerCase() === "local",
+  ) || null;
+  const defaultRate = preserved || automaticLocalRate || cheapestShippingRate(rates);
+  selectedShippingRate = defaultRate;
   list.innerHTML = rates.map((rate, index) => {
     const id = String(rate.id || "");
     const badge = shippingChoiceBadge(rate);
@@ -715,7 +753,7 @@ function renderShippingRateChoices(data, previousSelection = null) {
       ? ""
       : `<span class="checkout-shipping-rate__meta">${escapeHtml(rate.provider || "Carrier")} · ${escapeHtml(eta)}</span>`;
     return `<label class="checkout-shipping-rate">
-      <input type="radio" name="shippingRate" value="${escapeHtml(id)}" ${preserved && String(preserved.id) === id ? "checked" : ""} />
+      <input type="radio" name="shippingRate" value="${escapeHtml(id)}" ${defaultRate && String(defaultRate.id) === id ? "checked" : ""} />
       <span class="checkout-shipping-rate__body">
         <span class="checkout-shipping-rate__service">${escapeHtml(rate.serviceLabel || "Shipping")} ${badge ? `<strong>· ${escapeHtml(badge)}</strong>` : ""}</span>
         ${meta}
@@ -727,11 +765,13 @@ function renderShippingRateChoices(data, previousSelection = null) {
     input.addEventListener("change", () => {
       selectedShippingRate = rates.find((rate) => String(rate.id) === input.value) || null;
       if (selectedShippingRate) applySelectedShippingRate(selectedShippingRate);
+      updateShippingRateHint(hint, selectedShippingRate);
       clearShippingSectionError();
       syncPayButtonForAddressSuggestion();
     });
   });
-  if (preserved) applySelectedShippingRate(preserved);
+  updateShippingRateHint(hint, defaultRate);
+  if (defaultRate) applySelectedShippingRate(defaultRate);
 }
 
 function scheduleQuoteExpiry(data) {

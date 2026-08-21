@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthProvider";
 import { useAdminShellHeaderMeta } from "../components/layout/AdminShell";
@@ -10,11 +10,14 @@ import {
   estimateManualOrder,
   fetchDiscountCodes,
   fetchInventoryDashboard,
+  fetchManualOrderDraft,
   sendManualOrderLink,
+  updateManualOrderDraft,
   verifyManualOrderAddress,
   type ManualOrderAddress,
   type ManualOrderCreateRequest,
   type ManualOrderItem,
+  type ManualOrderInvoiceAttachment,
   type ManualOrderQuoteResponse,
   type ManualOrderShippingRateOption,
 } from "../lib/api";
@@ -69,6 +72,9 @@ type OrderItemRow = {
   unit: "case" | "box";
   bundleId: string;
   quantity: number;
+  pricingMode: "catalog" | "negotiated";
+  negotiatedUnitPrice: string;
+  negotiationReason: string;
 };
 
 type AddressVerificationState = {
@@ -79,8 +85,9 @@ type AddressVerificationState = {
 };
 
 type InventoryAvailability = Record<ProductSlug, Record<SizeCode, { caseAvailable: number | null; boxAvailable: number | null; boxesPerCase: number; tracked: boolean }>>;
-const HARDIN_DISCOUNT_PERCENT = 7;
+const DEFAULT_DISCOUNT_PERCENT = 7;
 const CARRIER_RATE_AUTO_REFRESH_MS = 15 * 60 * 1000;
+const MAX_B2B_INVOICE_BYTES = 4 * 1024 * 1024;
 const usStateOptions = [
   { value: "AL", label: "AL" },
   { value: "AK", label: "AK" },
@@ -228,10 +235,13 @@ function makeOrderItemRow(index: number, product = fallbackProducts[0], unit: "c
     unit,
     bundleId: bundle.id,
     quantity: 0,
+    pricingMode: "catalog",
+    negotiatedUnitPrice: "",
+    negotiationReason: "",
   };
 }
 
-function priceOrderRows(rows: OrderItemRow[], products: ProductOption[]) {
+function priceOrderRows(rows: OrderItemRow[], products: ProductOption[], allowNegotiatedPricing = false) {
   const caseCounts = new Map<ProductSlug, number>();
   for (const row of rows) {
     const product = getProduct(products, row.productSlug);
@@ -247,20 +257,32 @@ function priceOrderRows(rows: OrderItemRow[], products: ProductOption[]) {
     const quantity = Math.max(0, Math.floor(row.quantity || 0));
     const rule = product.volumePricing;
     const eligible = bundle.kind === "case" && rule?.active === true && (caseCounts.get(product.slug) || 0) >= rule.minCases && rule.pricePerCaseCents > 0;
-    const unitPrice = eligible ? Math.min(bundle.priceCents, bundle.units * rule.pricePerCaseCents) : bundle.priceCents;
-    if (eligible && unitPrice < bundle.priceCents) appliedProducts.add(product.slug);
+    const catalogUnitPrice = eligible ? Math.min(bundle.priceCents, bundle.units * rule.pricePerCaseCents) : bundle.priceCents;
+    const negotiatedUnitPrice = parseDollarsToCents(row.negotiatedUnitPrice);
+    const unitPrice = allowNegotiatedPricing && row.pricingMode === "negotiated" && negotiatedUnitPrice > 0
+      ? negotiatedUnitPrice
+      : catalogUnitPrice;
+    if (eligible && catalogUnitPrice < bundle.priceCents) appliedProducts.add(product.slug);
     const lineTotal = unitPrice * quantity;
     totalCents += lineTotal;
     lineTotals.set(row.id, lineTotal);
   }
-  const blocksDiscount = [...appliedProducts].some((slug) => getProduct(products, slug).volumePricing?.allowDiscountStacking !== true);
-  return { totalCents, lineTotals, appliedProducts, blocksDiscount };
+  const negotiatedApplied = allowNegotiatedPricing && rows.some((row) => row.pricingMode === "negotiated" && Math.max(0, Math.floor(row.quantity || 0)) > 0);
+  const blocksDiscount = negotiatedApplied || [...appliedProducts].some((slug) => getProduct(products, slug).volumePricing?.allowDiscountStacking !== true);
+  return { totalCents, lineTotals, appliedProducts, blocksDiscount, negotiatedApplied };
 }
 
 function modeButtonClass(active: boolean) {
   return [
     "inline-flex h-9 items-center justify-center rounded-full px-4 text-[12px] font-semibold transition",
     active ? "bg-white text-sg-primary shadow-sm" : "text-sg-muted hover:bg-white/70 hover:text-sg-text",
+  ].join(" ");
+}
+
+function priceModeButtonClass(active: boolean) {
+  return [
+    "inline-flex h-9 items-center justify-center rounded-full px-4 text-[12px] font-semibold transition",
+    active ? "bg-[#f5f5f5] text-sg-primary" : "text-sg-muted hover:bg-[#f5f5f5] hover:text-sg-text",
   ].join(" ");
 }
 
@@ -281,6 +303,31 @@ function todayYmd() {
 
 function normalizePhone(value: string) {
   return value.replace(/\D/g, "");
+}
+
+async function readB2bInvoicePdf(file: File): Promise<ManualOrderInvoiceAttachment> {
+  if (!/\.pdf$/i.test(file.name) || (file.type && file.type !== "application/pdf")) {
+    throw new Error("Select a PDF invoice file.");
+  }
+  if (!file.size || file.size > MAX_B2B_INVOICE_BYTES) {
+    throw new Error("The invoice PDF must be 4 MB or smaller.");
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (new TextDecoder("ascii").decode(bytes.slice(0, 5)) !== "%PDF-") {
+    throw new Error("The selected invoice is not a valid PDF file.");
+  }
+  const contentBase64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = String(reader.result || "");
+      const separator = value.indexOf(",");
+      if (separator < 0) reject(new Error("The invoice PDF could not be read."));
+      else resolve(value.slice(separator + 1));
+    };
+    reader.onerror = () => reject(new Error("The invoice PDF could not be read."));
+    reader.readAsDataURL(file);
+  });
+  return { filename: file.name, contentBase64, contentType: "application/pdf", sizeBytes: file.size };
 }
 
 function parseDollarsToCents(value: string) {
@@ -529,8 +576,72 @@ function sizeLabel(size: SizeCode) {
 }
 
 function normalizeAdminDiscountCode(value: string) {
-  const normalized = value.trim().toUpperCase().replace(/\s+/g, "");
-  return normalized && !normalized.startsWith("HC-") ? `HC-${normalized}` : normalized;
+  return value.trim().toUpperCase().replace(/\s+/g, "");
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function rowsFromDraftItems(rawItems: unknown, products: ProductOption[]) {
+  if (!Array.isArray(rawItems)) return [];
+  const rows: OrderItemRow[] = [];
+  rawItems.forEach((rawItem, itemIndex) => {
+    const item = recordValue(rawItem);
+    const product = products.find((entry) => entry.slug === String(item.slug || ""));
+    if (!product) return;
+    const bundleLines = Array.isArray(item.bundleLines) ? item.bundleLines : [];
+    const pricing = recordValue(item.b2bPricing);
+    if (bundleLines.length === 1 && item.clientLineId) {
+      const rawBundle = recordValue(bundleLines[0]);
+      const bundle = product.bundles.find((entry) => entry.id === String(rawBundle.id || ""));
+      if (bundle) {
+        const allocations = recordValue(bundle.kind === "case" ? item.quantities : item.boxQuantities);
+        const size = product.sizes.find((entry) => Number(allocations[entry]) > 0) || product.defaultSize;
+        rows.push({
+          id: String(item.clientLineId),
+          productSlug: product.slug,
+          size,
+          unit: bundle.kind,
+          bundleId: bundle.id,
+          quantity: Math.max(1, Math.floor(Number(rawBundle.qty) || 1)),
+          pricingMode: pricing.mode === "negotiated" ? "negotiated" : "catalog",
+          negotiatedUnitPrice: pricing.mode === "negotiated" ? (Math.max(0, Number(pricing.unitPriceCents) || 0) / 100).toFixed(2) : "",
+          negotiationReason: pricing.mode === "negotiated" ? String(pricing.reason || "") : "",
+        });
+        return;
+      }
+    }
+    (["case", "box"] as const).forEach((unit) => {
+      const allocations = recordValue(unit === "case" ? item.quantities : item.boxQuantities);
+      const bundle = getUnitBundle(product, unit);
+      product.sizes.forEach((size) => {
+        const allocated = Math.max(0, Math.floor(Number(allocations[size]) || 0));
+        if (!allocated) return;
+        rows.push({
+          id: `edit-${itemIndex}-${unit}-${size}`,
+          productSlug: product.slug,
+          size,
+          unit,
+          bundleId: bundle.id,
+          quantity: Math.max(1, Math.ceil(allocated / Math.max(1, bundle.units))),
+          pricingMode: "catalog",
+          negotiatedUnitPrice: "",
+          negotiationReason: "",
+        });
+      });
+    });
+  });
+  return rows;
 }
 
 function emptyInventoryAvailability(products: ProductOption[]) {
@@ -544,7 +655,12 @@ function emptyInventoryAvailability(products: ProductOption[]) {
 
 export function OrderBuilderPage() {
   const auth = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
+  const editOrderId = String((location.state as { editOrderId?: unknown } | null)?.editOrderId || "").trim();
+  const [editOrderRef, setEditOrderRef] = useState("");
+  const [editDraftLoaded, setEditDraftLoaded] = useState(!editOrderId);
+  const [editOriginalDiscountCode, setEditOriginalDiscountCode] = useState("");
   const [mode, setMode] = useState<BuilderMode>("remote");
   const [fulfillmentMethod, setFulfillmentMethod] = useState<FulfillmentMethod>("carrier");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("square_payment_link");
@@ -558,10 +674,12 @@ export function OrderBuilderPage() {
   } | null>(null);
   const [customDiscountValue, setCustomDiscountValue] = useState("");
   const [customB2bShipping, setCustomB2bShipping] = useState("");
+  const [b2bInvoiceFile, setB2bInvoiceFile] = useState<File | null>(null);
+  const [b2bInvoiceDragActive, setB2bInvoiceDragActive] = useState(false);
   const [selectedRateId, setSelectedRateId] = useState("");
   const [selectedRateSnapshot, setSelectedRateSnapshot] = useState<ManualOrderShippingRateOption | null>(null);
   const [products, setProducts] = useState<ProductOption[]>(fallbackProducts);
-  const [itemRows, setItemRows] = useState<OrderItemRow[]>(() => [makeOrderItemRow(0)]);
+  const [itemRows, setItemRows] = useState<OrderItemRow[]>([]);
   const [customer, setCustomer] = useState({ name: "", email: "", phone: "" });
   const [address, setAddress] = useState<ManualOrderAddress>({
     line1: "",
@@ -594,6 +712,8 @@ export function OrderBuilderPage() {
   const summaryRef = useRef<HTMLElement | null>(null);
   const carrierRatesRef = useRef<HTMLDivElement | null>(null);
   const shouldScrollToRatesRef = useRef(false);
+  const editDraftLoadingRef = useRef(false);
+  const b2bInvoiceInputRef = useRef<HTMLInputElement | null>(null);
 
   useAdminShellHeaderMeta(<span>Updated {formatDateTime(updatedAt)}</span>);
 
@@ -633,6 +753,76 @@ export function OrderBuilderPage() {
     void loadCatalog();
     return () => { alive = false; };
   }, []);
+
+  useEffect(() => {
+    if (!editOrderId || editDraftLoaded || editDraftLoadingRef.current) return;
+    editDraftLoadingRef.current = true;
+    async function loadDraftForEditing() {
+      try {
+        const token = await auth.getAccessToken();
+        const response = await fetchManualOrderDraft(editOrderId, token);
+        if (!response.order) return;
+        const order = response.order;
+        const shippingAddress = recordValue(order.shipping_address);
+        const fulfillment = String(order.fulfillment_method || "carrier") as FulfillmentMethod;
+        const snapshot = recordValue(order.quoted_address_snapshot_json);
+        const manualDiscount = recordValue(snapshot.manualDiscount);
+        const discountType = String(manualDiscount.type || "none").toLowerCase();
+        const discountValue = Number(manualDiscount.value ?? manualDiscount.percent ?? manualDiscount.amountCents) || 0;
+        const existingCode = String(order.discount_code_used || "").trim();
+
+        setEditOrderRef(String(order.order_ref || editOrderId));
+        setEditOriginalDiscountCode(normalizeAdminDiscountCode(existingCode));
+        setMode("remote");
+        setCustomer({
+          name: String(order.customer_name || ""),
+          email: String(order.customer_email || ""),
+          phone: String(order.customer_phone || ""),
+        });
+        setAddress({
+          line1: String(shippingAddress.line1 || shippingAddress.address1 || ""),
+          line2: String(shippingAddress.line2 || shippingAddress.address2 || ""),
+          city: String(shippingAddress.city || ""),
+          state: String(shippingAddress.state || "TN"),
+          postalCode: String(shippingAddress.postalCode || shippingAddress.zip || ""),
+          country: String(shippingAddress.country || "US"),
+        });
+        setItemRows(rowsFromDraftItems(order.items, products));
+        setFulfillmentMethod(["carrier", "local_delivery", "pickup", "b2b_shipping"].includes(fulfillment) ? fulfillment : "carrier");
+        setPaymentMethod("square_payment_link");
+        setShipmentDate(String(order.shippo_shipment_date || todayYmd()));
+        if (fulfillment === "b2b_shipping") {
+          setCustomB2bShipping((Math.max(0, Number(order.shipping_cents) || 0) / 100).toFixed(2));
+        }
+        if (existingCode && discountType === "percent") {
+          const percent = Math.max(0, Math.round(discountValue));
+          setDiscountMode("code");
+          setDiscountCode(existingCode);
+          setDiscountCodeCheck({ code: normalizeAdminDiscountCode(existingCode), status: "valid", message: "Existing order discount", percent });
+        } else if (discountType === "percent" && discountValue > 0) {
+          const percent = Math.round(discountValue);
+          setDiscountMode(percent === 5 ? "percent_5" : percent === 10 ? "percent_10" : percent === 15 ? "percent_15" : "custom_percent");
+          if (![5, 10, 15].includes(percent)) setCustomDiscountValue(String(percent));
+        } else if (discountType === "amount" && discountValue > 0) {
+          setDiscountMode("custom_amount");
+          setCustomDiscountValue((discountValue / 100).toFixed(2));
+        }
+        setQuote(null);
+        setQuoteDirty(true);
+        setQuoteReceivedAt(null);
+        setSelectedRateId("");
+        setSelectedRateSnapshot(null);
+        setAddressVerification({ status: "idle", fingerprint: "", suggestion: null, message: "Verify the address to get current shipping rates." });
+        setStatus({ tone: "warning", message: `Editing expired order ${String(order.order_ref || editOrderId)}. Review it and get current totals before sending a new link.` });
+        setEditDraftLoaded(true);
+      } catch (error) {
+        setStatus({ tone: "danger", message: error instanceof Error ? error.message : "Could not load this expired order." });
+      } finally {
+        editDraftLoadingRef.current = false;
+      }
+    }
+    void loadDraftForEditing();
+  }, [auth, editDraftLoaded, editOrderId, products]);
 
   useEffect(() => {
     let alive = true;
@@ -689,6 +879,29 @@ export function OrderBuilderPage() {
   }, []);
 
   const selectedItems = useMemo<ManualOrderItem[]>(() => {
+    if (fulfillmentMethod === "b2b_shipping") {
+      return itemRows.flatMap((row) => {
+        const quantity = Math.max(0, Math.floor(row.quantity || 0));
+        if (!quantity) return [];
+        const product = getProduct(products, row.productSlug);
+        const bundle = getSelectedBundle(product, row);
+        const quantities = emptySizeMap(product.sizes);
+        const boxQuantities = emptySizeMap(product.sizes);
+        const allocation = bundle.kind === "case" ? quantities : boxQuantities;
+        allocation[row.size] = quantity * bundle.units;
+        return [{
+          slug: product.slug,
+          clientLineId: row.id,
+          bundleLines: [{ id: bundle.id, qty: quantity }],
+          quantities,
+          boxQuantities,
+          ...(row.pricingMode === "negotiated" ? {
+            b2bNegotiatedUnitPriceCents: parseDollarsToCents(row.negotiatedUnitPrice),
+            b2bNegotiationReason: row.negotiationReason.trim(),
+          } : {}),
+        }];
+      });
+    }
     const grouped = new Map<ProductSlug, ManualOrderItem>();
     for (const row of itemRows) {
       const quantity = Math.max(0, Math.floor(row.quantity || 0));
@@ -709,10 +922,10 @@ export function OrderBuilderPage() {
       grouped.set(product.slug, current);
     }
     return [...grouped.values()];
-  }, [itemRows, products]);
+  }, [fulfillmentMethod, itemRows, products]);
 
   const summaryProductLines = useMemo(() => {
-    const pricedRows = priceOrderRows(itemRows, products);
+    const pricedRows = priceOrderRows(itemRows, products, fulfillmentMethod === "b2b_shipping");
     const grouped = new Map<string, { key: string; name: string; detail: string; totalCents: number; cases: number; boxes: number; size: SizeCode }>();
     for (const row of itemRows) {
       const quantity = Math.max(0, Math.floor(row.quantity || 0));
@@ -737,10 +950,10 @@ export function OrderBuilderPage() {
       ].join(" · "),
       total: formatUsdCents(line.totalCents),
     }));
-  }, [itemRows, products]);
+  }, [fulfillmentMethod, itemRows, products]);
 
   const previewTotals = useMemo(() => {
-    const pricedRows = priceOrderRows(itemRows, products);
+    const pricedRows = priceOrderRows(itemRows, products, fulfillmentMethod === "b2b_shipping");
     const subtotalCents = pricedRows.totalCents;
     const discountCents =
       discountMode === "percent_5"
@@ -754,7 +967,7 @@ export function OrderBuilderPage() {
               : discountMode === "custom_amount"
                 ? Math.min(subtotalCents, parseDollarsToCents(customDiscountValue))
                 : discountMode === "code" && discountCodeCheck?.status === "valid"
-                  ? Math.round(subtotalCents * ((discountCodeCheck.percent ?? HARDIN_DISCOUNT_PERCENT) / 100))
+                  ? Math.round(subtotalCents * ((discountCodeCheck.percent ?? DEFAULT_DISCOUNT_PERCENT) / 100))
                   : 0;
     const allowedDiscountCents = pricedRows.blocksDiscount ? 0 : discountCents;
     const discountedSubtotalCents = Math.max(0, subtotalCents - allowedDiscountCents);
@@ -779,6 +992,7 @@ export function OrderBuilderPage() {
       discountCents: allowedDiscountCents,
       volumePricingApplied: pricedRows.appliedProducts.size > 0,
       volumePricingBlocksDiscount: pricedRows.blocksDiscount,
+      negotiatedPricingApplied: pricedRows.negotiatedApplied,
       subtotalCents: discountedSubtotalCents,
       shippingCents,
       taxCents,
@@ -798,6 +1012,29 @@ export function OrderBuilderPage() {
       setPaymentMethod(options[0].value);
     }
   }, [fulfillmentMethod, paymentMethod]);
+
+  useEffect(() => {
+    if (fulfillmentMethod !== "b2b_shipping" || paymentMethod !== "square_payment_link") {
+      setB2bInvoiceFile(null);
+      setB2bInvoiceDragActive(false);
+    }
+  }, [fulfillmentMethod, paymentMethod]);
+
+  function selectB2bInvoice(file: File | null) {
+    if (!file) return;
+    if (!/\.pdf$/i.test(file.name) || (file.type && file.type !== "application/pdf")) {
+      setB2bInvoiceFile(null);
+      setStatus({ tone: "danger", message: "Select a PDF invoice file." });
+      return;
+    }
+    if (!file.size || file.size > MAX_B2B_INVOICE_BYTES) {
+      setB2bInvoiceFile(null);
+      setStatus({ tone: "danger", message: "The invoice PDF must be 4 MB or smaller." });
+      return;
+    }
+    setB2bInvoiceFile(file);
+    setStatus(null);
+  }
 
   function markDirty() {
     setQuoteDirty(true);
@@ -842,7 +1079,7 @@ export function OrderBuilderPage() {
   }
 
   function removeItemRow(itemId: string) {
-    setItemRows((current) => current.length > 1 ? current.filter((row) => row.id !== itemId) : [{ ...current[0], quantity: 0 }]);
+    setItemRows((current) => current.filter((row) => row.id !== itemId));
     markDirty();
   }
 
@@ -889,7 +1126,11 @@ export function OrderBuilderPage() {
 
   function manualDiscountPayload() {
     if (discountMode === "code" && discountCodeCheck?.status === "valid") {
-      return { manualDiscountType: "percent" as const, manualDiscountValue: discountCodeCheck.percent ?? HARDIN_DISCOUNT_PERCENT };
+      return {
+        manualDiscountType: "none" as const,
+        manualDiscountValue: 0,
+        discountCode: discountCodeCheck.code,
+      };
     }
     if (discountMode === "percent_5") return { manualDiscountType: "percent" as const, manualDiscountValue: 5 };
     if (discountMode === "percent_10") return { manualDiscountType: "percent" as const, manualDiscountValue: 10 };
@@ -917,6 +1158,14 @@ export function OrderBuilderPage() {
       if (max != null && quantity > max) {
         errors[`item-${row.id}`] = `Item ${index + 1} exceeds the shared stock available for this product and size.`;
       }
+      if (fulfillmentMethod === "b2b_shipping" && row.pricingMode === "negotiated") {
+        const negotiatedCents = parseDollarsToCents(row.negotiatedUnitPrice);
+        if (negotiatedCents < 1 || negotiatedCents > 10_000_000) {
+          errors[`item-${row.id}`] = `Item ${index + 1} needs a negotiated unit price between $0.01 and $100,000.00.`;
+        } else if (row.negotiationReason.trim().length < 3) {
+          errors[`item-${row.id}`] = `Item ${index + 1} needs a short negotiation reason.`;
+        }
+      }
     });
 
     if (discountMode === "code") {
@@ -937,7 +1186,9 @@ export function OrderBuilderPage() {
       errors.discount = "Enter a custom dollar amount greater than $0.00.";
     }
     if (discountMode !== "none" && previewTotals.volumePricingBlocksDiscount) {
-      errors.discount = "This automatic volume price cannot be combined with another discount.";
+      errors.discount = previewTotals.negotiatedPricingApplied
+        ? "Negotiated B2B prices cannot be combined with another discount."
+        : "This automatic volume price cannot be combined with another discount.";
     }
 
     if (fulfillmentMethod === "carrier" || fulfillmentMethod === "b2b_shipping") {
@@ -1003,7 +1254,7 @@ export function OrderBuilderPage() {
   async function handleVerifyDiscountCode() {
     const normalized = normalizeAdminDiscountCode(discountCode);
     setDiscountCodeCheck(null);
-    if (!/^HC-[A-Z0-9][A-Z0-9-]{2,19}$/.test(normalized)) {
+    if (!/^[A-Z0-9][A-Z0-9-]{2,31}$/.test(normalized)) {
       const message = "Enter a valid discount code.";
       setDiscountCodeCheck({ code: normalized, status: "invalid", message });
       setFieldErrors((current) => ({ ...current, discount: message }));
@@ -1017,9 +1268,9 @@ export function OrderBuilderPage() {
         ? "That discount code is not valid."
         : found.is_used
           ? "This discount code has already been used."
-          : `Discount code verified: ${Number(found?.percent_off || HARDIN_DISCOUNT_PERCENT)}% off.`;
+          : `Discount code verified: ${Number(found?.percent_off || DEFAULT_DISCOUNT_PERCENT)}% off.`;
       const status = found && !found.is_used ? "valid" : "invalid";
-      setDiscountCodeCheck({ code: normalized, status, message, percent: status === "valid" ? Number(found?.percent_off || HARDIN_DISCOUNT_PERCENT) : undefined });
+      setDiscountCodeCheck({ code: normalized, status, message, percent: status === "valid" ? Number(found?.percent_off || DEFAULT_DISCOUNT_PERCENT) : undefined });
       setFieldErrors((current) => {
         const next = { ...current };
         if (status === "valid") delete next.discount;
@@ -1205,8 +1456,17 @@ export function OrderBuilderPage() {
   async function handleCreateAndSend() {
     const validation = validateRemoteOrder(true);
     if (validation) return;
+    let invoiceAttachment: ManualOrderInvoiceAttachment | undefined;
+    if (fulfillmentMethod === "b2b_shipping" && paymentMethod === "square_payment_link" && b2bInvoiceFile) {
+      try {
+        invoiceAttachment = await readB2bInvoicePdf(b2bInvoiceFile);
+      } catch (error) {
+        setStatus({ tone: "danger", message: error instanceof Error ? error.message : "The invoice PDF could not be read." });
+        return;
+      }
+    }
     setBusy("send");
-    setStatus({ tone: "muted", message: "Creating draft order..." });
+    setStatus({ tone: "muted", message: editOrderId ? "Saving order changes..." : "Creating draft order..." });
     try {
       const token = await auth.getAccessToken();
       const paymentFlow = paymentMethod === "square_payment_link" ? "square_payment_link" : "pay_later";
@@ -1215,8 +1475,14 @@ export function OrderBuilderPage() {
         paymentFlow,
         manualPaymentMethod: paymentMethod === "arrival_payment_link" ? "arrival_payment_link" : null,
         shipmentDate: shipmentDate || null,
+        ...(editOrderId && editOriginalDiscountCode && discountMode === "code" &&
+        discountCodeCheck?.status === "valid" && discountCodeCheck.code === editOriginalDiscountCode
+          ? { preserveExistingDiscountCode: true }
+          : {}),
       };
-      const created = await createManualOrder(request, token);
+      const created = editOrderId
+        ? await updateManualOrderDraft({ ...request, orderId: editOrderId }, token)
+        : await createManualOrder(request, token);
       const orderId = String(created.orderId || "").trim();
       if (!orderId) {
         throw new Error("The order may have been created, but no order ID was returned. Check Orders before retrying.");
@@ -1231,24 +1497,29 @@ export function OrderBuilderPage() {
               ? `Arrival-link order created for ${created.orderRef || orderId}.`
               : `Pay-later order created for ${created.orderRef || orderId}.`,
         });
-        navigate("/orders", { state: { openOrderId: orderId, orderCreated: true } });
+        navigate("/orders", { state: { openOrderId: orderId, orderCreated: !editOrderId } });
         return;
       }
 
-      setStatus({ tone: "muted", message: "Draft created. Creating Square payment link..." });
+      setStatus({ tone: "muted", message: editOrderId ? "Changes saved. Creating a new Square payment link..." : "Draft created. Creating Square payment link..." });
       const selectedRatePayload = buildEstimateRequest();
-      const sent = await sendManualOrderLink({ ...selectedRatePayload, orderId, shipmentDate: shipmentDate || null }, token);
+      const sent = await sendManualOrderLink({
+        ...selectedRatePayload,
+        orderId,
+        shipmentDate: shipmentDate || null,
+        ...(invoiceAttachment ? { invoiceAttachment } : {}),
+      }, token);
       setQuoteDirty(false);
       setStatus({
         tone: sent.warning ? "warning" : "success",
         message:
           sent.warning ||
-          `Payment link ${sent.emailed ? "emailed" : "created"} for ${created.orderRef || orderId}.`,
+          `Payment link ${sent.emailed ? "emailed" : "created"}${sent.emailed && invoiceAttachment ? " with invoice attached" : ""} for ${created.orderRef || orderId}.`,
       });
       if (sent.checkoutUrl) {
         setQuote((current) => ({ ...(current || {}), totalFormatted: created.totalFormatted || current?.totalFormatted }));
       }
-      navigate("/orders", { state: { openOrderId: orderId, orderCreated: true } });
+      navigate("/orders", { state: { openOrderId: orderId, orderCreated: !editOrderId } });
     } catch (error) {
       const freshRates = shippingRateOptionsFromError(error);
       if (freshRates && fulfillmentMethod === "carrier") {
@@ -1275,7 +1546,7 @@ export function OrderBuilderPage() {
         : status?.tone === "warning"
           ? "bg-sg-amber-soft text-sg-amber"
           : "bg-sg-input-bg text-sg-muted";
-  const actionsDisabled = busy !== null || mode !== "remote";
+  const actionsDisabled = busy !== null || mode !== "remote" || !editDraftLoaded;
   const automaticFreeLocalDelivery = fulfillmentMethod === "carrier" && quote?.freeDelivery?.applied === true;
   const availablePaymentOptions = paymentOptionsForFulfillment(fulfillmentMethod);
   const displayQuote = quoteDirty || (fulfillmentMethod === "carrier" && Boolean(selectedRateId)) ? null : quote;
@@ -1304,6 +1575,8 @@ export function OrderBuilderPage() {
             : "Check totals before creating the order."
         : "";
   const createDisabled = actionsDisabled || Boolean(createReadinessMessage);
+  const displayedRowPricing = priceOrderRows(itemRows, products, fulfillmentMethod === "b2b_shipping");
+  const catalogRowPricing = priceOrderRows(itemRows, products, false);
 
   useEffect(() => {
     if (!hasVisibleCarrierRates || !shouldScrollToRatesRef.current) return;
@@ -1319,8 +1592,12 @@ export function OrderBuilderPage() {
     <div className="space-y-4">
       <section className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-4xl font-bold">Order Builder</h1>
-          <p className="mt-1 text-[15px] text-sg-muted">Build call-in orders with backend pricing, discounts, fulfillment, and payment handoff.</p>
+          <h1 className="text-4xl font-bold">{editOrderId ? "Edit expired order" : "Order Builder"}</h1>
+          <p className="mt-1 text-[15px] text-sg-muted">
+            {editOrderId
+              ? `Update ${editOrderRef || editOrderId}, recalculate shipping, and send a fresh payment link.`
+              : "Build call-in orders with backend pricing, discounts, fulfillment, and payment handoff."}
+          </p>
         </div>
         <div className="flex rounded-full border border-sg-border bg-sg-input-bg p-1">
           <button type="button" className={modeButtonClass(mode === "remote")} onClick={() => setMode("remote")}>
@@ -1342,8 +1619,8 @@ export function OrderBuilderPage() {
       ) : null}
 
       <section className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="space-y-4">
-          <section className="sg25-card p-4 sm:p-5">
+        <div className="flex flex-col gap-4">
+          <section className="sg25-card order-1 p-4 sm:p-5">
             <div className="flex items-center gap-2">
               <Icon name="tag" className="h-4 w-4 text-sg-primary" />
               <h2 className="text-lg font-bold">Customer</h2>
@@ -1355,7 +1632,7 @@ export function OrderBuilderPage() {
             </div>
           </section>
 
-          <section className="sg25-card overflow-hidden p-0">
+          <section className="sg25-card order-3 overflow-hidden p-0">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3 px-4 pt-4 sm:px-5 sm:pt-5">
                 <span className="flex h-9 w-9 items-center justify-center rounded-full bg-sg-primary-soft text-sg-primary">
@@ -1451,13 +1728,54 @@ export function OrderBuilderPage() {
                         />
                       </div>
                     </div>
+                    {fulfillmentMethod === "b2b_shipping" ? (
+                      <div className="mt-3 rounded-[10px] border border-sg-border bg-sg-input-bg/45 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-[11px] font-bold uppercase text-sg-muted">B2B product price</p>
+                            <p className="mt-0.5 text-[11px] text-sg-muted">Automatic catalog price: {formatUsdCents(Math.round((catalogRowPricing.lineTotals.get(row.id) || 0) / Math.max(1, row.quantity)))}/unit</p>
+                          </div>
+                          <div className="flex rounded-full bg-white p-1" role="group" aria-label={`Item ${index + 1} price type`}>
+                            {(["catalog", "negotiated"] as const).map((pricingMode) => (
+                              <button
+                                key={pricingMode}
+                                type="button"
+                                aria-pressed={row.pricingMode === pricingMode}
+                                className={priceModeButtonClass(row.pricingMode === pricingMode)}
+                                onClick={() => patchItemRow(row.id, { pricingMode })}
+                              >
+                                {pricingMode === "catalog" ? "Catalog price" : "Negotiated price"}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        {row.pricingMode === "negotiated" ? (
+                          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                            <Field
+                              label="Negotiated unit price"
+                              value={row.negotiatedUnitPrice}
+                              onChange={(value) => patchItemRow(row.id, { negotiatedUnitPrice: value })}
+                              placeholder="e.g. 69.00"
+                              compact
+                            />
+                            <Field
+                              label="Reason / agreement note"
+                              value={row.negotiationReason}
+                              onChange={(value) => patchItemRow(row.id, { negotiationReason: value })}
+                              placeholder="e.g. Contract price approved"
+                              compact
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-sg-border pt-3 text-[11px]">
                       <span className={sellableBoxes === 0 ? "font-semibold text-sg-danger" : "text-sg-muted"}>
                         {sellableBoxes == null
                           ? "Inventory not capped"
                           : `${formatInteger(sellableBoxes)} sellable boxes · ${formatInteger(inventory?.caseAvailable ?? 0)} cartons + ${formatInteger(inventory?.boxAvailable ?? 0)} loose`}
                       </span>
-                      <span className="rounded-full bg-sg-input-bg px-3 py-1 font-bold text-sg-text">Line total {formatUsdCents(bundle.priceCents * row.quantity)}</span>
+                      <span className="rounded-full bg-sg-input-bg px-3 py-1 font-bold text-sg-text">Line total {formatUsdCents(displayedRowPricing.lineTotals.get(row.id) || 0)}</span>
                     </div>
                     {rowError ? <p className="mt-2 text-[11px] font-semibold text-sg-danger">{rowError}</p> : null}
                   </article>
@@ -1465,12 +1783,12 @@ export function OrderBuilderPage() {
               })}
               <button type="button" className="sg25-btn sg25-btn-ghost w-full border-dashed" onClick={addItemRow}>
                 <span aria-hidden="true" className="text-base leading-none">+</span>
-                Add another item
+                {itemRows.length ? "Add another item" : "Add item"}
               </button>
             </div>
           </section>
 
-          <section className="sg25-card p-4 sm:p-5">
+          <section className="sg25-card order-4 p-4 sm:p-5">
             <div className="flex items-center gap-2">
               <Icon name="tag" className="h-4 w-4 text-sg-primary" />
               <div>
@@ -1534,7 +1852,7 @@ export function OrderBuilderPage() {
               </div>
             ) : null}
             {discountMode === "code" ? (
-              <div className="mt-4 max-w-sm rounded-[9px] border border-sg-border bg-sg-input-bg/60 p-3.5">
+              <div className="mt-4 w-full rounded-[9px] border border-sg-border bg-sg-input-bg/60 p-3.5">
                 <label className="block min-w-0">
                   <span className="text-[12px] font-bold text-sg-text">Discount code</span>
                   <div className="relative mt-1.5">
@@ -1546,7 +1864,7 @@ export function OrderBuilderPage() {
                         setDiscountCodeCheck(null);
                         markDirty();
                       }}
-                      placeholder="HC-XXXXX"
+                      placeholder="SUMMER-2026"
                     />
                     <button type="button" className="sg25-btn sg25-btn-ghost absolute right-1.5 top-1/2 h-8 -translate-y-1/2 px-3 text-[12px]" onClick={() => void handleVerifyDiscountCode()}>
                       Verify code
@@ -1564,7 +1882,7 @@ export function OrderBuilderPage() {
               </div>
             ) : null}
             {discountMode === "custom_amount" ? (
-              <div className="mt-4 max-w-xs rounded-[9px] border border-sg-border bg-sg-input-bg/60 p-3.5">
+              <div className="mt-4 w-full rounded-[9px] border border-sg-border bg-sg-input-bg/60 p-3.5">
                 <Field
                   label="Fixed amount off"
                   value={customDiscountValue}
@@ -1583,7 +1901,7 @@ export function OrderBuilderPage() {
             ) : null}
           </section>
 
-          <section className="sg25-card p-4 sm:p-5">
+          <section className="sg25-card order-2 p-4 sm:p-5">
             <div className="flex items-center gap-2">
               <Icon name="truck" className="h-4 w-4 text-sg-primary" />
               <h2 className="text-lg font-bold">Fulfillment</h2>
@@ -1718,7 +2036,7 @@ export function OrderBuilderPage() {
             ) : null}
           </section>
 
-          <section className="sg25-card p-4 sm:p-5">
+          <section className="sg25-card order-5 p-4 sm:p-5">
             <div className="flex items-center gap-2">
               <Icon name="receipt" className="h-4 w-4 text-sg-primary" />
               <h2 className="text-lg font-bold">Payment</h2>
@@ -1743,6 +2061,55 @@ export function OrderBuilderPage() {
               </div>
             )}
             {fieldErrors.payment ? <p className="mt-3 text-[12px] font-semibold text-sg-danger">{fieldErrors.payment}</p> : null}
+            {fulfillmentMethod === "b2b_shipping" && paymentMethod === "square_payment_link" ? (
+              <div className="mt-4 rounded-[10px] border border-sg-border bg-sg-input-bg/50 p-3">
+                <div className="flex items-start gap-2">
+                  <Icon name="receipt" className="mt-0.5 h-4 w-4 shrink-0 text-sg-primary" />
+                  <div>
+                    <p className="text-[12px] font-bold text-sg-text">Customer invoice PDF <span className="font-medium text-sg-muted">(optional)</span></p>
+                    <p className="mt-1 text-[11px] leading-5 text-sg-muted">Attached only to this B2B payment-link email. PDF, up to 4 MB. The file is not stored with the order.</p>
+                  </div>
+                </div>
+                <input
+                  ref={b2bInvoiceInputRef}
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  className="sr-only"
+                  onChange={(event) => {
+                    selectB2bInvoice(event.target.files?.[0] || null);
+                    event.currentTarget.value = "";
+                  }}
+                />
+                {b2bInvoiceFile ? (
+                  <div className="mt-3 flex flex-col gap-2 rounded-[8px] border border-sg-success/30 bg-sg-success-soft px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="truncate text-[12px] font-bold text-sg-text">{b2bInvoiceFile.name}</p>
+                      <p className="mt-0.5 text-[11px] text-sg-muted">{(b2bInvoiceFile.size / 1024).toFixed(0)} KB · Ready to attach</p>
+                    </div>
+                    <button type="button" className="sg25-btn sg25-btn-secondary shrink-0" onClick={() => setB2bInvoiceFile(null)}>
+                      <Icon name="x" className="h-4 w-4" /> Remove
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className={`mt-3 flex w-full flex-col items-center justify-center rounded-[8px] border border-dashed px-4 py-5 text-center transition ${b2bInvoiceDragActive ? "border-sg-primary bg-sg-primary-soft" : "border-sg-border bg-white hover:border-sg-primary/50 hover:bg-sg-primary-soft/30"}`}
+                    onClick={() => b2bInvoiceInputRef.current?.click()}
+                    onDragEnter={(event) => { event.preventDefault(); setB2bInvoiceDragActive(true); }}
+                    onDragOver={(event) => { event.preventDefault(); setB2bInvoiceDragActive(true); }}
+                    onDragLeave={(event) => { event.preventDefault(); setB2bInvoiceDragActive(false); }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      setB2bInvoiceDragActive(false);
+                      selectB2bInvoice(event.dataTransfer.files?.[0] || null);
+                    }}
+                  >
+                    <span className="text-[12px] font-bold text-sg-text">Drop invoice PDF here</span>
+                    <span className="mt-1 text-[11px] text-sg-muted">or click to choose a file</span>
+                  </button>
+                )}
+              </div>
+            ) : null}
           </section>
         </div>
 
@@ -1782,7 +2149,7 @@ export function OrderBuilderPage() {
               />
             ) : null}
             {discountMode === "code" && discountCodeCheck?.status === "valid" ? (
-              <SummaryLine label="Discount code" value={`${discountCodeCheck.code} · ${discountCodeCheck.percent ?? HARDIN_DISCOUNT_PERCENT}%`} />
+              <SummaryLine label="Discount code" value={`${discountCodeCheck.code} · ${discountCodeCheck.percent ?? DEFAULT_DISCOUNT_PERCENT}%`} />
             ) : null}
             <SummaryLine label="Shipping" value={quoteValue(displayQuote, "shippingFormatted", previewTotals.shippingCents)} />
             <SummaryLine label="Estimated tax" value={quoteValue(displayQuote, "taxFormatted", previewTotals.taxCents)} />
@@ -1890,9 +2257,9 @@ export function OrderBuilderPage() {
             {createReadinessMessage ? <p className="text-center text-[11px] font-medium text-sg-muted">{createReadinessMessage}</p> : null}
             <button type="button" className="sg25-btn sg25-btn-primary w-full" disabled={createDisabled} onClick={() => void handleCreateAndSend()}>
               {busy === "send"
-                ? "Creating..."
+                ? editOrderId ? "Saving and sending..." : "Creating..."
                 : paymentMethod === "square_payment_link"
-                  ? "Create and send link"
+                  ? editOrderId ? "Save changes and send new link" : "Create and send link"
                   : paymentMethod === "arrival_payment_link"
                     ? "Create arrival-link order"
                     : "Create pay-later order"}

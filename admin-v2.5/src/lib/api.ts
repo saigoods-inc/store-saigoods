@@ -139,6 +139,9 @@ export interface ShippingHealthResponse {
   warning?: string;
   runtime?: {
     provider?: string;
+    providerConfigured?: boolean;
+    tokenConfigured?: boolean;
+    shippoConfigured?: boolean;
     tokenMode?: "test" | "live" | "missing";
     carrierAccountCount?: number;
     warehouseConfigured?: boolean;
@@ -168,6 +171,7 @@ export interface PaymentHealthResponse {
   runtime?: {
     provider?: "square";
     environment?: "sandbox" | "production" | "missing" | "invalid";
+    environmentConfigured?: boolean;
     sandboxPolicyCompliant?: boolean;
     accessTokenConfigured?: boolean;
     applicationIdConfigured?: boolean;
@@ -175,6 +179,7 @@ export interface PaymentHealthResponse {
     publicBaseUrlConfigured?: boolean;
     databaseConfigured?: boolean;
     webhookSignatureConfigured?: boolean;
+    coreConfigured?: boolean;
     embeddedCheckoutReady?: boolean;
     paymentLinkReady?: boolean;
     resendApiKeyConfigured?: boolean;
@@ -360,9 +365,12 @@ export interface AddressVerificationResponse {
 
 export interface ManualOrderItem {
   slug: string;
+  clientLineId?: string;
   bundleLines?: Array<{ id: string; qty: number }>;
   quantities?: Record<string, number>;
   boxQuantities?: Record<string, number>;
+  b2bNegotiatedUnitPriceCents?: number;
+  b2bNegotiationReason?: string;
 }
 
 export interface ManualOrderEstimateRequest {
@@ -383,6 +391,7 @@ export interface ManualOrderEstimateRequest {
   selectedShippingResidentialSurchargeCents?: number;
   manualDiscountType?: "none" | "percent" | "amount";
   manualDiscountValue?: number;
+  discountCode?: string;
   quoteToken?: string;
 }
 
@@ -441,6 +450,7 @@ export interface ManualOrderCreateRequest extends ManualOrderEstimateRequest {
   paymentFlow: "square_payment_link" | "pay_later";
   manualPaymentMethod?: "arrival_payment_link" | null;
   shipmentDate?: string | null;
+  preserveExistingDiscountCode?: boolean;
 }
 
 export interface ManualOrderCreateResponse {
@@ -450,12 +460,23 @@ export interface ManualOrderCreateResponse {
   order_status?: string;
 }
 
+export interface ManualOrderDraftResponse {
+  order?: Record<string, unknown>;
+}
+
 export interface ManualOrderSendLinkResponse {
   ok?: boolean;
   checkoutUrl?: string;
   emailed?: boolean;
   warning?: string;
   error?: string;
+}
+
+export interface ManualOrderInvoiceAttachment {
+  filename: string;
+  contentBase64: string;
+  contentType: "application/pdf";
+  sizeBytes: number;
 }
 
 export interface AdminOrderShippoActionResponse {
@@ -695,7 +716,8 @@ export type FreeDeliveryConfig = {
   state: string;
   postalCodes: string[];
   minimumSubtotalCents: number;
-  productMinimumsCents: Record<string, number>;
+  /** @deprecated Compatibility only; whole-order subtotal controls eligibility. */
+  productMinimumsCents?: Record<string, number>;
 };
 export type FreeDeliveryConfigResponse = { config: FreeDeliveryConfig; source: string; migrationRequired?: boolean; updatedAt?: string | null };
 
@@ -763,8 +785,28 @@ export function createManualOrder(body: ManualOrderCreateRequest, token?: string
   return postJson<ManualOrderCreateResponse>("/api/admin-manual-order-create", body, token);
 }
 
+export function fetchManualOrderDraft(orderId: string, token?: string) {
+  return fetchJson<ManualOrderDraftResponse>(`/api/admin-manual-order-drafts?id=${encodeURIComponent(orderId)}`, token);
+}
+
+export function prepareManualOrderEdit(orderId: string, token?: string) {
+  return postJson<ManualOrderDraftResponse>("/api/admin-manual-order-prepare-edit", { orderId }, token);
+}
+
+export function updateManualOrderDraft(
+  body: ManualOrderCreateRequest & { orderId: string },
+  token?: string,
+) {
+  return postJson<ManualOrderCreateResponse>("/api/admin-manual-order-update-draft", body, token);
+}
+
 export function sendManualOrderLink(
-  body: { orderId: string; shipmentDate?: string | null; allowPayLaterLink?: boolean } & Partial<ManualOrderEstimateRequest>,
+  body: {
+    orderId: string;
+    shipmentDate?: string | null;
+    allowPayLaterLink?: boolean;
+    invoiceAttachment?: ManualOrderInvoiceAttachment;
+  } & Partial<ManualOrderEstimateRequest>,
   token?: string,
 ) {
   return postJson<ManualOrderSendLinkResponse>("/api/admin-manual-order-send-link", body, token);
@@ -792,6 +834,30 @@ export function notifyBuyerShipping(orderId: string, token?: string) {
 
 export function confirmOrderProductShipped(orderId: string, token?: string) {
   return postJson<AdminOrderShippoActionResponse>("/api/admin-order-confirm-shipped", { orderId }, token);
+}
+
+export function cancelAndRefundOrder(orderId: string, reason: string, token?: string) {
+  return postJson<AdminOrderShippoActionResponse & { complete?: boolean; warning?: string | null }>(
+    "/api/admin-order-cancel",
+    { orderId, reason },
+    token,
+  );
+}
+
+export function checkCancelledOrderRefundStatus(orderId: string, token?: string) {
+  return postJson<AdminOrderShippoActionResponse & { complete?: boolean; warning?: string | null }>(
+    "/api/admin-order-cancel-status",
+    { orderId },
+    token,
+  );
+}
+
+export function sendCancelledOrderRefundEmail(orderId: string, requestId: string, token?: string) {
+  return postJson<AdminOrderShippoActionResponse & { square?: { action?: string; status?: string } }>(
+    "/api/admin-order-cancellation-email",
+    { orderId, requestId },
+    token,
+  );
 }
 
 export function completeOrderHandoff(orderId: string, token?: string) {

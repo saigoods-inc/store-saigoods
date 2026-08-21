@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "../auth/AuthProvider";
 import { useAdminShellHeaderMeta } from "../components/layout/AdminShell";
 import { CustomSelect } from "../components/ui/CustomSelect";
-import { ApiError, completeOrderHandoff, confirmOrderProductShipped, fetchInventoryDashboard, fetchMarketplaceOrders, fetchOrderShipFromDisplay, notifyBuyerShipping, postMarketplaceOrderAction, previewOrderPackingPlan, purchaseOrderShippoAllLabels, purchaseOrderShippoLabel, saveOrderExternalFulfillment, sendManualOrderLink, syncOrderToShippo, updateOrderPackingPlan } from "../lib/api";
+import { ApiError, cancelAndRefundOrder, checkCancelledOrderRefundStatus, completeOrderHandoff, confirmOrderProductShipped, fetchInventoryDashboard, fetchMarketplaceOrders, fetchOrderShipFromDisplay, notifyBuyerShipping, postMarketplaceOrderAction, prepareManualOrderEdit, previewOrderPackingPlan, purchaseOrderShippoAllLabels, purchaseOrderShippoLabel, saveOrderExternalFulfillment, sendCancelledOrderRefundEmail, sendManualOrderLink, syncOrderToShippo, updateOrderPackingPlan } from "../lib/api";
 import type { AdminOrderPackingPlanResponse, AdminOrderShipFromDisplayResponse, InventoryVariantRow, MarketplaceOrder, PackingPlanContent, PackingPlanParcel, PackingPlanSummary } from "../lib/api";
 import { formatDateTime, formatNumber, formatUsdCents } from "../lib/format";
 import { Icon } from "../lib/icons";
@@ -16,7 +16,7 @@ type OrderTypeFilter = "all" | "online" | "manual" | "walkin";
 type StatusFilter = "all" | "awaiting_payment" | "paid_not_shipped" | "shipped" | "needs_attention" | "cancelled";
 type TimeFilter = "all" | "today" | "week" | "month";
 type Tone = "neutral" | "blue" | "green" | "red" | "amber";
-type OrderActionKey = "sync" | `purchase:${string}` | "packingPreview" | "packingSave" | "packingClear" | "notify" | "arrivalLink" | "externalFulfillment" | "ship";
+type OrderActionKey = "sync" | `purchase:${string}` | "packingPreview" | "packingSave" | "packingClear" | "notify" | "arrivalLink" | "editExpired" | "externalFulfillment" | "ship" | "cancel" | "refundStatus" | "refundEmail";
 type PurchaseIntent = {
   orderId: string;
   rateObjectId: string;
@@ -30,6 +30,7 @@ type PurchaseIntent = {
 } | null;
 type ShipIntent = { orderId: string; mode: "carrier" | "handoff" | "external"; proofName?: string; paymentProofName?: string } | null;
 type NotifyIntent = { orderId: string } | null;
+type CancelIntent = { orderId: string; orderRef: string; totalCents: number; purchasedLabels: number } | null;
 type HandoffProof = { name: string; sizeLabel: string; dataUrl: string } | null;
 const HANDOFF_PROOF_STORAGE_PREFIX = "sg25-handoff-proof:";
 const ACTIVE_ORDERS_REFRESH_MS = 30_000;
@@ -308,7 +309,27 @@ function isShipped(order: OrderRow) {
 function needsAttention(order: OrderRow) {
   const status = normalize(order.order_status);
   const tracking = normalize(order.shippo_tracking_status);
+  if (isCancelled(order)) {
+    const labelCode = normalize(fieldText(order, ["label_workflow_error_code"]));
+    const paymentError = normalize(fieldText(order, ["payment_reconciliation_error"]));
+    return labelCode.includes("attention") || (Boolean(paymentError) && paymentError !== "square refund is pending settlement.");
+  }
   return status.includes("failed") || status.includes("error") || tracking === "failure" || tracking === "unknown";
+}
+
+function isAttentionOrder(order: OrderRow, labels: LabelRow[]) {
+  return needsAttention(order) || (!isCancelled(order) && fulfillmentState(order, labels).tone === "red");
+}
+
+function cancellationLabelRefundState(order: OrderRow, labels: LabelRow[]): "complete" | "pending" | "attention" | "not_applicable" {
+  const labelCodes = labels.map((label) => normalize(label.last_error_code)).filter(Boolean);
+  const orderCode = normalize(fieldText(order, ["label_workflow_error_code"]));
+  const codes = labelCodes.length ? labelCodes : orderCode ? [orderCode] : [];
+  if (!codes.length) return "not_applicable";
+  if (codes.some((code) => code.includes("attention"))) return "attention";
+  if (labelCodes.length && labelCodes.every((code) => code.includes("refunded") && !code.includes("pending"))) return "complete";
+  if (!labelCodes.length && orderCode.includes("refunded") && !orderCode.includes("pending")) return "complete";
+  return "pending";
 }
 
 function attentionReason(order: OrderRow, labels: LabelRow[]) {
@@ -319,16 +340,28 @@ function attentionReason(order: OrderRow, labels: LabelRow[]) {
   return status || tracking || "Address or label needs review";
 }
 
+function isExpiredManualPaymentLink(order: OrderRow) {
+  if (String(order.order_source || "").trim().toLowerCase() !== "manual" || isPaid(order)) return false;
+  if (normalize(fieldText(order, ["payment_link_status"])) === "expired") return true;
+  const expiresAt = new Date(fieldText(order, ["payment_link_expires_at"]) || 0).getTime();
+  return Number.isFinite(expiresAt) && expiresAt > 0 && expiresAt <= Date.now();
+}
+
 function paymentState(order: OrderRow): { label: string; tone: Tone } {
   const workflow = normalize(order.order_status);
+  const paymentStatus = normalize(order.status);
   const flow = normalize(fieldText(order, ["payment_flow"]));
   const manualMethod = normalize(fieldText(order, ["manual_payment_method"]));
+  if (paymentStatus === "cancellation_pending") return { label: "Cancellation in progress", tone: "amber" };
+  if (paymentStatus === "refund_pending") return { label: "Refund pending", tone: "amber" };
+  if (paymentStatus === "refunded") return { label: "Refunded", tone: "red" };
   if (isPaid(order)) {
     const method = normalize(order.payment_method);
     if (method === "cash") return { label: "Paid cash", tone: "green" };
     if (method === "check") return { label: "Paid check", tone: "green" };
     return { label: "Paid", tone: "green" };
   }
+  if (isExpiredManualPaymentLink(order)) return { label: "Expired", tone: "red" };
   if (workflow === "payment_link_sent") return { label: "Payment link sent", tone: "amber" };
   if (isCancelled(order)) return { label: "Cancelled", tone: "red" };
   if (flow === "pay_later" && manualMethod === "arrival_payment_link") return { label: "Send link upon arrival", tone: "amber" };
@@ -339,7 +372,7 @@ function paymentState(order: OrderRow): { label: string; tone: Tone } {
 }
 
 function fulfillmentState(order: OrderRow, labels: LabelRow[]): { label: string; tone: Tone } {
-  if (isCancelled(order)) return { label: "Cancelled", tone: "red" };
+  if (isCancelled(order)) return { label: "Cancelled", tone: "neutral" };
   if (isShipped(order)) return { label: "Shipped", tone: "green" };
   if (isLocalPayLaterOrder(order)) return { label: "Local delivery pending", tone: "amber" };
   if (!isPaid(order)) return { label: "Await payment", tone: "amber" };
@@ -387,7 +420,13 @@ function isLocalPayLaterOrder(order: OrderRow) {
 function nextAction(order: OrderRow, labels: LabelRow[]) {
   const payment = paymentState(order).label;
   const fulfillment = fulfillmentState(order, labels).label;
+  if (isCancelled(order)) {
+    if (normalize(order.status) === "refund_pending") return "Wait for refund settlement";
+    if (cancellationLabelRefundState(order, labels) === "pending") return "Wait for label credit";
+    return needsAttention(order) ? "Review refund status" : "No action required";
+  }
   if (isLocalPayLaterOrder(order)) return "Deliver and collect payment";
+  if (isExpiredManualPaymentLink(order)) return "Edit order or send a new link";
   if (!isPaid(order) && !isCancelled(order)) return "Record payment when received";
   if (payment === "Awaiting payment") return "Collect payment";
   if (payment === "Payment link sent") return "Wait for payment";
@@ -845,6 +884,12 @@ function paymentFlowLabel(order: OrderRow) {
 }
 
 function orderStepState(index: number, order: OrderRow, labels: LabelRow[]): "done" | "active" | "pending" {
+  if (isCancelled(order)) {
+    if (index === 0 || index === 3) return "done";
+    if (index === 1) return normalize(order.status) === "refunded" ? "done" : "active";
+    const labelState = cancellationLabelRefundState(order, labels);
+    return ["complete", "not_applicable"].includes(labelState) ? "done" : labelState === "attention" ? "active" : "pending";
+  }
   const paid = isPaid(order);
   const labelDone = hasPurchasedLabel(order, labels);
   const shipped = isShipped(order);
@@ -862,6 +907,7 @@ function orderStepState(index: number, order: OrderRow, labels: LabelRow[]): "do
 }
 
 function orderSteps(order: OrderRow, labels: LabelRow[]) {
+  if (isCancelled(order)) return ["Order created", "Customer refund", "Label credit", "Cancelled"];
   if (isLocalPayLaterOrder(order)) {
     return ["Order created", "Deliver + collect payment"];
   }
@@ -884,6 +930,28 @@ function timelineItems(order: OrderRow, labels: LabelRow[]): Array<{ label: stri
   const firstLabel = purchasedLabels[0];
   const orderTracking = trackingDisplayValue(order);
   const orderCarrier = fieldText(order, ["shippo_label_carrier"]);
+
+  if (isCancelled(order)) {
+    const squareComplete = normalize(order.status) === "refunded";
+    const labelState = cancellationLabelRefundState(order, labels);
+    const labelComplete = labelState === "complete";
+    const labelAttention = labelState === "attention";
+    const labelNotApplicable = labelState === "not_applicable";
+    return [
+      { label: "Order created", detail: formatDateTime(order.created_at), state: "done" },
+      {
+        label: squareComplete ? "Customer refund completed" : "Customer refund pending",
+        detail: squareComplete ? "Square confirmed the refund." : "Square accepted the refund and is processing it.",
+        state: squareComplete ? "done" : "active",
+      },
+      {
+        label: labelComplete ? "Shipping-label credit completed" : labelAttention ? "Shipping-label credit needs review" : labelNotApplicable ? "No shipping-label credit" : "Shipping-label credit pending",
+        detail: labelComplete ? "Shippo confirmed every label credit." : labelAttention ? "Review this refund in Shippo." : labelNotApplicable ? "This order has no purchased carrier label." : "Shippo accepted the label-refund request.",
+        state: labelComplete || labelNotApplicable ? "done" : labelAttention ? "active" : "pending",
+      },
+      { label: "Order cancelled", detail: "Inventory restored.", state: "done" },
+    ];
+  }
 
   if (isLocalPayLaterOrder(order)) {
     return [
@@ -1353,6 +1421,44 @@ function ResendNotificationModal({
   return createPortal(modal, document.body);
 }
 
+function CancelOrderModal({ intent, busy, onCancel, onConfirm }: {
+  intent: NonNullable<CancelIntent>;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const ready = reason.trim().length >= 3 && confirmation.trim().toUpperCase() === "CANCEL";
+  return createPortal(
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 px-4" role="dialog" aria-modal="true" aria-labelledby="cancel-order-title">
+      <button type="button" className="absolute inset-0 cursor-default" aria-label="Close cancellation" onClick={busy ? undefined : onCancel} />
+      <div className="relative w-full max-w-lg rounded-[10px] border border-sg-border bg-white p-5 shadow-[0_24px_80px_rgba(31,27,24,0.24)]">
+        <h2 id="cancel-order-title" className="text-lg font-bold text-sg-danger">Cancel and refund {intent.orderRef}?</h2>
+        <p className="mt-2 text-[13px] leading-5 text-sg-muted">
+          The system will refund or void {formatUsdCents(intent.totalCents)}, restore inventory, request refunds for {intent.purchasedLabels} purchased shipping label{intent.purchasedLabels === 1 ? "" : "s"}, and email the customer.
+        </p>
+        <p className="mt-3 rounded-[8px] bg-sg-warning-soft px-3 py-2 text-[12px] font-semibold leading-5 text-sg-warning">
+          Square processing fees are not returned. Shippo or UPS label credits may remain pending and will be shown for manual follow-up.
+        </p>
+        <label className="mt-4 block text-[13px] font-semibold">Cancellation reason
+          <textarea className="sg25-input mt-1 min-h-20 w-full p-3" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Customer requested cancellation" />
+        </label>
+        <label className="mt-3 block text-[13px] font-semibold">Type CANCEL to confirm
+          <input className="sg25-input mt-1 h-10 w-full px-3" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" />
+        </label>
+        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button type="button" className="sg25-btn sg25-btn-ghost h-10 px-5 text-[12px]" disabled={busy} onClick={onCancel}>Keep order</button>
+          <button type="button" className="sg25-btn h-10 bg-sg-danger px-5 text-[12px] text-white hover:opacity-90 disabled:opacity-50" disabled={busy || !ready} onClick={() => onConfirm(reason.trim())}>
+            {busy ? "Cancelling and refunding" : "Cancel and refund"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function ProductShippedModal({
   onCancel,
   onConfirm,
@@ -1650,8 +1756,12 @@ function OrderDrawer({
   onPurchaseLabel,
   onRequestNotifyBuyer,
   onSendArrivalPaymentLink,
+  onEditExpiredOrder,
   onSaveExternalFulfillment,
   onRequestConfirmShipped,
+  onRequestCancel,
+  onCheckCancellationStatus,
+  onSendRefundEmail,
   actionBusy,
   actionStatus,
 }: {
@@ -1666,8 +1776,12 @@ function OrderDrawer({
   onPurchaseLabel: (orderId: string, rateObjectId: string) => Promise<void>;
   onRequestNotifyBuyer: (orderId: string) => void;
   onSendArrivalPaymentLink: (orderId: string) => Promise<void>;
+  onEditExpiredOrder: (orderId: string) => Promise<void>;
   onSaveExternalFulfillment: (body: Parameters<typeof saveOrderExternalFulfillment>[0]) => Promise<void>;
   onRequestConfirmShipped: (intent: NonNullable<ShipIntent>) => void;
+  onRequestCancel: (intent: NonNullable<CancelIntent>) => void;
+  onCheckCancellationStatus: (orderId: string) => Promise<void>;
+  onSendRefundEmail: (orderId: string) => Promise<void>;
   actionBusy: OrderActionKey | null;
   actionStatus: { tone: "success" | "error"; message: string } | null;
 }) {
@@ -1684,6 +1798,8 @@ function OrderDrawer({
   const rates = shippoRates(order);
   const onlineStoreOrder = isOnlineStoreOrder(order);
   const automaticManualLabel = isAutomaticManualLabelOrder(order);
+  const manualSquareLinkOrder = normalize(fieldText(order, ["order_source"])) === "manual" &&
+    normalize(fieldText(order, ["payment_flow"])) === "square_payment_link";
   const automaticLabelOrder = onlineStoreOrder || automaticManualLabel;
   const automaticWorkflow = normalize(order.order_status);
   const automaticExceptionRetryAllowed = automaticLabelOrder && ["paid_label_retry", "partial_label_failure", "partial_label_purchase", "admin_review_required"].includes(automaticWorkflow);
@@ -1733,12 +1849,13 @@ function OrderDrawer({
   const shippingSummaryText = detailValue(shippingSummary(order, labels));
   const showSeparateShippingSummary = shippingSummaryText !== "-" && shippingSummaryText !== trackingText;
   const shipped = isShipped(order);
+  const cancelled = isCancelled(order);
   const paymentLinkUrl = fieldText(order, ["payment_link_url"]);
   const arrivalLinkOrder = normalize(fieldText(order, ["manual_payment_method"])) === "arrival_payment_link";
   const localPayLaterPending = isLocalPayLaterOrder(order);
   const requiresPaymentProof = localPayLaterPending && !arrivalLinkOrder;
   const canSyncShippo = carrierOrder && paid && !labelPurchased;
-  const canConfirmShipped = carrierOrder && labelPurchased && !shipped;
+  const canConfirmShipped = carrierOrder && labelPurchased && !shipped && !cancelled;
   const canResendNotify = carrierOrder && labelPurchased && shipped;
   const canCompleteHandoff = localHandoffOrder && !shipped && (paid || (localPayLaterPending && !arrivalLinkOrder));
   const externalCarrier = fieldText(order, ["admin_external_carrier"]);
@@ -1749,7 +1866,17 @@ function OrderDrawer({
   const hasExternalLabelRecord = Boolean(externalCarrier || externalService || externalTracking || externalShipDate || externalLabelCost != null);
   const hasExternalLabelFile = Boolean(fieldText(order, ["admin_external_label_storage_path"]));
   const externalRecordComplete = Boolean(externalCarrier && externalTracking && hasExternalLabelFile);
-  const canConfirmExternalShipped = b2bShippingOrder && paid && externalRecordComplete && !shipped;
+  const canConfirmExternalShipped = b2bShippingOrder && paid && externalRecordComplete && !shipped && !cancelled;
+  const cancelStatus = normalize(order.status);
+  const canCancelAndRefund = Boolean(fieldText(order, ["payment_id"])) && orderType(order) !== "walkin" && !shipped &&
+    cancelStatus === "paid";
+  const customerRefundComplete = cancelStatus === "refunded";
+  const cancellationEmailSentAt = fieldText(order, ["cancellation_email_sent_at"]);
+  const labelRefundState = cancellationLabelRefundState(order, labels);
+  const labelRefundComplete = labelRefundState === "complete";
+  const labelRefundAttention = labelRefundState === "attention";
+  const labelRefundNotApplicable = labelRefundState === "not_applicable";
+  const showCancellationStatus = cancelled && Boolean(fieldText(order, ["payment_id"]));
   const [externalForm, setExternalForm] = useState({
     carrier: externalCarrier,
     service: externalService,
@@ -1763,10 +1890,8 @@ function OrderDrawer({
   const paymentFlow = paymentFlowLabel(order);
   const paymentLinkSentAt = fieldText(order, ["payment_link_sent_at"]);
   const paymentLinkExpiresAt = fieldText(order, ["payment_link_expires_at"]);
-  const paymentLinkExpired = Boolean(paymentLinkExpiresAt) && new Date(paymentLinkExpiresAt).getTime() <= Date.now();
-  const paymentLinkNeedsResend = automaticManualLabel && !paid && (
-    paymentLinkExpired || normalize(fieldText(order, ["payment_link_status"])) === "expired"
-  );
+  const paymentLinkExpired = isExpiredManualPaymentLink(order);
+  const paymentLinkNeedsResend = manualSquareLinkOrder && paymentLinkExpired;
   const paymentDetailRows = [
     { label: "Method", value: fieldText(order, ["payment_method", "manual_payment_method"]) },
     { label: "Payment flow", value: paymentFlow },
@@ -2452,8 +2577,8 @@ function OrderDrawer({
                 </div>
               </section>
 
-              {paymentLinkUrl ? (
-                <details className="group rounded-[10px] border border-sg-border">
+              {paymentLinkUrl || paymentLinkNeedsResend ? (
+                <details className="group rounded-[10px] border border-sg-border" open={paymentLinkNeedsResend}>
                   <DrawerDisclosureTitle icon="clipboard">Documents</DrawerDisclosureTitle>
                   <div className="grid gap-x-8 gap-y-2 border-t border-sg-border px-4 pb-4 pt-3 text-[13px] sm:grid-cols-[150px_minmax(0,1fr)]">
                     <span className="text-sg-muted">Payment link</span>
@@ -2461,7 +2586,7 @@ function OrderDrawer({
                       {paymentLinkExpired ? "Expired — resend required" : "Active · valid for 48 hours"}
                     </span>
                     {paymentLinkNeedsResend ? (
-                      <div className="sm:col-span-2 sm:pl-[182px]">
+                      <div className="flex flex-wrap gap-2 sm:col-span-2 sm:pl-[182px]">
                         <button
                           type="button"
                           className="sg25-btn sg25-btn-ghost h-9 whitespace-nowrap px-4 text-[12px]"
@@ -2469,8 +2594,20 @@ function OrderDrawer({
                           onClick={() => void onSendArrivalPaymentLink(orderId)}
                         >
                           <Icon name="arrow-up-right" className="h-4 w-4" />
-                          {actionBusy === "arrivalLink" ? "Resending link" : "Resend 48-hour payment link"}
+                          {actionBusy === "arrivalLink" ? "Sending link" : "Send new payment link"}
                         </button>
+                        <button
+                          type="button"
+                          className="sg25-btn sg25-btn-ghost h-9 whitespace-nowrap px-4 text-[12px]"
+                          disabled={actionBusy === "editExpired"}
+                          onClick={() => void onEditExpiredOrder(orderId)}
+                        >
+                          <Icon name="clipboard" className="h-4 w-4" />
+                          {actionBusy === "editExpired" ? "Opening editor" : "Edit order first"}
+                        </button>
+                        <p className="w-full text-[11px] leading-4 text-sg-muted">
+                          Send a fresh 48-hour link with the current order, or edit items and recalculate delivery before sending.
+                        </p>
                       </div>
                     ) : null}
                   </div>
@@ -2589,6 +2726,54 @@ function OrderDrawer({
                         {actionBusy === "notify" ? "Sending notice" : "Resend notification"}
                       </button>
                       <p className="text-center text-[12px] font-medium text-sg-muted">Notification sent already.</p>
+                    </div>
+                  ) : null}
+                  {canCancelAndRefund ? (
+                    <div className="mt-4 border-t border-sg-border pt-4">
+                      <button
+                        type="button"
+                        className="sg25-btn h-9 w-full border border-sg-danger bg-white px-4 text-[12px] font-semibold text-sg-danger hover:bg-sg-danger-soft"
+                        disabled={actionBusy === "cancel"}
+                        onClick={() => onRequestCancel({ orderId, orderRef: String(order.order_ref || order.id), totalCents: Math.max(0, Number(order.total_cents) || 0), purchasedLabels: purchasedLabels.length })}
+                      >
+                        <Icon name="x" className="h-4 w-4" />
+                        Cancel and refund
+                      </button>
+                    </div>
+                  ) : null}
+                  {showCancellationStatus ? (
+                    <div className="mt-4 space-y-3 border-t border-sg-border pt-4">
+                      <div className="rounded-[8px] bg-sg-input-bg p-3 text-[12px] leading-5">
+                        <p className="flex justify-between gap-3"><span className="text-sg-muted">Customer refund</span><strong>{customerRefundComplete ? "Completed" : "Pending in Square"}</strong></p>
+                        <p className="mt-1 flex justify-between gap-3"><span className="text-sg-muted">Shipping-label credit</span><strong>{labelRefundComplete ? "Completed" : labelRefundAttention ? "Needs review" : labelRefundNotApplicable ? "Not applicable" : "Pending in Shippo"}</strong></p>
+                        <p className="mt-1 flex justify-between gap-3"><span className="text-sg-muted">Inventory</span><strong>Restored</strong></p>
+                      </div>
+                      <button
+                        type="button"
+                        className="sg25-btn sg25-btn-ghost h-9 w-full px-4 text-[12px]"
+                        disabled={actionBusy === "refundStatus"}
+                        onClick={() => void onCheckCancellationStatus(orderId)}
+                      >
+                        <Icon name="refresh" className={`h-4 w-4 ${actionBusy === "refundStatus" ? "animate-spin" : ""}`} />
+                        {actionBusy === "refundStatus" ? "Checking providers" : "Check refund status"}
+                      </button>
+                      <p className="text-center text-[11px] leading-4 text-sg-muted">This only checks Square and Shippo. It cannot submit another refund.</p>
+                      <button
+                        type="button"
+                        className="sg25-btn sg25-btn-ghost h-9 w-full px-4 text-[12px]"
+                        disabled={actionBusy === "refundEmail" || !fieldText(order, ["customer_email"])}
+                        onClick={() => void onSendRefundEmail(orderId)}
+                      >
+                        <Icon name="receipt" className="h-4 w-4" />
+                        {actionBusy === "refundEmail" ? "Sending refund email" : cancellationEmailSentAt ? "Send refund email again" : "Send refund email"}
+                      </button>
+                      <p className="text-center text-[11px] leading-4 text-sg-muted">
+                        {fieldText(order, ["customer_email"])
+                          ? cancellationEmailSentAt
+                            ? `Refund email last sent ${formatDateTime(cancellationEmailSentAt)}. Sending again only emails the current status; it does not submit another refund or cancellation.`
+                            : "No refund email has been recorded yet. Sending it only emails the current status; it does not submit another refund or cancellation."
+                          : "No customer email is saved for this order."}
+                      </p>
                     </div>
                   ) : null}
                 </div>
@@ -2934,6 +3119,7 @@ export function OrdersPage() {
   const [purchaseIntent, setPurchaseIntent] = useState<PurchaseIntent>(null);
   const [shipIntent, setShipIntent] = useState<ShipIntent>(null);
   const [notifyIntent, setNotifyIntent] = useState<NotifyIntent>(null);
+  const [cancelIntent, setCancelIntent] = useState<CancelIntent>(null);
   const [orderPage, setOrderPage] = useState(0);
   const [attentionOpen, setAttentionOpen] = useState(false);
 
@@ -2990,6 +3176,7 @@ export function OrdersPage() {
     setPurchaseIntent(null);
     setShipIntent(null);
     setNotifyIntent(null);
+    setCancelIntent(null);
   }, [selectedOrderId]);
 
   function mergeActionResponse(response: unknown) {
@@ -3127,6 +3314,60 @@ export function OrdersPage() {
     setNotifyIntent(null);
   }
 
+  async function confirmCancelOrder(reason: string) {
+    if (!cancelIntent) return;
+    const orderId = cancelIntent.orderId;
+    setDrawerActionBusy("cancel");
+    setDrawerActionStatus(null);
+    try {
+      const token = await auth.getAccessToken();
+      const result = await cancelAndRefundOrder(orderId, reason, token);
+      mergeActionResponse(result);
+      await Promise.all([ordersQuery.refetch(), queryClient.invalidateQueries({ queryKey: ["admin-v2.5-summary"] })]);
+      setDrawerActionStatus({
+        tone: result.warning ? "error" : "success",
+        message: result.warning || "Order cancelled. Customer payment refunded, inventory restored, and shipping label refunds requested.",
+      });
+      setCancelIntent(null);
+    } catch (error) {
+      await ordersQuery.refetch();
+      setDrawerActionStatus({ tone: "error", message: error instanceof Error ? error.message : "Could not cancel the order." });
+    } finally {
+      setDrawerActionBusy(null);
+    }
+  }
+
+  async function handleCheckCancellationStatus(orderId: string) {
+    setDrawerActionBusy("refundStatus");
+    setDrawerActionStatus(null);
+    try {
+      const token = await auth.getAccessToken();
+      const result = await checkCancelledOrderRefundStatus(orderId, token);
+      mergeActionResponse(result);
+      await Promise.all([ordersQuery.refetch(), queryClient.invalidateQueries({ queryKey: ["admin-v2.5-summary"] })]);
+      setDrawerActionStatus({
+        tone: result.warning?.includes("manual review") ? "error" : "success",
+        message: result.warning || "Square refund and Shippo label credit are complete.",
+      });
+    } catch (error) {
+      await ordersQuery.refetch();
+      setDrawerActionStatus({ tone: "error", message: error instanceof Error ? error.message : "Could not check refund status." });
+    } finally {
+      setDrawerActionBusy(null);
+    }
+  }
+
+  async function handleSendRefundEmail(orderId: string) {
+    const requestId = typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `email_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    await runDrawerAction(
+      "refundEmail",
+      (token) => sendCancelledOrderRefundEmail(orderId, requestId, token),
+      "Refund status email sent to the customer.",
+    );
+  }
+
   async function handleSendArrivalPaymentLink(orderId: string) {
     setDrawerActionBusy("arrivalLink");
     setDrawerActionStatus(null);
@@ -3136,10 +3377,26 @@ export function OrdersPage() {
       await ordersQuery.refetch();
       setDrawerActionStatus({
         tone: "success",
-        message: result.warning || "Payment link sent for arrival collection.",
+        message: result.warning || "A new 48-hour payment link was sent to the customer.",
       });
     } catch (error) {
       const message = error instanceof ApiError || error instanceof Error ? error.message : "Action failed.";
+      setDrawerActionStatus({ tone: "error", message });
+    } finally {
+      setDrawerActionBusy(null);
+    }
+  }
+
+  async function handleEditExpiredOrder(orderId: string) {
+    setDrawerActionBusy("editExpired");
+    setDrawerActionStatus(null);
+    try {
+      const token = await auth.getAccessToken();
+      await prepareManualOrderEdit(orderId, token);
+      setSelectedOrderId(null);
+      navigate("/order-builder", { state: { editOrderId: orderId } });
+    } catch (error) {
+      const message = error instanceof ApiError || error instanceof Error ? error.message : "Could not open this order for editing.";
       setDrawerActionStatus({ tone: "error", message });
     } finally {
       setDrawerActionBusy(null);
@@ -3191,7 +3448,7 @@ export function OrdersPage() {
   const visibleOrders = filteredOrders.slice(effectiveOrderPage * 10, effectiveOrderPage * 10 + 10);
   const attentionOrders = useMemo(() => payload.orders.filter((order) => {
     const labels = payload.labelsByOrderId.get(String(order.id)) || [];
-    return needsAttention(order) || fulfillmentState(order, labels).tone === "red";
+    return isAttentionOrder(order, labels);
   }), [payload.labelsByOrderId, payload.orders]);
 
   useEffect(() => {
@@ -3211,7 +3468,7 @@ export function OrdersPage() {
       if (!isPaid(order) && !isCancelled(order)) awaitingPayment += 1;
       if (isPaid(order) && !isShipped(order) && !isCancelled(order)) paidNotShipped += 1;
       if (isShipped(order)) shipped += 1;
-      if (needsAttention(order) || fulfillmentState(order, labels).tone === "red") attention += 1;
+      if (isAttentionOrder(order, labels)) attention += 1;
     });
     return { awaitingPayment, paidNotShipped, shipped, attention };
   }, [payload.labelsByOrderId, payload.orders]);
@@ -3426,8 +3683,12 @@ export function OrdersPage() {
           onPurchaseLabel={handlePurchaseLabel}
           onRequestNotifyBuyer={(orderId) => setNotifyIntent({ orderId })}
           onSendArrivalPaymentLink={handleSendArrivalPaymentLink}
+          onEditExpiredOrder={handleEditExpiredOrder}
           onSaveExternalFulfillment={handleSaveExternalFulfillment}
           onRequestConfirmShipped={(intent) => setShipIntent(intent)}
+          onRequestCancel={(intent) => setCancelIntent(intent)}
+          onCheckCancellationStatus={handleCheckCancellationStatus}
+          onSendRefundEmail={handleSendRefundEmail}
           actionBusy={drawerActionBusy}
           actionStatus={drawerActionStatus}
         />
@@ -3462,6 +3723,14 @@ export function OrdersPage() {
           busy={drawerActionBusy === "notify"}
           onCancel={() => setNotifyIntent(null)}
           onConfirm={() => void confirmNotifyBuyer()}
+        />
+      ) : null}
+      {cancelIntent ? (
+        <CancelOrderModal
+          intent={cancelIntent}
+          busy={drawerActionBusy === "cancel"}
+          onCancel={() => setCancelIntent(null)}
+          onConfirm={(reason) => void confirmCancelOrder(reason)}
         />
       ) : null}
     </div>

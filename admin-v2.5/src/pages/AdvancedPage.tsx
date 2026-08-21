@@ -1035,8 +1035,7 @@ export function AdvancedPage() {
   const healthCounts = shippingHealth?.last24Hours?.counts || {};
   const healthFailureCount = Number(healthCounts.failed || 0) + Number(healthCounts.no_rates || 0) + Number(healthCounts.partial || 0);
   const shippoReady = Boolean(
-    healthRuntime?.provider === "shippo" &&
-      healthRuntime?.tokenMode !== "missing" &&
+    healthRuntime?.shippoConfigured === true &&
       Number(healthRuntime?.carrierAccountCount || 0) > 0 &&
       healthRuntime?.warehouseConfigured &&
       healthRuntime?.databasePurchaseLockEnabled,
@@ -1060,9 +1059,28 @@ export function AdvancedPage() {
       : paymentRuntime?.environment === "sandbox"
         ? "Sandbox"
         : paymentRuntime?.environment === "production"
-          ? "Production blocked"
+          ? "Production"
           : "Not configured";
-  const squareEnvironmentTone = paymentUnavailable || paymentRuntime?.sandboxPolicyCompliant !== true ? "danger" : "success";
+  const squareEnvironmentTone = paymentUnavailable || paymentRuntime?.environmentConfigured !== true ? "danger" : "success";
+  const squareEnvironmentDetail = paymentHealthLoading
+    ? "Reading the active server configuration."
+    : paymentUnavailable
+      ? "The payment health endpoint could not read the current server configuration."
+      : paymentRuntime?.environment === "production"
+        ? "Square production credentials are active on the server."
+        : paymentRuntime?.environment === "sandbox"
+          ? "Square sandbox credentials are active on the server."
+          : "Square environment is missing or invalid on the server.";
+  const shippoEnvironmentTone = healthRuntime?.tokenMode === "live"
+    ? "success"
+    : healthRuntime?.tokenMode === "missing"
+      ? "danger"
+      : "warning";
+  const shippoEnvironmentDetail = healthRuntime?.tokenMode === "live"
+    ? "The active server token purchases real postage."
+    : healthRuntime?.tokenMode === "test"
+      ? "The active server token creates test quotes and labels."
+      : "No Shippo API token is configured on the server.";
   const checkoutReady = Boolean(paymentRuntime?.embeddedCheckoutReady || paymentRuntime?.paymentLinkReady);
   const checkoutHealthValue = paymentHealthLoading ? "Checking" : paymentUnavailable ? "Unavailable" : checkoutReady ? "Ready" : "Setup required";
   const checkoutHealthTone = paymentUnavailable || !checkoutReady ? "danger" : "success";
@@ -1619,11 +1637,11 @@ export function AdvancedPage() {
               <div className="rounded-[8px] border border-sg-border px-3 py-3 text-[13px]">
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-semibold">Shippo environment</span>
-                  <StatusPill tone={healthRuntime?.tokenMode === "live" ? "danger" : "warning"}>
+                  <StatusPill tone={shippoEnvironmentTone}>
                     {healthRuntime?.tokenMode === "live" ? "Live" : healthRuntime?.tokenMode === "missing" ? "Missing" : "Test"}
                   </StatusPill>
                 </div>
-                <p className="mt-0.5 text-[12px] leading-4 text-sg-muted">Test mode creates sandbox quotes and labels without buying real postage.</p>
+                <p className="mt-0.5 text-[12px] leading-4 text-sg-muted">{shippoEnvironmentDetail}</p>
               </div>
               <SettingRow
                 label="Shippo provider health"
@@ -1695,22 +1713,10 @@ export function AdvancedPage() {
                     <div className="rounded-[9px] border border-sg-border bg-white p-4">
                       <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                         <div>
-                          <p className="text-[13px] font-bold">Minimum order by product</p>
-                          <p className="mt-1 text-[11px] leading-4 text-sg-muted">Each product in the order must meet its displayed post-discount minimum.</p>
+                          <p className="text-[13px] font-bold">Minimum order total</p>
+                          <p className="mt-1 text-[11px] leading-4 text-sg-muted">The complete post-discount merchandise subtotal must reach this amount.</p>
                         </div>
-                        <p className="text-[11px] font-semibold text-sg-muted">Default: {money(freeDeliveryConfig.minimumSubtotalCents)}</p>
-                      </div>
-                      <div className="mt-3 grid gap-2 lg:grid-cols-3">
-                        {productOptions.map((product) => {
-                          const override = freeDeliveryConfig.productMinimumsCents?.[product.slug];
-                          return (
-                            <div key={product.slug} className="rounded-[8px] bg-sg-canvas px-3 py-3">
-                              <p className="text-[11px] font-bold leading-4 text-sg-muted">{product.name}</p>
-                              <p className="mt-2 text-[17px] font-bold">{money(override ?? freeDeliveryConfig.minimumSubtotalCents)}</p>
-                              <p className="mt-0.5 text-[10px] font-semibold text-sg-muted">{override == null ? "Uses default minimum" : "Product-specific minimum"}</p>
-                            </div>
-                          );
-                        })}
+                        <p className="text-[17px] font-bold">{money(freeDeliveryConfig.minimumSubtotalCents)}</p>
                       </div>
                     </div>
 
@@ -1732,12 +1738,12 @@ export function AdvancedPage() {
 
                     <div className="flex items-start gap-3 rounded-[8px] border border-sg-border bg-sg-canvas/70 px-3 py-3 text-[11px] leading-5 text-sg-muted">
                       <Icon name="lock" className="mt-0.5 h-4 w-4 shrink-0" />
-                      <span>This is a read-only summary. Unlock editing to change the delivery area, minimums, or ZIP codes.</span>
+                      <span>This is a read-only summary. Unlock editing to change the delivery area, order minimum, or ZIP codes.</span>
                     </div>
                   </div>
                 ) : (
                   <fieldset disabled={freeDeliverySaving} className="mt-4 space-y-3">
-                  <ToggleSetting label="Free local delivery" detail="Applies when the ZIP qualifies and every product in the order reaches its configured minimum." enabled={freeDeliveryConfig.active} onChange={(active) => setFreeDeliveryConfig((current) => current ? { ...current, active } : current)} />
+                  <ToggleSetting label="Free local delivery" detail="Applies when the ZIP qualifies and the complete post-discount order reaches the configured minimum." enabled={freeDeliveryConfig.active} onChange={(active) => setFreeDeliveryConfig((current) => current ? { ...current, active } : current)} />
                   <div className="grid gap-3 sm:grid-cols-[110px_minmax(0,1fr)]">
                     <Field label="State">
                       <CustomSelect
@@ -1751,34 +1757,10 @@ export function AdvancedPage() {
                       />
                     </Field>
                     <CurrencyCentsField
-                      label="Default product minimum"
+                      label="Minimum order subtotal"
                       cents={freeDeliveryConfig.minimumSubtotalCents}
-                      onCommit={(minimumSubtotalCents) => setFreeDeliveryConfig((current) => current ? { ...current, minimumSubtotalCents: minimumSubtotalCents || 0 } : current)}
+                      onCommit={(minimumSubtotalCents) => setFreeDeliveryConfig((current) => current ? { ...current, minimumSubtotalCents: minimumSubtotalCents || 0, productMinimumsCents: {} } : current)}
                     />
-                  </div>
-                  <div className="rounded-[8px] border border-sg-border bg-white p-3">
-                    <p className="text-[12px] font-bold">Minimum by product</p>
-                    <p className="mt-1 text-[11px] leading-4 text-sg-muted">Each product present must reach its own post-discount merchandise minimum. Leave an override blank to use the default above.</p>
-                    <div className="mt-3 grid gap-3 lg:grid-cols-3">
-                      {productOptions.map((product) => {
-                        const override = freeDeliveryConfig.productMinimumsCents?.[product.slug];
-                        return (
-                          <CurrencyCentsField
-                            key={product.slug}
-                            label={product.name}
-                            cents={override ?? null}
-                            optional
-                            onCommit={(cents) => setFreeDeliveryConfig((current) => {
-                              if (!current) return current;
-                              const next = { ...(current.productMinimumsCents || {}) };
-                              if (cents != null) next[product.slug] = cents;
-                              else delete next[product.slug];
-                              return { ...current, productMinimumsCents: next };
-                            })}
-                          />
-                        );
-                      })}
-                    </div>
                   </div>
                   <div>
                     <p className="text-[11px] font-bold text-sg-muted">Eligible ZIP codes</p>
@@ -1797,7 +1779,7 @@ export function AdvancedPage() {
           <section className="sg25-card p-4 md:p-5">
             <SectionTitle icon="receipt" title="Payment Provider Health" description="Track Square readiness for checkout links, card payments, and webhooks." />
             <div className="mt-5 grid gap-2">
-              <SettingRow label="Square environment" value={squareEnvironmentValue} tone={squareEnvironmentTone} detail="This store is restricted to Square sandbox while shipping stabilization is in progress." />
+              <SettingRow label="Square environment" value={squareEnvironmentValue} tone={squareEnvironmentTone} detail={squareEnvironmentDetail} />
               <SettingRow label="Checkout payment readiness" value={checkoutHealthValue} tone={checkoutHealthTone} detail="Checks the server configuration used by embedded checkout and payment links; it does not submit a payment." />
               <SettingRow label="Webhook signature" value={webhookHealthValue} tone={webhookHealthTone} detail="Checks that the webhook secret matching the active Square environment is configured." />
               {paymentHealthError ? (

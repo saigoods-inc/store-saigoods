@@ -948,9 +948,11 @@ function InventoryHealth({ summary }: { summary: SummaryResponse }) {
           </div>
         ))}
       </div>
-      <a href="/admin-v2.5/inventory" className="sg25-btn sg25-btn-primary mt-auto w-full">
-        Review inventory
-      </a>
+      <div className="mt-auto pt-4">
+        <a href="/admin-v2.5/inventory" className="sg25-btn sg25-btn-primary w-full">
+          Review inventory
+        </a>
+      </div>
     </section>
   );
 }

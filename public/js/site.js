@@ -122,15 +122,29 @@ function renderHeader(site, page, searchValue) {
   }
 
   const logoHref = page === "home" ? "#hero" : "/index.html#hero";
+  const shopHref = page === "home" ? "#products" : "/index.html#products";
+  const b2bHref = page === "home" ? "#b2b" : "/index.html#b2b";
 
   headerRoot.innerHTML = `
     <div class="site-header">
       <div class="shell navbar">
         <a class="brand-mark" href="${logoHref}" aria-label="${escapeHtml(site.name)} home">
-          <img src="/img/nav-logo.svg" alt="${escapeHtml(site.name)} logo" width="44" height="44" decoding="async" />
+          <img src="/img/nav-logo.svg" alt="${escapeHtml(site.name)} logo" width="30" height="30" decoding="async" />
+          <span class="brand-mark__name">SAI Goods Store</span>
         </a>
 
-        <p class="site-header-welcome" role="status">🖐️ Welcome to SAI Goods Store</p>
+        <nav class="store-nav" aria-label="Store navigation">
+          <a href="${shopHref}">Shop</a>
+          <a href="${b2bHref}">Bulk order</a>
+          <a href="#contact">Contact</a>
+        </nav>
+
+        <form class="search-form" role="search" data-global-search>
+          <button class="search-form__button" type="submit" aria-label="Search products">
+            <img src="/img/search-icon.svg" alt="" aria-hidden="true" width="16" height="16" decoding="async" />
+          </button>
+          <input type="search" name="search" value="${escapeHtml(searchValue)}" placeholder="Search gloves" aria-label="Search products" autocomplete="off" />
+        </form>
 
         <a class="cart-link" href="/cart.html" aria-label="View cart">
           <img src="/img/cart-icon.svg" alt="" aria-hidden="true" width="22" height="22" decoding="async" />
@@ -162,6 +176,15 @@ function renderFooter(site) {
             <address class="brand__address">
               ${site.addressLines.map((line) => escapeHtml(line)).join("<br>")}
             </address>
+          </div>
+
+          <div class="widget">
+            <h3 class="widget__title">SHOP</h3>
+            <nav class="footer-links" aria-label="Footer store links">
+              <a href="/index.html#products">All gloves</a>
+              <a href="/index.html#b2b">Bulk order</a>
+              <a href="/cart.html">View cart</a>
+            </nav>
           </div>
 
           <div class="widget">

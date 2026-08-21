@@ -8,6 +8,7 @@ import {
   normalizePaymentFlow,
 } from "../lib/manual-order-fulfillment.js";
 import { updateManualOrderDraft } from "../lib/orders.js";
+import { normalizeDiscountCode } from "../lib/discount-codes.js";
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
 
 function parseOptionalYmd(input) {
@@ -140,12 +141,19 @@ export default async function handler(req, res) {
     }
 
     const rawBody = req.body || {};
+    const discountCodeRaw = String(rawBody.discountCode || "").trim();
+    const discountCode = discountCodeRaw ? normalizeDiscountCode(discountCodeRaw) : null;
+    if (discountCodeRaw && !discountCode) {
+      res.status(400).json({ error: "Enter a valid discount code." });
+      return;
+    }
     const rateId = String(rawBody.selectedShippingRateObjectId || "").trim();
     const estimateBody = {
       items: parsed.items,
       address: parsed.address,
       manualDiscountType: rawBody.manualDiscountType,
       manualDiscountValue: rawBody.manualDiscountValue,
+      ...(discountCode ? { discountCode } : {}),
       fulfillmentMethod: parsed.fulfillmentMethod,
       ...(parsed.fulfillmentMethod === "b2b_shipping"
         ? { manualB2bShippingCents: rawBody.manualB2bShippingCents }
@@ -212,13 +220,14 @@ export default async function handler(req, res) {
       {
         quote,
         customer,
-        hardinDiscount: null,
+        hardinDiscount: discountCode ? { code: discountCode, applied: true } : null,
         shippingAddress: parsed.address,
       },
       {
         fulfillmentMethod: parsed.fulfillmentMethod,
         paymentFlow: parsed.paymentFlow,
         shipmentDate: parsed.shipmentDate,
+        preserveExistingDiscountCode: rawBody.preserveExistingDiscountCode === true,
       },
     );
 

@@ -15,6 +15,59 @@ import { createClient } from "@supabase/supabase-js";
 import { createPaymentLink, deletePaymentLink } from "../lib/square.js";
 import { manualPaymentAccessUrl } from "../lib/manual-payment-link-access.js";
 
+export const MAX_B2B_INVOICE_BYTES = 4 * 1024 * 1024;
+
+function invoiceValidationError(message) {
+  const error = new Error(message);
+  error.statusCode = 400;
+  return error;
+}
+
+export function parseB2bInvoiceAttachment(input) {
+  if (input === null || input === undefined || input === "") return null;
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw invoiceValidationError("The B2B invoice attachment is invalid. Select the PDF again.");
+  }
+
+  const originalFilename = String(input.filename || "").trim();
+  const contentType = String(input.contentType || "").trim().toLowerCase();
+  const contentBase64 = String(input.contentBase64 || "").trim();
+  const declaredSize = Number(input.sizeBytes);
+  if (!originalFilename || !/\.pdf$/i.test(originalFilename) || contentType !== "application/pdf") {
+    throw invoiceValidationError("The B2B invoice must be a PDF file.");
+  }
+  if (!contentBase64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(contentBase64) || contentBase64.length % 4 !== 0) {
+    throw invoiceValidationError("The B2B invoice PDF could not be read. Select the file again.");
+  }
+
+  const content = Buffer.from(contentBase64, "base64");
+  if (!content.length || content.length > MAX_B2B_INVOICE_BYTES || declaredSize !== content.length) {
+    throw invoiceValidationError("The B2B invoice PDF must be 4 MB or smaller.");
+  }
+  if (content.subarray(0, 5).toString("ascii") !== "%PDF-") {
+    throw invoiceValidationError("The selected B2B invoice is not a valid PDF file.");
+  }
+
+  const safeStem = originalFilename
+    .replace(/[\r\n]/g, " ")
+    .replace(/[^A-Za-z0-9._ -]/g, "_")
+    .replace(/\.pdf$/i, "")
+    .trim()
+    .slice(0, 100) || "invoice";
+  return {
+    filename: `${safeStem}.pdf`,
+    content: contentBase64,
+  };
+}
+
+export function validateB2bInvoiceForFulfillment(input, fulfillmentMethod) {
+  const attachment = parseB2bInvoiceAttachment(input);
+  if (attachment && normalizeFulfillmentMethod(fulfillmentMethod) !== "b2b_shipping") {
+    throw invoiceValidationError("Invoice attachments are only available for B2B shipping payment-link emails.");
+  }
+  return attachment;
+}
+
 function parseOptionalYmd(input) {
   if (input === null || input === undefined || input === "") {
     return { ok: true, value: null };
@@ -450,6 +503,10 @@ export default async function handler(req, res) {
     }
 
     let order = await getOrderByIdForService(orderId);
+    const invoiceAttachment = validateB2bInvoiceForFulfillment(
+      req.body?.invoiceAttachment,
+      order?.fulfillment_method,
+    );
     const existingPaymentLinkUrl = String(order?.payment_link_url || "").trim();
     let renewingExpiredLink = false;
     if (String(order?.order_status || "") === "payment_link_sent" && existingPaymentLinkUrl) {
@@ -496,6 +553,7 @@ export default async function handler(req, res) {
         checkoutUrl: customerUrl,
         quote,
         shippingAddress: shouldHideLocalDeliveryAddress(fm, shipAddr) ? null : shipAddr,
+        invoiceAttachment,
       });
       res.status(200).json({
         ok: true,
@@ -570,6 +628,7 @@ export default async function handler(req, res) {
         totalFormatted: quote.totalFormatted,
         quote,
         shippingAddress: shouldHideLocalDeliveryAddress(fm, shipAddr) ? null : shipAddr,
+        invoiceAttachment,
       },
     });
 
