@@ -8,6 +8,7 @@ import {
   normalizePaymentFlow,
 } from "../lib/manual-order-fulfillment.js";
 import { createManualOrderDraft } from "../lib/orders.js";
+import { normalizeDiscountCode } from "../lib/discount-codes.js";
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
 import {
   selectManualOrderRateFromToken,
@@ -152,6 +153,12 @@ export default async function handler(req, res) {
     await prepareManualOrderItems(parsed.items);
 
     const rawBody = req.body || {};
+    const discountCodeRaw = String(rawBody.discountCode || "").trim();
+    const discountCode = discountCodeRaw ? normalizeDiscountCode(discountCodeRaw) : null;
+    if (discountCodeRaw && !discountCode) {
+      res.status(400).json({ error: "Enter a valid discount code." });
+      return;
+    }
     const rateId = String(rawBody.selectedShippingRateObjectId || "").trim();
     if (parsed.fulfillmentMethod === "carrier" && !rateId) {
       res.status(400).json({ error: "Select and confirm a carrier rate before creating this order." });
@@ -162,6 +169,7 @@ export default async function handler(req, res) {
       address: parsed.address,
       manualDiscountType: rawBody.manualDiscountType,
       manualDiscountValue: rawBody.manualDiscountValue,
+      ...(discountCode ? { discountCode } : {}),
       fulfillmentMethod: parsed.fulfillmentMethod,
       ...(parsed.fulfillmentMethod === "b2b_shipping"
         ? { manualB2bShippingCents: rawBody.manualB2bShippingCents }
@@ -232,7 +240,7 @@ export default async function handler(req, res) {
       {
         quote,
         customer,
-        hardinDiscount: null,
+        hardinDiscount: discountCode ? { code: discountCode, applied: true } : null,
         shippingAddress: parsed.address,
       },
       {

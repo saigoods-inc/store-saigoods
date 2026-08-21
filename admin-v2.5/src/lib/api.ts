@@ -391,6 +391,7 @@ export interface ManualOrderEstimateRequest {
   selectedShippingResidentialSurchargeCents?: number;
   manualDiscountType?: "none" | "percent" | "amount";
   manualDiscountValue?: number;
+  discountCode?: string;
   quoteToken?: string;
 }
 

@@ -242,7 +242,7 @@ function normalizeDiscountCode(raw) {
   if (!s || s.length > 32) {
     return null;
   }
-  if (!/^HC-[A-Z0-9]{5}$/.test(s)) {
+  if (!/^[A-Z0-9][A-Z0-9-]{2,31}$/.test(s)) {
     return null;
   }
   return s;
@@ -601,16 +601,16 @@ test("8. non-Tennessee tax: both return taxCents 0 and no_nexus", async () => {
   });
 });
 
-test("9. Hardin discount: estimate and pay merchandise totals match", async () => {
+test("9. campaign discount: estimate and pay merchandise totals match without a location gate", async () => {
   await withEnv(PARITY_ENV, async () => {
     liveQuoteMode = "ok";
     forcedQuote = null;
     resetSideEffectMocks();
 
-    const code = "HC-ABC12";
+    const code = "SUMMER-2026";
     const estimate = await invokeEstimate({
       items: VALID_ITEMS,
-      address: TN_ADDRESS,
+      address: CA_ADDRESS,
       discountCode: code,
     });
     assert.equal(estimate.statusCode, 200);
@@ -618,7 +618,7 @@ test("9. Hardin discount: estimate and pay merchandise totals match", async () =
     assert.equal(assertDiscountCodeAvailable.mock.callCount(), 1);
 
     resetSideEffectMocks();
-    const pay = await invokePay({ ...VALID_PAY_BODY, discountCode: code });
+    const pay = await invokePay({ ...VALID_PAY_BODY, address: CA_ADDRESS, discountCode: code });
     assert.equal(pay.statusCode, 200);
     assert.equal(pay.body?.hardinDiscountApplied, true);
     assert.equal(assertDiscountCodeAvailable.mock.callCount(), 1);
@@ -713,7 +713,7 @@ test("12. direct pay when quote not ready: no order, discount claim, Square, pai
 
     const pay = await invokePay({
       ...VALID_PAY_BODY,
-      discountCode: "HC-ABC12",
+      discountCode: "SUMMER-2026",
       canCheckout: true,
       forceCheckout: true,
     });

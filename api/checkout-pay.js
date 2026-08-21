@@ -6,7 +6,6 @@ import {
   claimDiscountCodeForOrder,
   normalizeDiscountCode,
 } from "../lib/discount-codes.js";
-import { isHardinCountyTnDelivery } from "../lib/hardin-county.js";
 import { cancelPendingOrderAfterPaymentFailure, createPendingOrder, markOrderPaid } from "../lib/orders.js";
 import { sendResendOrderConfirmation } from "../lib/resend-order-confirmation.js";
 import { syncWebsiteOrderToShippo } from "../lib/shippo-order-sync.js";
@@ -189,13 +188,6 @@ export default async function handler(req, res) {
     let codeDiscount = null;
 
     if (normalizedCode) {
-      if (!isHardinCountyTnDelivery(mergedAddress)) {
-        res.status(400).json({
-          error: "This discount code is invalid or not applicable to this address.",
-        });
-        return;
-      }
-
       const codeDetails = await assertDiscountCodeAvailable(normalizedCode);
       const percentOff = Number(codeDetails?.percentOff) || 7;
       codeDiscount = { type: "percent", value: percentOff };

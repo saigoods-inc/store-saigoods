@@ -85,7 +85,7 @@ type AddressVerificationState = {
 };
 
 type InventoryAvailability = Record<ProductSlug, Record<SizeCode, { caseAvailable: number | null; boxAvailable: number | null; boxesPerCase: number; tracked: boolean }>>;
-const HARDIN_DISCOUNT_PERCENT = 7;
+const DEFAULT_DISCOUNT_PERCENT = 7;
 const CARRIER_RATE_AUTO_REFRESH_MS = 15 * 60 * 1000;
 const MAX_B2B_INVOICE_BYTES = 4 * 1024 * 1024;
 const usStateOptions = [
@@ -576,8 +576,7 @@ function sizeLabel(size: SizeCode) {
 }
 
 function normalizeAdminDiscountCode(value: string) {
-  const normalized = value.trim().toUpperCase().replace(/\s+/g, "");
-  return normalized && !normalized.startsWith("HC-") ? `HC-${normalized}` : normalized;
+  return value.trim().toUpperCase().replace(/\s+/g, "");
 }
 
 function recordValue(value: unknown): Record<string, unknown> {
@@ -968,7 +967,7 @@ export function OrderBuilderPage() {
               : discountMode === "custom_amount"
                 ? Math.min(subtotalCents, parseDollarsToCents(customDiscountValue))
                 : discountMode === "code" && discountCodeCheck?.status === "valid"
-                  ? Math.round(subtotalCents * ((discountCodeCheck.percent ?? HARDIN_DISCOUNT_PERCENT) / 100))
+                  ? Math.round(subtotalCents * ((discountCodeCheck.percent ?? DEFAULT_DISCOUNT_PERCENT) / 100))
                   : 0;
     const allowedDiscountCents = pricedRows.blocksDiscount ? 0 : discountCents;
     const discountedSubtotalCents = Math.max(0, subtotalCents - allowedDiscountCents);
@@ -1127,7 +1126,11 @@ export function OrderBuilderPage() {
 
   function manualDiscountPayload() {
     if (discountMode === "code" && discountCodeCheck?.status === "valid") {
-      return { manualDiscountType: "percent" as const, manualDiscountValue: discountCodeCheck.percent ?? HARDIN_DISCOUNT_PERCENT };
+      return {
+        manualDiscountType: "none" as const,
+        manualDiscountValue: 0,
+        discountCode: discountCodeCheck.code,
+      };
     }
     if (discountMode === "percent_5") return { manualDiscountType: "percent" as const, manualDiscountValue: 5 };
     if (discountMode === "percent_10") return { manualDiscountType: "percent" as const, manualDiscountValue: 10 };
@@ -1251,7 +1254,7 @@ export function OrderBuilderPage() {
   async function handleVerifyDiscountCode() {
     const normalized = normalizeAdminDiscountCode(discountCode);
     setDiscountCodeCheck(null);
-    if (!/^HC-[A-Z0-9][A-Z0-9-]{2,19}$/.test(normalized)) {
+    if (!/^[A-Z0-9][A-Z0-9-]{2,31}$/.test(normalized)) {
       const message = "Enter a valid discount code.";
       setDiscountCodeCheck({ code: normalized, status: "invalid", message });
       setFieldErrors((current) => ({ ...current, discount: message }));
@@ -1265,9 +1268,9 @@ export function OrderBuilderPage() {
         ? "That discount code is not valid."
         : found.is_used
           ? "This discount code has already been used."
-          : `Discount code verified: ${Number(found?.percent_off || HARDIN_DISCOUNT_PERCENT)}% off.`;
+          : `Discount code verified: ${Number(found?.percent_off || DEFAULT_DISCOUNT_PERCENT)}% off.`;
       const status = found && !found.is_used ? "valid" : "invalid";
-      setDiscountCodeCheck({ code: normalized, status, message, percent: status === "valid" ? Number(found?.percent_off || HARDIN_DISCOUNT_PERCENT) : undefined });
+      setDiscountCodeCheck({ code: normalized, status, message, percent: status === "valid" ? Number(found?.percent_off || DEFAULT_DISCOUNT_PERCENT) : undefined });
       setFieldErrors((current) => {
         const next = { ...current };
         if (status === "valid") delete next.discount;
@@ -1861,7 +1864,7 @@ export function OrderBuilderPage() {
                         setDiscountCodeCheck(null);
                         markDirty();
                       }}
-                      placeholder="HC-XXXXX"
+                      placeholder="SUMMER-2026"
                     />
                     <button type="button" className="sg25-btn sg25-btn-ghost absolute right-1.5 top-1/2 h-8 -translate-y-1/2 px-3 text-[12px]" onClick={() => void handleVerifyDiscountCode()}>
                       Verify code
@@ -2146,7 +2149,7 @@ export function OrderBuilderPage() {
               />
             ) : null}
             {discountMode === "code" && discountCodeCheck?.status === "valid" ? (
-              <SummaryLine label="Discount code" value={`${discountCodeCheck.code} · ${discountCodeCheck.percent ?? HARDIN_DISCOUNT_PERCENT}%`} />
+              <SummaryLine label="Discount code" value={`${discountCodeCheck.code} · ${discountCodeCheck.percent ?? DEFAULT_DISCOUNT_PERCENT}%`} />
             ) : null}
             <SummaryLine label="Shipping" value={quoteValue(displayQuote, "shippingFormatted", previewTotals.shippingCents)} />
             <SummaryLine label="Estimated tax" value={quoteValue(displayQuote, "taxFormatted", previewTotals.taxCents)} />

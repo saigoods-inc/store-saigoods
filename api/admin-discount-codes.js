@@ -30,10 +30,10 @@ export default async function handler(req, res) {
         return;
       }
       const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-      const randomCode = () => `HC-${Array.from({ length: 5 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("")}`;
+      const randomCode = () => `PROMO-${Array.from({ length: 5 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("")}`;
       const requestedCode = mode === "random" ? randomCode() : normalizeDiscountCode(req.body?.code);
       if (!requestedCode) {
-        res.status(400).json({ error: "Enter 3–20 letters, numbers, or hyphens for the code." });
+        res.status(400).json({ error: "Enter 3–32 letters, numbers, or hyphens for the code." });
         return;
       }
       let created = null;

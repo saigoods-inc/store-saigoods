@@ -97,7 +97,7 @@ function renderKpis() {
     kpiCard({ label: "Unused Codes", value: String(unused), sub: "Available to redeem", iconName: "inbox" }),
     kpiCard({ label: "Used Codes", value: String(used), sub: "Already redeemed", iconName: "receipt" }),
     kpiCard({ label: "Usage Rate", value: rate, sub: "Used of total", iconName: "bar-chart-3" }),
-    kpiCard({ label: "Local Discount Area", value: "Hardin County", sub: "Tennessee (TN)", iconName: "map-pin" }),
+    kpiCard({ label: "Eligibility", value: "Any location", sub: "Campaign controlled", iconName: "tag" }),
   ];
   return `<div class="sg-grid sg-grid--kpi-5">${cards.join("")}</div>`;
 }
@@ -147,7 +147,7 @@ function tableCard() {
 function infoCard() {
   return card({
     titleHtml: `${icon("info", 16)}<span>How these codes work</span>`,
-    bodyHtml: `<p class="sg-meta-note" style="margin-top:0">One-time <code>HC-XXXXX</code> codes for eligible Hardin County (TN) customers. Each code applies once at checkout and is marked used automatically when its order is paid.</p>`,
+    bodyHtml: `<p class="sg-meta-note" style="margin-top:0">One-time campaign codes apply once at checkout and are marked used automatically when their order is paid.</p>`,
   });
 }
 
@@ -234,7 +234,7 @@ function renderPage() {
     <div class="sg-page-header">
       <div>
         <h1 class="sg-page-header__title">Discount Codes</h1>
-        <p class="sg-page-header__subtitle">View one-time Hardin County discount codes for eligible local customers (read-only).</p>
+        <p class="sg-page-header__subtitle">View one-time campaign discount codes (read-only).</p>
       </div>
       <div class="sg-page-header__actions">${generateBtn}</div>
     </div>
