@@ -129,8 +129,8 @@ function renderHeader(site, page, searchValue) {
     <div class="site-header">
       <div class="shell navbar">
         <a class="brand-mark" href="${logoHref}" aria-label="${escapeHtml(site.name)} home">
-          <img src="/img/nav-logo.svg" alt="${escapeHtml(site.name)} logo" width="44" height="44" decoding="async" />
-          <span class="brand-mark__name">SAI Goods</span>
+          <img src="/img/nav-logo.svg" alt="${escapeHtml(site.name)} logo" width="30" height="30" decoding="async" />
+          <span class="brand-mark__name">SAI Goods Store</span>
         </a>
 
         <nav class="store-nav" aria-label="Store navigation">

@@ -7,6 +7,12 @@ const productGrid = document.querySelector("[data-product-grid]");
 const introRoot = document.querySelector("[data-product-intros]");
 const searchMeta = document.querySelector("[data-search-meta]");
 
+const PRODUCT_THICKNESS_BY_SLUG = {
+  "nitrile-standard": "4 mil",
+  "black-nitrile-general": "5 mil",
+  "black-nitrile-heavy-duty": "8 mil",
+};
+
 const currentUrl = new URL(window.location.href);
 let activeQuery = currentUrl.searchParams.get("search")?.trim() || "";
 let store;
@@ -97,6 +103,7 @@ function renderCatalog(products) {
   productGrid.innerHTML = products
     .map((product) => {
       const cardOos = isProductStorefrontOutOfStock(product, storefrontSizesForProduct(product, store));
+      const thickness = PRODUCT_THICKNESS_BY_SLUG[product.slug];
       const oosBlock = cardOos
         ? `<p class="product-card__oos" role="status">Out of stock</p>`
         : "";
@@ -107,6 +114,7 @@ function renderCatalog(products) {
               </a>`;
       return `
         <article class="product-card product-card--${escapeHtml(product.intro.theme)}${cardOos ? " product-card--oos" : ""}" data-product-slug="${escapeHtml(product.slug)}">
+          ${thickness ? `<span class="product-card__tag">${escapeHtml(thickness)}</span>` : ""}
           <div class="product-card__media">
             ${responsiveRasterImg(product.cardImage, {
               alt: product.name,
