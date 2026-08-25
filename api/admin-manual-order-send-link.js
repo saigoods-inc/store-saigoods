@@ -129,10 +129,11 @@ function invalidCarrierQuoteMessage(quote) {
   const service = String(shipping.serviceLabel || shipping.serviceCode || "").trim();
   const providerQuoteId = String(shipping.providerQuoteId || "").trim();
   const shippingCents = Math.max(0, Math.round(Number(quote?.shippingCents ?? shipping.amountCents) || 0));
+  const freeShippingApplied = shipping.freeShippingApplied === true && quote?.freeShipping?.applied === true;
   if (!quote?.canCheckout || quote?.userFacingError) {
     return quote?.userFacingError || "Carrier shipping is not ready. Get and confirm a carrier rate before sending this link.";
   }
-  if (quoteStatus !== "rated" || !providerQuoteId || !service || shippingCents <= 0) {
+  if (quoteStatus !== "rated" || !providerQuoteId || !service || (shippingCents <= 0 && !freeShippingApplied)) {
     return "Carrier shipping is missing a confirmed paid rate. Get and confirm a carrier rate before sending this link.";
   }
   return "";
@@ -142,7 +143,11 @@ function invalidCarrierOrderSnapshotMessage(order) {
   const service = String(order?.quoted_shipping_service_label || order?.quoted_shipping_service_code || "").trim();
   const providerQuoteId = String(order?.quoted_shipping_provider_quote_id || "").trim();
   const shippingCents = Math.max(0, Math.round(Number(order?.shipping_cents) || 0));
-  if (!providerQuoteId || !service || shippingCents <= 0) {
+  const carrierCostCents = Math.max(
+    0,
+    Math.round(Number(order?.quoted_shipping_base_amount_cents) || 0),
+  );
+  if (!providerQuoteId || !service || (shippingCents <= 0 && carrierCostCents <= 0)) {
     return "This payment link was created before a valid carrier rate was saved. Do not resend it; refresh rates and recreate the order.";
   }
   return "";

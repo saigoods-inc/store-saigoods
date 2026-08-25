@@ -117,10 +117,11 @@ function invalidCarrierQuoteMessage(quote) {
   const service = String(shipping.serviceLabel || shipping.serviceCode || "").trim();
   const providerQuoteId = String(shipping.providerQuoteId || "").trim();
   const shippingCents = Math.max(0, Math.round(Number(quote?.shippingCents ?? shipping.amountCents) || 0));
+  const freeShippingApplied = shipping.freeShippingApplied === true && quote?.freeShipping?.applied === true;
   if (!quote?.canCheckout || quote?.userFacingError) {
     return quote?.userFacingError || "Carrier shipping is not ready. Get and confirm a carrier rate before updating this order.";
   }
-  if (quoteStatus !== "rated" || !providerQuoteId || !service || shippingCents <= 0) {
+  if (quoteStatus !== "rated" || !providerQuoteId || !service || (shippingCents <= 0 && !freeShippingApplied)) {
     return "Carrier shipping is missing a confirmed paid rate. Get and confirm a carrier rate before updating this order.";
   }
   return "";

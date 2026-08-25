@@ -410,6 +410,11 @@ export interface ManualOrderShippingRateOption {
   estimatedDays?: number | null;
   residentialSurchargeCents?: number;
   residentialSurchargeFormatted?: string;
+  freeShippingApplied?: boolean;
+  carrierTotalAmountCents?: number;
+  carrierTotalAmountFormatted?: string;
+  shippingDiscountCents?: number;
+  shippingDiscountFormatted?: string;
 }
 
 export interface ManualOrderQuoteResponse {
@@ -442,6 +447,19 @@ export interface ManualOrderQuoteResponse {
     minimumSubtotalFormatted?: string;
     amountRemainingCents?: number;
     amountRemainingFormatted?: string;
+    message?: string | null;
+  };
+  freeShipping?: {
+    active?: boolean;
+    configured?: boolean;
+    eligible?: boolean;
+    applied?: boolean;
+    zone?: number | null;
+    thresholdCents?: number;
+    thresholdFormatted?: string;
+    amountRemainingCents?: number;
+    amountRemainingFormatted?: string;
+    qualifyingRateId?: string | null;
     message?: string | null;
   };
 }

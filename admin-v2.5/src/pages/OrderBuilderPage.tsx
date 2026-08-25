@@ -366,6 +366,9 @@ function formatRateLabel(rate: ManualOrderShippingRateOption) {
 }
 
 function formatRateBreakdown(rate: ManualOrderShippingRateOption) {
+  if (rate.freeShippingApplied) {
+    return `${rate.provider || "Carrier"} · ${rate.carrierTotalAmountFormatted || formatUsdCents(rate.carrierTotalAmountCents || 0)} carrier cost · customer shipping free`;
+  }
   const surchargeCents = Math.max(0, Math.round(Number(rate.residentialSurchargeCents) || 0));
   const bufferCents = Math.max(0, Math.round(Number(rate.bufferCents) || 0));
   if (!surchargeCents && !bufferCents) return rate.provider || "Carrier";
@@ -2161,6 +2164,11 @@ export function OrderBuilderPage() {
             </div>
           ) : quote?.freeDelivery?.reason === "minimum_not_met" && quote.freeDelivery.message ? (
             <div className="mt-3 rounded-[10px] bg-sg-amber-soft p-3 text-[12px] leading-5 text-sg-amber">{quote.freeDelivery.message}</div>
+          ) : null}
+          {fulfillmentMethod === "carrier" && quote?.freeShipping?.message ? (
+            <div className={`mt-3 rounded-[10px] p-3 text-[12px] leading-5 ${quote.freeShipping.eligible ? "bg-sg-success-soft text-sg-success" : "bg-sg-amber-soft text-sg-amber"}`}>
+              {quote.freeShipping.message}
+            </div>
           ) : null}
           {quoteDirty && quote ? <p className="mt-3 text-[12px] text-sg-amber">Inputs changed after the last quote. Recalculate before sending.</p> : null}
           {summaryWarnings.length ? (
