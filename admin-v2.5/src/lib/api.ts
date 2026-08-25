@@ -393,6 +393,26 @@ export interface ManualOrderEstimateRequest {
   manualDiscountValue?: number;
   discountCode?: string;
   quoteToken?: string;
+  taxExemption?: ManualOrderTaxExemptionRequest;
+}
+
+export interface ManualOrderTaxExemptionRequest {
+  requested: boolean;
+  exemptionType: "organization_own_use" | "government" | "resale" | "other";
+  jurisdiction: string;
+  certificateNumber?: string;
+  effectiveDate?: string;
+  expirationDate?: string;
+  internalNote?: string;
+  documentReviewed: boolean;
+  certificateSelected: boolean;
+}
+
+export interface ManualOrderTaxExemptionCertificate {
+  filename: string;
+  contentBase64: string;
+  contentType: "application/pdf" | "image/png" | "image/jpeg";
+  sizeBytes: number;
 }
 
 export interface ManualOrderShippingRateOption {
@@ -462,6 +482,12 @@ export interface ManualOrderQuoteResponse {
     qualifyingRateId?: string | null;
     message?: string | null;
   };
+  taxExemption?: {
+    status?: "approved";
+    taxExcludedCents?: number;
+    exemptionType?: ManualOrderTaxExemptionRequest["exemptionType"];
+    jurisdiction?: string;
+  };
 }
 
 export interface ManualOrderCreateRequest extends ManualOrderEstimateRequest {
@@ -469,6 +495,8 @@ export interface ManualOrderCreateRequest extends ManualOrderEstimateRequest {
   manualPaymentMethod?: "arrival_payment_link" | null;
   shipmentDate?: string | null;
   preserveExistingDiscountCode?: boolean;
+  taxExemptionCertificate?: ManualOrderTaxExemptionCertificate;
+  taxExemptionCertificateReference?: string;
 }
 
 export interface ManualOrderCreateResponse {
@@ -480,6 +508,7 @@ export interface ManualOrderCreateResponse {
 
 export interface ManualOrderDraftResponse {
   order?: Record<string, unknown>;
+  taxExemptionCertificateReference?: string | null;
 }
 
 export interface ManualOrderSendLinkResponse {
@@ -867,6 +896,14 @@ export function sendManualOrderLink(
   token?: string,
 ) {
   return postJson<ManualOrderSendLinkResponse>("/api/admin-manual-order-send-link", body, token);
+}
+
+export function fetchTaxExemptionDocumentLink(orderId: string, token?: string) {
+  return postJson<{ url?: string; expiresInSeconds?: number }>(
+    "/api/admin-tax-exemption-document-link",
+    { orderId },
+    token,
+  );
 }
 
 export function syncOrderToShippo(orderId: string, token?: string) {

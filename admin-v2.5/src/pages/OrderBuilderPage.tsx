@@ -18,6 +18,8 @@ import {
   type ManualOrderCreateRequest,
   type ManualOrderItem,
   type ManualOrderInvoiceAttachment,
+  type ManualOrderTaxExemptionCertificate,
+  type ManualOrderTaxExemptionRequest,
   type ManualOrderQuoteResponse,
   type ManualOrderShippingRateOption,
 } from "../lib/api";
@@ -32,6 +34,18 @@ type DiscountMode = "none" | "code" | "percent_5" | "percent_10" | "percent_15" 
 type DiscountCategory = "none" | "code" | "percent" | "amount";
 type ProductSlug = "nitrile-standard" | "black-nitrile-general" | "black-nitrile-heavy-duty";
 type SizeCode = "S" | "M" | "L" | "XL";
+type TaxExemptionType = ManualOrderTaxExemptionRequest["exemptionType"];
+
+type TaxExemptionState = {
+  requested: boolean;
+  exemptionType: TaxExemptionType;
+  jurisdiction: string;
+  certificateNumber: string;
+  effectiveDate: string;
+  expirationDate: string;
+  internalNote: string;
+  documentReviewed: boolean;
+};
 
 type BundleOption = {
   id: string;
@@ -88,6 +102,23 @@ type InventoryAvailability = Record<ProductSlug, Record<SizeCode, { caseAvailabl
 const DEFAULT_DISCOUNT_PERCENT = 7;
 const CARRIER_RATE_AUTO_REFRESH_MS = 15 * 60 * 1000;
 const MAX_B2B_INVOICE_BYTES = 4 * 1024 * 1024;
+const MAX_TAX_EXEMPTION_CERTIFICATE_BYTES = 2 * 1024 * 1024;
+const initialTaxExemption: TaxExemptionState = {
+  requested: false,
+  exemptionType: "organization_own_use",
+  jurisdiction: "TN",
+  certificateNumber: "",
+  effectiveDate: "",
+  expirationDate: "",
+  internalNote: "",
+  documentReviewed: false,
+};
+const taxExemptionTypeOptions: Array<{ value: TaxExemptionType; label: string }> = [
+  { value: "organization_own_use", label: "Exempt organization · own use" },
+  { value: "government", label: "Government organization" },
+  { value: "resale", label: "Resale certificate · manual review" },
+  { value: "other", label: "Other · manual review required" },
+];
 const usStateOptions = [
   { value: "AL", label: "AL" },
   { value: "AK", label: "AK" },
@@ -328,6 +359,41 @@ async function readB2bInvoicePdf(file: File): Promise<ManualOrderInvoiceAttachme
     reader.readAsDataURL(file);
   });
   return { filename: file.name, contentBase64, contentType: "application/pdf", sizeBytes: file.size };
+}
+
+async function readTaxExemptionCertificate(file: File): Promise<ManualOrderTaxExemptionCertificate> {
+  const extension = file.name.toLowerCase().split(".").pop() || "";
+  const inferredType = extension === "pdf"
+    ? "application/pdf"
+    : extension === "png"
+      ? "image/png"
+      : extension === "jpg" || extension === "jpeg"
+        ? "image/jpeg"
+        : "";
+  const contentType = (file.type || inferredType).toLowerCase();
+  if (!["application/pdf", "image/png", "image/jpeg"].includes(contentType)) {
+    throw new Error("Select a PDF, PNG, JPG, or JPEG exemption certificate.");
+  }
+  if (!file.size || file.size > MAX_TAX_EXEMPTION_CERTIFICATE_BYTES) {
+    throw new Error("The exemption certificate must be 2 MB or smaller.");
+  }
+  const contentBase64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = String(reader.result || "");
+      const separator = value.indexOf(",");
+      if (separator < 0) reject(new Error("The exemption certificate could not be read."));
+      else resolve(value.slice(separator + 1));
+    };
+    reader.onerror = () => reject(new Error("The exemption certificate could not be read."));
+    reader.readAsDataURL(file);
+  });
+  return {
+    filename: file.name,
+    contentBase64,
+    contentType: contentType as ManualOrderTaxExemptionCertificate["contentType"],
+    sizeBytes: file.size,
+  };
 }
 
 function parseDollarsToCents(value: string) {
@@ -684,6 +750,10 @@ export function OrderBuilderPage() {
   const [products, setProducts] = useState<ProductOption[]>(fallbackProducts);
   const [itemRows, setItemRows] = useState<OrderItemRow[]>([]);
   const [customer, setCustomer] = useState({ name: "", email: "", phone: "" });
+  const [taxExemption, setTaxExemption] = useState<TaxExemptionState>(initialTaxExemption);
+  const [taxExemptionCertificateFile, setTaxExemptionCertificateFile] = useState<File | null>(null);
+  const [taxExemptionCertificateReference, setTaxExemptionCertificateReference] = useState("");
+  const [taxExemptionDragActive, setTaxExemptionDragActive] = useState(false);
   const [address, setAddress] = useState<ManualOrderAddress>({
     line1: "",
     line2: "",
@@ -717,6 +787,7 @@ export function OrderBuilderPage() {
   const shouldScrollToRatesRef = useRef(false);
   const editDraftLoadingRef = useRef(false);
   const b2bInvoiceInputRef = useRef<HTMLInputElement | null>(null);
+  const taxExemptionInputRef = useRef<HTMLInputElement | null>(null);
 
   useAdminShellHeaderMeta(<span>Updated {formatDateTime(updatedAt)}</span>);
 
@@ -769,6 +840,8 @@ export function OrderBuilderPage() {
         const shippingAddress = recordValue(order.shipping_address);
         const fulfillment = String(order.fulfillment_method || "carrier") as FulfillmentMethod;
         const snapshot = recordValue(order.quoted_address_snapshot_json);
+        const quoteSnapshot = recordValue(order.checkout_quote_snapshot_json);
+        const existingTaxExemption = recordValue(quoteSnapshot.taxExemption);
         const manualDiscount = recordValue(snapshot.manualDiscount);
         const discountType = String(manualDiscount.type || "none").toLowerCase();
         const discountValue = Number(manualDiscount.value ?? manualDiscount.percent ?? manualDiscount.amountCents) || 0;
@@ -782,6 +855,22 @@ export function OrderBuilderPage() {
           email: String(order.customer_email || ""),
           phone: String(order.customer_phone || ""),
         });
+        if (existingTaxExemption.status === "approved") {
+          setTaxExemption({
+            requested: true,
+            exemptionType: (["organization_own_use", "government", "resale", "other"].includes(String(existingTaxExemption.exemptionType))
+              ? String(existingTaxExemption.exemptionType)
+              : "organization_own_use") as TaxExemptionType,
+            jurisdiction: String(existingTaxExemption.jurisdiction || shippingAddress.state || "TN"),
+            certificateNumber: String(existingTaxExemption.certificateNumber || ""),
+            effectiveDate: String(existingTaxExemption.effectiveDate || ""),
+            expirationDate: String(existingTaxExemption.expirationDate || ""),
+            internalNote: String(existingTaxExemption.internalNote || ""),
+            documentReviewed: true,
+          });
+          setTaxExemptionCertificateReference(String(response.taxExemptionCertificateReference || ""));
+          setTaxExemptionCertificateFile(null);
+        }
         setAddress({
           line1: String(shippingAddress.line1 || shippingAddress.address1 || ""),
           line2: String(shippingAddress.line2 || shippingAddress.address2 || ""),
@@ -955,6 +1044,14 @@ export function OrderBuilderPage() {
     }));
   }, [fulfillmentMethod, itemRows, products]);
 
+  const taxExemptionCertificateSelected = Boolean(taxExemptionCertificateFile || taxExemptionCertificateReference);
+  const taxExemptionReady = Boolean(
+    taxExemption.requested &&
+    taxExemption.documentReviewed &&
+    taxExemptionCertificateSelected &&
+    taxExemption.jurisdiction === address.state.trim().toUpperCase(),
+  );
+
   const previewTotals = useMemo(() => {
     const pricedRows = priceOrderRows(itemRows, products, fulfillmentMethod === "b2b_shipping");
     const subtotalCents = pricedRows.totalCents;
@@ -984,9 +1081,10 @@ export function OrderBuilderPage() {
             ? 0
             : rateAmountCents(selectedRateSnapshot)
           : 0;
-    const taxCents = address.state.trim().toUpperCase() === "TN"
+    const taxableTaxCents = address.state.trim().toUpperCase() === "TN"
       ? Math.round((discountedSubtotalCents + shippingCents) * 0.0975)
       : 0;
+    const taxCents = taxExemptionReady ? 0 : taxableTaxCents;
     const unitCount = itemRows.reduce((sum, row) => sum + Math.max(0, Math.floor(row.quantity || 0)), 0);
     return {
       itemCount: selectedItems.length,
@@ -999,9 +1097,10 @@ export function OrderBuilderPage() {
       subtotalCents: discountedSubtotalCents,
       shippingCents,
       taxCents,
+      taxExcludedCents: taxExemptionReady ? taxableTaxCents : 0,
       totalCents: discountedSubtotalCents + shippingCents + taxCents,
     };
-  }, [address.state, customB2bShipping, customDiscountValue, discountCodeCheck, discountMode, fulfillmentMethod, itemRows, products, quote, quoteDirty, selectedItems.length, selectedRateSnapshot]);
+  }, [address.state, customB2bShipping, customDiscountValue, discountCodeCheck, discountMode, fulfillmentMethod, itemRows, products, quote, quoteDirty, selectedItems.length, selectedRateSnapshot, taxExemptionReady]);
 
   const selectedRate = useMemo(() => {
     const rates = quote?.shippingRateOptions || [];
@@ -1049,13 +1148,54 @@ export function OrderBuilderPage() {
     setFieldErrors({});
   }
 
+  function invalidateTaxExemptionReview() {
+    setTaxExemption((current) => current.requested && current.documentReviewed
+      ? { ...current, documentReviewed: false }
+      : current);
+  }
+
+  function updateTaxExemption(patch: Partial<TaxExemptionState>) {
+    setTaxExemption((current) => ({ ...current, ...patch }));
+    markDirty();
+  }
+
+  function selectTaxExemptionCertificate(file: File | null) {
+    if (!file) {
+      setTaxExemptionCertificateFile(null);
+      setTaxExemptionCertificateReference("");
+      setTaxExemption((current) => ({ ...current, documentReviewed: false }));
+      markDirty();
+      return;
+    }
+    const extension = file.name.toLowerCase().split(".").pop() || "";
+    if (!["pdf", "png", "jpg", "jpeg"].includes(extension)) {
+      setStatus({ tone: "danger", message: "Select a PDF, PNG, JPG, or JPEG exemption certificate." });
+      return;
+    }
+    if (!file.size || file.size > MAX_TAX_EXEMPTION_CERTIFICATE_BYTES) {
+      setStatus({ tone: "danger", message: "The exemption certificate must be 2 MB or smaller." });
+      return;
+    }
+    setTaxExemptionCertificateFile(file);
+    setTaxExemptionCertificateReference("");
+    setTaxExemption((current) => ({ ...current, documentReviewed: false }));
+    setStatus(null);
+    markDirty();
+  }
+
   function updateCustomer(key: keyof typeof customer, value: string) {
     setCustomer((current) => ({ ...current, [key]: value }));
+    invalidateTaxExemptionReview();
     markDirty();
   }
 
   function updateAddress(key: keyof ManualOrderAddress, value: string) {
     setAddress((current) => ({ ...current, [key]: key === "state" || key === "country" ? value.toUpperCase() : value }));
+    if (key === "state") {
+      setTaxExemption((current) => ({ ...current, jurisdiction: value.toUpperCase(), documentReviewed: false }));
+    } else {
+      invalidateTaxExemptionReview();
+    }
     setAddressVerification({ status: "idle", fingerprint: "", suggestion: null, message: "Address changed. Verify it before getting carrier rates." });
     markDirty();
   }
@@ -1217,11 +1357,35 @@ export function OrderBuilderPage() {
     if (forCreate && !paymentOptionsForFulfillment(fulfillmentMethod).some((option) => option.value === paymentMethod)) {
       errors.payment = "Select a payment method available for this fulfillment method.";
     }
+    if (taxExemption.requested) {
+      if (!taxExemption.exemptionType) errors.taxExemption = "Select the exemption type.";
+      else if (!taxExemption.jurisdiction) errors.taxExemption = "Select the certificate jurisdiction.";
+      else if (taxExemption.jurisdiction !== address.state.trim().toUpperCase()) errors.taxExemption = "The certificate jurisdiction must match the current shipping state.";
+      else if (!taxExemptionCertificateSelected) errors.taxExemption = "Upload the buyer's exemption certificate before removing tax.";
+      else if (!taxExemption.documentReviewed) errors.taxExemption = "Confirm that an administrator reviewed the certificate before removing tax.";
+      else if (taxExemption.exemptionType === "other" && taxExemption.internalNote.trim().length < 10) errors.taxExemption = "Add a manual-review note describing this exemption.";
+      else if (taxExemption.effectiveDate && taxExemption.expirationDate && taxExemption.expirationDate < taxExemption.effectiveDate) errors.taxExemption = "The certificate expiration date cannot be before its effective date.";
+    }
 
     setFieldErrors(errors);
     const first = Object.values(errors)[0] || "";
     if (first) setStatus({ tone: "danger", message: first });
     return first;
+  }
+
+  function taxExemptionPayload(): ManualOrderTaxExemptionRequest | undefined {
+    if (!taxExemption.requested) return undefined;
+    return {
+      requested: true,
+      exemptionType: taxExemption.exemptionType,
+      jurisdiction: taxExemption.jurisdiction,
+      certificateNumber: taxExemption.certificateNumber.trim(),
+      effectiveDate: taxExemption.effectiveDate || null,
+      expirationDate: taxExemption.expirationDate || null,
+      internalNote: taxExemption.internalNote.trim(),
+      documentReviewed: taxExemption.documentReviewed,
+      certificateSelected: taxExemptionCertificateSelected,
+    };
   }
 
   function buildEstimateRequest(includeSelectedRate = true) {
@@ -1237,6 +1401,7 @@ export function OrderBuilderPage() {
         : {}),
       localDeliveryNote: fulfillmentMethod === "local_delivery" || quote?.freeDelivery?.applied ? deliveryNote.trim() : "",
       ...manualDiscountPayload(),
+      ...(taxExemption.requested ? { taxExemption: taxExemptionPayload() } : {}),
       ...(includeSelectedRate && quote?.quoteToken ? { quoteToken: quote.quoteToken } : {}),
     };
     if (includeSelectedRate && selectedRate) {
@@ -1334,6 +1499,7 @@ export function OrderBuilderPage() {
         return;
       }
       const verifiedAddress = result.normalizedAddress || buildAddress();
+      if (addressFingerprint(verifiedAddress) !== addressFingerprint(buildAddress())) invalidateTaxExemptionReview();
       setAddress(verifiedAddress);
       setAddressVerification({
         status: "verified",
@@ -1361,6 +1527,7 @@ export function OrderBuilderPage() {
   function useSuggestedAddress() {
     const suggestion = addressVerification.suggestion;
     if (!suggestion) return;
+    if (addressFingerprint(suggestion) !== addressFingerprint(buildAddress())) invalidateTaxExemptionReview();
     setAddress(suggestion);
     setAddressVerification({
       status: "verified",
@@ -1460,6 +1627,15 @@ export function OrderBuilderPage() {
     const validation = validateRemoteOrder(true);
     if (validation) return;
     let invoiceAttachment: ManualOrderInvoiceAttachment | undefined;
+    let taxExemptionCertificate: ManualOrderTaxExemptionCertificate | undefined;
+    if (taxExemption.requested && taxExemptionCertificateFile) {
+      try {
+        taxExemptionCertificate = await readTaxExemptionCertificate(taxExemptionCertificateFile);
+      } catch (error) {
+        setStatus({ tone: "danger", message: error instanceof Error ? error.message : "The exemption certificate could not be read." });
+        return;
+      }
+    }
     if (fulfillmentMethod === "b2b_shipping" && paymentMethod === "square_payment_link" && b2bInvoiceFile) {
       try {
         invoiceAttachment = await readB2bInvoicePdf(b2bInvoiceFile);
@@ -1478,6 +1654,8 @@ export function OrderBuilderPage() {
         paymentFlow,
         manualPaymentMethod: paymentMethod === "arrival_payment_link" ? "arrival_payment_link" : null,
         shipmentDate: shipmentDate || null,
+        ...(taxExemptionCertificate ? { taxExemptionCertificate } : {}),
+        ...(taxExemption.requested && !taxExemptionCertificate && taxExemptionCertificateReference ? { taxExemptionCertificateReference } : {}),
         ...(editOrderId && editOriginalDiscountCode && discountMode === "code" &&
         discountCodeCheck?.status === "valid" && discountCodeCheck.code === editOriginalDiscountCode
           ? { preserveExistingDiscountCode: true }
@@ -1633,6 +1811,140 @@ export function OrderBuilderPage() {
               <Field label="Email" value={customer.email} onChange={(value) => updateCustomer("email", value)} placeholder="customer@email.com" type="email" required error={fieldErrors.customerEmail} />
               <Field label="Phone" value={customer.phone} onChange={(value) => updateCustomer("phone", value)} placeholder="Optional" error={fieldErrors.customerPhone} />
             </div>
+          </section>
+
+          <section className="sg25-card order-2 p-4 sm:p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Icon name="receipt" className="h-4 w-4 text-sg-primary" />
+                <div>
+                  <h2 className="text-lg font-bold">Tax Exemption</h2>
+                  <p className="mt-0.5 text-[12px] text-sg-muted">Admin-only review for this Order Builder order. Standard taxable treatment remains the default.</p>
+                </div>
+              </div>
+              <span className={`rounded-full px-3 py-1 text-[11px] font-bold ${taxExemptionReady ? "bg-sg-success-soft text-sg-success" : "bg-sg-input-bg text-sg-muted"}`}>
+                {taxExemptionReady ? "Ready for approval" : taxExemption.requested ? "Review required" : "Taxable"}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2" role="group" aria-label="Tax treatment">
+              <button
+                type="button"
+                aria-pressed={!taxExemption.requested}
+                className={optionButtonClass(!taxExemption.requested)}
+                onClick={() => {
+                  setTaxExemption({ ...initialTaxExemption, jurisdiction: address.state.trim().toUpperCase() || "TN" });
+                  setTaxExemptionCertificateFile(null);
+                  setTaxExemptionCertificateReference("");
+                  markDirty();
+                }}
+              >
+                Standard taxable treatment
+              </button>
+              <button
+                type="button"
+                aria-pressed={taxExemption.requested}
+                className={optionButtonClass(taxExemption.requested)}
+                onClick={() => updateTaxExemption({ requested: true, jurisdiction: address.state.trim().toUpperCase() || taxExemption.jurisdiction })}
+              >
+                Apply tax-exempt treatment
+              </button>
+            </div>
+
+            {taxExemption.requested ? (
+              <div className="mt-4 space-y-4 rounded-[10px] border border-sg-border bg-sg-input-bg/45 p-4">
+                <div className="rounded-[9px] bg-sg-amber-soft px-3 py-2.5 text-[12px] leading-5 text-sg-amber">
+                  Tax remains enabled until a certificate is stored privately and an administrator confirms that it applies to this customer, jurisdiction, products, and transaction.
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="block min-w-0">
+                    <span className="text-[12px] font-semibold text-sg-muted">Exemption type<span className="ml-0.5 text-sg-danger">*</span></span>
+                    <CustomSelect
+                      value={taxExemption.exemptionType}
+                      options={taxExemptionTypeOptions}
+                      onChange={(value) => updateTaxExemption({ exemptionType: value as TaxExemptionType, documentReviewed: false })}
+                      ariaLabel="Tax exemption type"
+                      className="mt-2 w-full"
+                      triggerClassName="h-10 rounded-[7px] bg-white px-2.5 text-[13px]"
+                      panelClassName="left-0 right-auto"
+                    />
+                  </label>
+                  <label className="block min-w-0">
+                    <span className="text-[12px] font-semibold text-sg-muted">Certificate jurisdiction<span className="ml-0.5 text-sg-danger">*</span></span>
+                    <CustomSelect
+                      value={taxExemption.jurisdiction}
+                      options={usStateOptions}
+                      onChange={(value) => updateTaxExemption({ jurisdiction: value, documentReviewed: false })}
+                      ariaLabel="Certificate jurisdiction"
+                      className="mt-2 w-full"
+                      triggerClassName="h-10 rounded-[7px] bg-white px-2.5 text-[13px]"
+                      panelClassName="left-0 right-auto max-h-72 overflow-y-auto"
+                    />
+                  </label>
+                  <Field label="Certificate number" value={taxExemption.certificateNumber} onChange={(value) => updateTaxExemption({ certificateNumber: value, documentReviewed: false })} placeholder="Optional reference number" />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Effective date" value={taxExemption.effectiveDate} onChange={(value) => updateTaxExemption({ effectiveDate: value, documentReviewed: false })} placeholder="" type="date" />
+                    <Field label="Expiration date" value={taxExemption.expirationDate} onChange={(value) => updateTaxExemption({ expirationDate: value, documentReviewed: false })} placeholder="" type="date" />
+                  </div>
+                </div>
+                <TextAreaField
+                  label={taxExemption.exemptionType === "other" ? "Manual-review note (required)" : "Internal exemption note"}
+                  value={taxExemption.internalNote}
+                  onChange={(value) => updateTaxExemption({ internalNote: value, documentReviewed: false })}
+                  placeholder="Why this certificate applies to this order"
+                />
+
+                <input
+                  ref={taxExemptionInputRef}
+                  type="file"
+                  accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg"
+                  className="sr-only"
+                  onChange={(event) => {
+                    selectTaxExemptionCertificate(event.target.files?.[0] || null);
+                    event.currentTarget.value = "";
+                  }}
+                />
+                {taxExemptionCertificateFile || taxExemptionCertificateReference ? (
+                  <div className="flex flex-col gap-2 rounded-[9px] border border-sg-success/30 bg-sg-success-soft px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="truncate text-[12px] font-bold text-sg-text">{taxExemptionCertificateFile?.name || "Saved private certificate"}</p>
+                      <p className="mt-0.5 text-[11px] text-sg-muted">{taxExemptionCertificateFile ? `${(taxExemptionCertificateFile.size / 1024).toFixed(0)} KB · Ready for private upload` : "Stored privately with this order"}</p>
+                    </div>
+                    <button type="button" className="sg25-btn sg25-btn-secondary shrink-0" onClick={() => selectTaxExemptionCertificate(null)}>
+                      <Icon name="x" className="h-4 w-4" /> Remove
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className={`flex w-full flex-col items-center justify-center rounded-[9px] border border-dashed px-4 py-6 text-center transition ${taxExemptionDragActive ? "border-sg-primary bg-sg-primary-soft" : "border-sg-border bg-white hover:border-sg-primary/50 hover:bg-sg-primary-soft/30"}`}
+                    onClick={() => taxExemptionInputRef.current?.click()}
+                    onDragEnter={(event) => { event.preventDefault(); setTaxExemptionDragActive(true); }}
+                    onDragOver={(event) => { event.preventDefault(); setTaxExemptionDragActive(true); }}
+                    onDragLeave={(event) => { event.preventDefault(); setTaxExemptionDragActive(false); }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      setTaxExemptionDragActive(false);
+                      selectTaxExemptionCertificate(event.dataTransfer.files?.[0] || null);
+                    }}
+                  >
+                    <span className="text-[12px] font-bold text-sg-text">Drop the exemption certificate here</span>
+                    <span className="mt-1 text-[11px] text-sg-muted">PDF, PNG, or JPEG · maximum 2 MB · stored privately</span>
+                  </button>
+                )}
+
+                <label className="flex cursor-pointer items-start gap-3 rounded-[9px] border border-sg-border bg-white p-3">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 accent-sg-primary"
+                    checked={taxExemption.documentReviewed}
+                    onChange={(event) => updateTaxExemption({ documentReviewed: event.target.checked })}
+                  />
+                  <span className="text-[12px] font-semibold leading-5 text-sg-text">I reviewed the certificate and confirm it applies to this customer, shipping jurisdiction, products, and transaction.</span>
+                </label>
+                {fieldErrors.taxExemption ? <p className="text-[12px] font-semibold text-sg-danger">{fieldErrors.taxExemption}</p> : null}
+              </div>
+            ) : null}
           </section>
 
           <section className="sg25-card order-3 overflow-hidden p-0">
@@ -2156,8 +2468,17 @@ export function OrderBuilderPage() {
             ) : null}
             <SummaryLine label="Shipping" value={quoteValue(displayQuote, "shippingFormatted", previewTotals.shippingCents)} />
             <SummaryLine label="Estimated tax" value={quoteValue(displayQuote, "taxFormatted", previewTotals.taxCents)} />
+            {taxExemptionReady ? (
+              <SummaryLine label="Tax excluded" value={formatUsdCents(displayQuote?.taxExemption?.taxExcludedCents ?? previewTotals.taxExcludedCents)} />
+            ) : null}
             <SummaryLine label="Total" value={quoteValue(displayQuote, "totalFormatted", previewTotals.totalCents)} strong />
           </div>
+          {taxExemptionReady ? (
+            <div className="mt-3 flex items-start gap-2 rounded-[10px] bg-sg-success-soft p-3 text-[12px] leading-5 text-sg-success">
+              <Icon name="check" className="mt-0.5 h-4 w-4 shrink-0" />
+              <span><strong>Tax-exempt order.</strong> The certificate and approval evidence will be saved privately with the order.</span>
+            </div>
+          ) : null}
           {quote?.freeDelivery?.applied ? (
             <div className="mt-3 rounded-[10px] bg-sg-success-soft p-3 text-[12px] leading-5 text-sg-success">
               {quote.freeDelivery.message || "Free local delivery applies. SAI Goods will deliver this order without a carrier label."}

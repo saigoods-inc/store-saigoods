@@ -1,5 +1,9 @@
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
 import { getOrderByIdForService, listManualDraftOrders } from "../lib/orders.js";
+import {
+  issueTaxExemptionCertificateReference,
+  taxExemptionFromOrder,
+} from "../lib/admin-tax-exemption.js";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -23,7 +27,11 @@ export default async function handler(req, res) {
         res.status(400).json({ error: "Not a manual draft order." });
         return;
       }
-      res.status(200).json({ order });
+      const exemption = taxExemptionFromOrder(order);
+      res.status(200).json({
+        order,
+        taxExemptionCertificateReference: issueTaxExemptionCertificateReference(exemption),
+      });
       return;
     }
 

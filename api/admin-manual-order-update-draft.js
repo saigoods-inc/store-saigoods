@@ -7,9 +7,19 @@ import {
   normalizeFulfillmentMethod,
   normalizePaymentFlow,
 } from "../lib/manual-order-fulfillment.js";
-import { updateManualOrderDraft } from "../lib/orders.js";
+import { getOrderByIdForService, updateManualOrderDraft } from "../lib/orders.js";
 import { normalizeDiscountCode } from "../lib/discount-codes.js";
-import { assertReportsAuthorized } from "../lib/reports-auth.js";
+import { assertReportsAuthorized, getReportsActor } from "../lib/reports-auth.js";
+import {
+  applyTaxExemptionToQuote,
+  approvedTaxExemptionSnapshot,
+  deleteTaxExemptionCertificate,
+  parseTaxExemptionCertificate,
+  parseTaxExemptionDetails,
+  taxExemptionFromOrder,
+  uploadTaxExemptionCertificate,
+  verifyTaxExemptionCertificateReference,
+} from "../lib/admin-tax-exemption.js";
 
 function parseOptionalYmd(input) {
   if (input === null || input === undefined || input === "") {
@@ -133,8 +143,11 @@ export default async function handler(req, res) {
     return;
   }
 
+  let uploadedCertificatePath = null;
+  let replacedCertificatePath = null;
   try {
     await assertReportsAuthorized(req);
+    const actor = await getReportsActor(req);
     const parsed = parseBody(req.body || {});
     if (parsed.error) {
       res.status(400).json({ error: parsed.error });
@@ -189,7 +202,7 @@ export default async function handler(req, res) {
 
     const isCarrier = parsed.fulfillmentMethod === "carrier";
     const isB2b = parsed.fulfillmentMethod === "b2b_shipping";
-    const quote = await computeCheckoutEstimate(estimateBody, {
+    let quote = await computeCheckoutEstimate(estimateBody, {
       requireCompleteAddress: isCarrier || isB2b,
       manualOrderDiscount: true,
       strictShippo: isCarrier,
@@ -202,6 +215,37 @@ export default async function handler(req, res) {
         res.status(400).json({ error: carrierQuoteError });
         return;
       }
+    }
+
+    const exemptionDetails = parseTaxExemptionDetails(rawBody.taxExemption, {
+      shippingAddress: parsed.address,
+      customer: parsed,
+    });
+    if (exemptionDetails) {
+      const existingOrder = await getOrderByIdForService(parsed.orderId);
+      const existingExemption = taxExemptionFromOrder(existingOrder);
+      let storedCertificate;
+      if (rawBody.taxExemptionCertificate) {
+        const certificate = parseTaxExemptionCertificate(rawBody.taxExemptionCertificate);
+        storedCertificate = await uploadTaxExemptionCertificate(certificate);
+        uploadedCertificatePath = storedCertificate.storagePath;
+        replacedCertificatePath = existingExemption?.certificate?.storagePath || null;
+      } else {
+        storedCertificate = verifyTaxExemptionCertificateReference(
+          rawBody.taxExemptionCertificateReference,
+          existingExemption,
+        );
+      }
+      quote = applyTaxExemptionToQuote(
+        quote,
+        approvedTaxExemptionSnapshot({
+          details: exemptionDetails,
+          certificate: storedCertificate,
+          actor,
+          customer: parsed,
+          shippingAddress: parsed.address,
+        }),
+      );
     }
 
     let addrText = formatShippingAddressForOrder(parsed.address);
@@ -231,6 +275,11 @@ export default async function handler(req, res) {
         preserveExistingDiscountCode: rawBody.preserveExistingDiscountCode === true,
       },
     );
+    const committedCertificatePath = uploadedCertificatePath;
+    uploadedCertificatePath = null;
+    if (replacedCertificatePath && replacedCertificatePath !== committedCertificatePath) {
+      try { await deleteTaxExemptionCertificate(replacedCertificatePath); } catch { /* retained audit file cleanup is best effort */ }
+    }
 
     res.status(200).json({
       orderId: order.id,
@@ -239,6 +288,9 @@ export default async function handler(req, res) {
       order_status: order.order_status,
     });
   } catch (error) {
+    if (uploadedCertificatePath) {
+      try { await deleteTaxExemptionCertificate(uploadedCertificatePath); } catch { /* best-effort cleanup */ }
+    }
     console.error(error);
     res.status(error.statusCode || 500).json({
       error: error.message || "Could not update draft.",

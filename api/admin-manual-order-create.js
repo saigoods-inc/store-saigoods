@@ -9,12 +9,20 @@ import {
 } from "../lib/manual-order-fulfillment.js";
 import { createManualOrderDraft } from "../lib/orders.js";
 import { normalizeDiscountCode } from "../lib/discount-codes.js";
-import { assertReportsAuthorized } from "../lib/reports-auth.js";
+import { assertReportsAuthorized, getReportsActor } from "../lib/reports-auth.js";
 import {
   selectManualOrderRateFromToken,
   verifyManualOrderQuoteToken,
 } from "../lib/manual-order-quote-token.js";
 import { primeRuntimeStoreForItems } from "../lib/runtime-store.js";
+import {
+  applyTaxExemptionToQuote,
+  approvedTaxExemptionSnapshot,
+  deleteTaxExemptionCertificate,
+  parseTaxExemptionCertificate,
+  parseTaxExemptionDetails,
+  uploadTaxExemptionCertificate,
+} from "../lib/admin-tax-exemption.js";
 
 export async function prepareManualOrderItems(items, prime = primeRuntimeStoreForItems) {
   await prime(items);
@@ -140,8 +148,10 @@ export default async function handler(req, res) {
     return;
   }
 
+  let uploadedCertificatePath = null;
   try {
     await assertReportsAuthorized(req);
+    const actor = await getReportsActor(req);
     const parsed = parseCreateBody(req.body || {});
     if (parsed.error) {
       res.status(400).json({ error: parsed.error });
@@ -205,7 +215,7 @@ export default async function handler(req, res) {
 
     const isCarrier = parsed.fulfillmentMethod === "carrier";
     const isB2b = parsed.fulfillmentMethod === "b2b_shipping";
-    const quote = isCarrier
+    let quote = isCarrier
       ? selectManualOrderRateFromToken(
           verifyManualOrderQuoteToken(rawBody.quoteToken, rawBody),
           rawBody,
@@ -223,6 +233,26 @@ export default async function handler(req, res) {
         res.status(400).json({ error: carrierQuoteError });
         return;
       }
+    }
+
+    const exemptionDetails = parseTaxExemptionDetails(rawBody.taxExemption, {
+      shippingAddress: parsed.address,
+      customer: parsed,
+    });
+    if (exemptionDetails) {
+      const certificate = parseTaxExemptionCertificate(rawBody.taxExemptionCertificate);
+      const storedCertificate = await uploadTaxExemptionCertificate(certificate);
+      uploadedCertificatePath = storedCertificate.storagePath;
+      quote = applyTaxExemptionToQuote(
+        quote,
+        approvedTaxExemptionSnapshot({
+          details: exemptionDetails,
+          certificate: storedCertificate,
+          actor,
+          customer: parsed,
+          shippingAddress: parsed.address,
+        }),
+      );
     }
 
     let addrText = formatShippingAddressForOrder(parsed.address);
@@ -251,6 +281,7 @@ export default async function handler(req, res) {
         shipmentDate: parsed.shipmentDate,
       },
     );
+    uploadedCertificatePath = null;
 
     res.status(200).json({
       orderId: order.id,
@@ -259,6 +290,9 @@ export default async function handler(req, res) {
       order_status: order.order_status,
     });
   } catch (error) {
+    if (uploadedCertificatePath) {
+      try { await deleteTaxExemptionCertificate(uploadedCertificatePath); } catch { /* best-effort cleanup */ }
+    }
     console.error(error);
     res.status(error.statusCode || 500).json({
       error: error.message || "Could not create order.",

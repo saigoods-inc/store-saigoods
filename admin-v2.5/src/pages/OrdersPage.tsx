@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "../auth/AuthProvider";
 import { useAdminShellHeaderMeta } from "../components/layout/AdminShell";
 import { CustomSelect } from "../components/ui/CustomSelect";
-import { ApiError, cancelAndRefundOrder, checkCancelledOrderRefundStatus, completeOrderHandoff, confirmOrderProductShipped, fetchInventoryDashboard, fetchMarketplaceOrders, fetchOrderShipFromDisplay, notifyBuyerShipping, postMarketplaceOrderAction, prepareManualOrderEdit, previewOrderPackingPlan, purchaseOrderShippoAllLabels, purchaseOrderShippoLabel, saveOrderExternalFulfillment, sendCancelledOrderRefundEmail, sendManualOrderLink, syncOrderToShippo, updateOrderPackingPlan } from "../lib/api";
+import { ApiError, cancelAndRefundOrder, checkCancelledOrderRefundStatus, completeOrderHandoff, confirmOrderProductShipped, fetchInventoryDashboard, fetchMarketplaceOrders, fetchOrderShipFromDisplay, fetchTaxExemptionDocumentLink, notifyBuyerShipping, postMarketplaceOrderAction, prepareManualOrderEdit, previewOrderPackingPlan, purchaseOrderShippoAllLabels, purchaseOrderShippoLabel, saveOrderExternalFulfillment, sendCancelledOrderRefundEmail, sendManualOrderLink, syncOrderToShippo, updateOrderPackingPlan } from "../lib/api";
 import type { AdminOrderPackingPlanResponse, AdminOrderShipFromDisplayResponse, InventoryVariantRow, MarketplaceOrder, PackingPlanContent, PackingPlanParcel, PackingPlanSummary } from "../lib/api";
 import { formatDateTime, formatNumber, formatUsdCents } from "../lib/format";
 import { Icon } from "../lib/icons";
@@ -16,7 +16,7 @@ type OrderTypeFilter = "all" | "online" | "manual" | "walkin";
 type StatusFilter = "all" | "awaiting_payment" | "paid_not_shipped" | "shipped" | "needs_attention" | "cancelled";
 type TimeFilter = "all" | "today" | "week" | "month";
 type Tone = "neutral" | "blue" | "green" | "red" | "amber";
-type OrderActionKey = "sync" | `purchase:${string}` | "packingPreview" | "packingSave" | "packingClear" | "notify" | "arrivalLink" | "editExpired" | "externalFulfillment" | "ship" | "cancel" | "refundStatus" | "refundEmail";
+type OrderActionKey = "sync" | `purchase:${string}` | "packingPreview" | "packingSave" | "packingClear" | "notify" | "arrivalLink" | "editExpired" | "externalFulfillment" | "ship" | "cancel" | "refundStatus" | "refundEmail" | "taxCertificate";
 type PurchaseIntent = {
   orderId: string;
   rateObjectId: string;
@@ -652,6 +652,22 @@ function parseRecord(value: unknown): Record<string, unknown> | null {
     }
   }
   return null;
+}
+
+function taxExemptionSnapshot(order: OrderRow) {
+  const quote = parseRecord(order.checkout_quote_snapshot_json);
+  const exemption = parseRecord(quote?.taxExemption);
+  return exemption?.status === "approved" ? exemption : null;
+}
+
+function taxExemptionTypeLabel(value: unknown) {
+  const labels: Record<string, string> = {
+    organization_own_use: "Exempt organization · own use",
+    government: "Government organization",
+    resale: "Resale certificate · manual review",
+    other: "Other · manual review",
+  };
+  return labels[String(value || "")] || detailValue(value);
 }
 
 function parseArray(value: unknown): Array<Record<string, unknown>> {
@@ -1762,6 +1778,7 @@ function OrderDrawer({
   onRequestCancel,
   onCheckCancellationStatus,
   onSendRefundEmail,
+  onOpenTaxExemptionDocument,
   actionBusy,
   actionStatus,
 }: {
@@ -1782,10 +1799,12 @@ function OrderDrawer({
   onRequestCancel: (intent: NonNullable<CancelIntent>) => void;
   onCheckCancellationStatus: (orderId: string) => Promise<void>;
   onSendRefundEmail: (orderId: string) => Promise<void>;
+  onOpenTaxExemptionDocument: (orderId: string) => Promise<void>;
   actionBusy: OrderActionKey | null;
   actionStatus: { tone: "success" | "error"; message: string } | null;
 }) {
   const payment = paymentState(order);
+  const taxExemption = taxExemptionSnapshot(order);
   const fulfillment = fulfillmentState(order, labels);
   const steps = orderSteps(order, labels);
   const rows = itemRows(order);
@@ -2059,6 +2078,7 @@ function OrderDrawer({
               <h2 className="min-w-0 break-words text-xl font-bold leading-tight">{order.order_ref || order.id}</h2>
               <span className="inline-flex rounded-full bg-sg-blue-soft px-3 py-1 text-[12px] font-semibold text-sg-blue">{orderTypeLabel(order)}</span>
               <span className={`inline-flex rounded-full px-3 py-1 text-[12px] font-semibold ${statusChipClass(payment.tone)}`}>{payment.label}</span>
+              {taxExemption ? <span className="inline-flex rounded-full bg-sg-success-soft px-3 py-1 text-[12px] font-semibold text-sg-success">Tax exempt</span> : null}
             </div>
             <p className="mt-1.5 text-[13px] text-sg-muted">
               <span className="font-semibold text-sg-text">{detailValue(order.customer_name)}</span>
@@ -2183,6 +2203,35 @@ function OrderDrawer({
                   {order.customer_phone ? <><span className="text-sg-muted">Phone</span><span className="font-semibold">{detailValue(order.customer_phone)}</span></> : null}
                 </div>
               </section>
+
+              {taxExemption ? (
+                <section className="rounded-[10px] border border-sg-success/30 bg-sg-success-soft/35 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <DrawerSectionTitle icon="receipt">Tax Exemption</DrawerSectionTitle>
+                      <p className="mt-1 text-[12px] font-semibold text-sg-success">Approved for this order</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="sg25-btn sg25-btn-ghost h-9 whitespace-nowrap px-4 text-[12px]"
+                      disabled={actionBusy === "taxCertificate"}
+                      onClick={() => void onOpenTaxExemptionDocument(orderId)}
+                    >
+                      <Icon name="lock" className="h-4 w-4" />
+                      {actionBusy === "taxCertificate" ? "Opening" : "Open private certificate"}
+                    </button>
+                  </div>
+                  <div className="mt-3 grid gap-x-4 gap-y-2 text-[13px] sm:grid-cols-[150px_minmax(0,1fr)]">
+                    <span className="text-sg-muted">Type</span><span className="font-semibold">{taxExemptionTypeLabel(taxExemption.exemptionType)}</span>
+                    <span className="text-sg-muted">Jurisdiction</span><span className="font-semibold">{detailValue(taxExemption.jurisdiction)}</span>
+                    {taxExemption.certificateNumber ? <><span className="text-sg-muted">Certificate number</span><span className="break-words font-semibold">{detailValue(taxExemption.certificateNumber)}</span></> : null}
+                    <span className="text-sg-muted">Reviewed by</span><span className="break-words font-semibold">{detailValue(taxExemption.approvedBy)}</span>
+                    <span className="text-sg-muted">Reviewed at</span><span className="font-semibold">{taxExemption.approvedAt ? formatDateTime(String(taxExemption.approvedAt)) : "-"}</span>
+                    <span className="text-sg-muted">Tax excluded</span><span className="font-semibold">{formatUsdCents(Number(taxExemption.taxExcludedCents) || 0)}</span>
+                    {taxExemption.internalNote ? <><span className="text-sg-muted">Review note</span><span className="break-words font-semibold">{detailValue(taxExemption.internalNote)}</span></> : null}
+                  </div>
+                </section>
+              ) : null}
 
               <section className="rounded-[10px] border border-sg-border p-4">
                 <DrawerSectionTitle icon="pin">Ship-to Address</DrawerSectionTitle>
@@ -2665,6 +2714,7 @@ function OrderDrawer({
                   <p className="flex justify-between gap-3"><span className="text-sg-muted">Subtotal</span><span className="font-semibold">{formatUsdCents(order.subtotal_cents)}</span></p>
                   <p className="flex justify-between gap-3"><span className="text-sg-muted">Shipping</span><span className="font-semibold">{formatUsdCents(order.shipping_cents)}</span></p>
                   <p className="flex justify-between gap-3"><span className="text-sg-muted">Tax</span><span className="font-semibold">{formatUsdCents(order.tax_cents)}</span></p>
+                  {taxExemption ? <p className="flex justify-between gap-3 text-sg-success"><span>Tax excluded</span><span className="font-semibold">{formatUsdCents(Number(taxExemption.taxExcludedCents) || 0)}</span></p> : null}
                 </div>
                 <div className="mt-4 border-t border-sg-border pt-4">
                   {shipped ? (
@@ -3220,6 +3270,25 @@ export function OrdersPage() {
     await runDrawerAction("sync", (token) => syncOrderToShippo(orderId, token), "Shippo rates are ready.");
   }
 
+  async function handleOpenTaxExemptionDocument(orderId: string) {
+    const documentTab = window.open("about:blank", "_blank");
+    if (documentTab) documentTab.opener = null;
+    setDrawerActionBusy("taxCertificate");
+    setDrawerActionStatus(null);
+    try {
+      const token = await auth.getAccessToken();
+      const result = await fetchTaxExemptionDocumentLink(orderId, token);
+      if (!result.url) throw new Error("The private certificate link was not returned.");
+      if (!documentTab) throw new Error("Allow pop-ups to open the private certificate.");
+      documentTab.location.replace(result.url);
+    } catch (error) {
+      documentTab?.close();
+      setDrawerActionStatus({ tone: "error", message: error instanceof Error ? error.message : "Could not open the private certificate." });
+    } finally {
+      setDrawerActionBusy(null);
+    }
+  }
+
   async function handleRecordMarketplaceOrder(body: MarketplaceRecordInput) {
     const token = await auth.getAccessToken();
     await postMarketplaceOrderAction({
@@ -3689,6 +3758,7 @@ export function OrdersPage() {
           onRequestCancel={(intent) => setCancelIntent(intent)}
           onCheckCancellationStatus={handleCheckCancellationStatus}
           onSendRefundEmail={handleSendRefundEmail}
+          onOpenTaxExemptionDocument={handleOpenTaxExemptionDocument}
           actionBusy={drawerActionBusy}
           actionStatus={drawerActionStatus}
         />

@@ -1,4 +1,5 @@
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
+import { applyTaxExemptionToQuote, parseTaxExemptionDetails } from "../lib/admin-tax-exemption.js";
 import { computeCheckoutEstimate, checkoutFlowErrorJsonFields } from "../lib/checkout-estimate-logic.js";
 import { normalizeFulfillmentMethod } from "../lib/manual-order-fulfillment.js";
 import {
@@ -77,7 +78,11 @@ export default async function handler(req, res) {
     const isB2b = fm === "b2b_shipping";
     if (isCarrier && body.quoteToken) {
       const payload = verifyManualOrderQuoteToken(body.quoteToken, body);
-      const selected = selectManualOrderRateFromToken(payload, body);
+      const details = parseTaxExemptionDetails(body.taxExemption, {
+        shippingAddress: body.address,
+        customer: body,
+      });
+      const selected = applyTaxExemptionToQuote(selectManualOrderRateFromToken(payload, body), details);
       res.status(200).json({ ...selected, quoteToken: body.quoteToken });
       return;
     }
@@ -88,9 +93,14 @@ export default async function handler(req, res) {
       allowForceStockOverride: true,
       allowManualB2bShipping: true,
     };
-    const json = isCarrier
+    let json = isCarrier
       ? await computeManualOrderEstimateWithRetry(body, estimateOptions)
       : await computeCheckoutEstimate(body, estimateOptions);
+    const details = parseTaxExemptionDetails(body.taxExemption, {
+      shippingAddress: body.address,
+      customer: body,
+    });
+    json = applyTaxExemptionToQuote(json, details);
     const quoteToken = isCarrier ? issueManualOrderQuoteToken({ quote: json, request: body }) : null;
     if (isCarrier && json.canCheckout === true && !quoteToken) {
       res.status(503).json({ error: "Manual quote signing is not configured." });
