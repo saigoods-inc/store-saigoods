@@ -38,9 +38,6 @@ let bundleSubmitAttempted = false;
 let openBundleDropdownId = null;
 let purchaseLimitCheckInFlight = false;
 
-const CUSTOMER_PURCHASE_LIMIT_MESSAGE =
-  "Orders are limited to 10 shipping packages. Please reduce the quantity or complete your current order before adding more.";
-
 function sortBundlesHierarchically(bundles) {
   return [...(bundles || [])].sort((a, b) => {
     const kindDifference = (a.kind === "box" ? 0 : 1) - (b.kind === "box" ? 0 : 1);
@@ -283,7 +280,10 @@ async function selectionFitsOnlinePurchaseLimit(button) {
   try {
     const quote = await getCartQuote(candidateCartItems());
     if (quote?.shippingPackageLimit?.exceeded === true) {
-      showPurchaseLimitMessage(CUSTOMER_PURCHASE_LIMIT_MESSAGE);
+      showPurchaseLimitMessage(
+        quote.shippingPackageLimit.message ||
+          "This order exceeds the current shipping-package limit. Please reduce the quantity or complete your current order before adding more.",
+      );
       return false;
     }
     showPurchaseLimitMessage();

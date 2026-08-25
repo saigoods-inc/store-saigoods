@@ -152,7 +152,10 @@ function renderCart() {
         ${
           packageLimitBlocked
             ? `<p class="summary-card__note cart-package-limit-message">
-                Orders are limited to 10 shipping packages. Please reduce the quantity or complete your current order before adding more.
+                ${escapeHtml(
+                  quote?.shippingPackageLimit?.message ||
+                    "This order exceeds the current shipping-package limit. Please reduce the quantity or complete your current order before adding more.",
+                )}
               </p>`
             : ""
         }

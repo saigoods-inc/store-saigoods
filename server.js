@@ -44,6 +44,7 @@ import adminShippingHealthHandler from "./api/admin-shipping-health.js";
 import adminPaymentHealthHandler from "./api/admin-payment-health.js";
 import adminPaymentFeeConfigHandler from "./api/admin-payment-fee-config.js";
 import adminZoneFreeShippingConfigHandler from "./api/admin-zone-free-shipping-config.js";
+import adminShippingPackageLimitConfigHandler from "./api/admin-shipping-package-limit-config.js";
 import adminManualOrderRecordPaymentHandler from "./api/admin-manual-order-record-payment.js";
 import adminManualOrderSendLinkHandler from "./api/admin-manual-order-send-link.js";
 import adminManualOrderUpdateDraftHandler from "./api/admin-manual-order-update-draft.js";
@@ -261,6 +262,15 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/admin-zone-free-shipping-config" && (req.method === "GET" || req.method === "POST")) {
       const body = req.method === "POST" ? await readJsonBody(req) : undefined;
       await adminZoneFreeShippingConfigHandler(
+        { method: req.method, headers: req.headers, body },
+        adaptExpressStyleResponse(res),
+      );
+      return;
+    }
+
+    if (pathname === "/api/admin-shipping-package-limit-config" && (req.method === "GET" || req.method === "POST")) {
+      const body = req.method === "POST" ? await readJsonBody(req) : undefined;
+      await adminShippingPackageLimitConfigHandler(
         { method: req.method, headers: req.headers, body },
         adaptExpressStyleResponse(res),
       );

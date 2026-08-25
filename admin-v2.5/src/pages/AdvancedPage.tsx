@@ -10,6 +10,7 @@ import {
   fetchPaymentFeeConfig,
   fetchFreeDeliveryConfig,
   fetchZoneFreeShippingConfig,
+  fetchShippingPackageLimitConfig,
   fetchShippingHealth,
   fetchWarehouseConfig,
   ApiError,
@@ -17,6 +18,7 @@ import {
   savePaymentFeeConfig,
   saveFreeDeliveryConfig,
   saveZoneFreeShippingConfig,
+  saveShippingPackageLimitConfig,
   saveBundleCatalog,
   saveWarehouseConfig,
   type PackagingConfig,
@@ -27,6 +29,7 @@ import {
   type PaymentFeeConfig,
   type FreeDeliveryConfig,
   type ZoneFreeShippingConfig,
+  type ShippingPackageLimitConfig,
   type ShippingHealthResponse,
   type WarehouseLocation,
 } from "../lib/api";
@@ -557,6 +560,10 @@ function cloneZoneFreeShippingConfig(config: ZoneFreeShippingConfig) {
   return JSON.parse(JSON.stringify(config)) as ZoneFreeShippingConfig;
 }
 
+function cloneShippingPackageLimitConfig(config: ShippingPackageLimitConfig) {
+  return JSON.parse(JSON.stringify(config)) as ShippingPackageLimitConfig;
+}
+
 function makePackagingCarton() {
   return {
     id: `carton_${Date.now()}`,
@@ -713,6 +720,13 @@ export function AdvancedPage() {
   const [zoneFreeShippingSaving, setZoneFreeShippingSaving] = useState(false);
   const [zoneFreeShippingStatus, setZoneFreeShippingStatus] = useState("");
   const [zoneFreeShippingError, setZoneFreeShippingError] = useState("");
+  const [shippingPackageLimitConfig, setShippingPackageLimitConfig] = useState<ShippingPackageLimitConfig | null>(null);
+  const [savedShippingPackageLimitConfig, setSavedShippingPackageLimitConfig] = useState<ShippingPackageLimitConfig | null>(null);
+  const [shippingPackageLimitEditing, setShippingPackageLimitEditing] = useState(false);
+  const [shippingPackageLimitUnlockOpen, setShippingPackageLimitUnlockOpen] = useState(false);
+  const [shippingPackageLimitSaving, setShippingPackageLimitSaving] = useState(false);
+  const [shippingPackageLimitStatus, setShippingPackageLimitStatus] = useState("");
+  const [shippingPackageLimitError, setShippingPackageLimitError] = useState("");
 
   const bundleGroups = useMemo(
     () =>
@@ -978,6 +992,58 @@ export function AdvancedPage() {
     setZoneFreeShippingEditing(false);
     setZoneFreeShippingStatus("");
     setZoneFreeShippingError("");
+  }
+
+  useEffect(() => {
+    if (!auth.session) return;
+    let active = true;
+    void (async () => {
+      try {
+        const result = await fetchShippingPackageLimitConfig(await auth.getAccessToken());
+        if (active) {
+          setShippingPackageLimitConfig(result.config);
+          setSavedShippingPackageLimitConfig(cloneShippingPackageLimitConfig(result.config));
+        }
+      } catch (error) {
+        if (active) setShippingPackageLimitError(error instanceof Error ? error.message : "Could not load the online shipping package limit.");
+      }
+    })();
+    return () => { active = false; };
+  }, [auth]);
+
+  async function saveOnlineShippingPackageLimit() {
+    if (!shippingPackageLimitConfig) return;
+    const maxPackages = Math.floor(Number(shippingPackageLimitConfig.maxPackages));
+    if (!Number.isFinite(maxPackages) || maxPackages < 1 || maxPackages > 25) {
+      setShippingPackageLimitError("Enter a whole-number package limit between 1 and 25.");
+      return;
+    }
+    setShippingPackageLimitSaving(true);
+    setShippingPackageLimitError("");
+    setShippingPackageLimitStatus("");
+    try {
+      const result = await saveShippingPackageLimitConfig(
+        { ...shippingPackageLimitConfig, maxPackages },
+        await auth.getAccessToken(),
+      );
+      setShippingPackageLimitConfig(result.config);
+      setSavedShippingPackageLimitConfig(cloneShippingPackageLimitConfig(result.config));
+      setShippingPackageLimitEditing(false);
+      setShippingPackageLimitStatus(`Online checkout now allows up to ${result.config.maxPackages} shipping packages per order.`);
+    } catch (error) {
+      setShippingPackageLimitError(error instanceof Error ? error.message : "Could not save the online shipping package limit.");
+    } finally {
+      setShippingPackageLimitSaving(false);
+    }
+  }
+
+  function discardShippingPackageLimitChanges() {
+    if (savedShippingPackageLimitConfig) {
+      setShippingPackageLimitConfig(cloneShippingPackageLimitConfig(savedShippingPackageLimitConfig));
+    }
+    setShippingPackageLimitEditing(false);
+    setShippingPackageLimitStatus("");
+    setShippingPackageLimitError("");
   }
 
   function updatePackaging(mutator: (config: PackagingConfig) => void) {
@@ -1725,6 +1791,59 @@ export function AdvancedPage() {
                 detail={`${Number(healthCounts.success || 0)} successful · ${Number(healthCounts.no_rates || 0)} no-rate · ${Number(healthCounts.failed || 0)} failed · ${Number(healthCounts.partial || 0)} partial`}
               />
             </div>
+            {shippingPackageLimitConfig ? (
+              <div className="mt-5 rounded-[9px] border border-sg-border bg-sg-canvas/60 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-bold">Online Shipping Package Limit</p>
+                    <p className="mt-1 text-[11px] leading-5 text-sg-muted">Maximum physical shipping packages allowed in one customer storefront order. Admin-created orders are not restricted by this setting.</p>
+                  </div>
+                  {shippingPackageLimitEditing ? (
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <button type="button" className="sg25-btn sg25-btn-ghost h-9 px-4" onClick={discardShippingPackageLimitChanges} disabled={shippingPackageLimitSaving}>Discard</button>
+                      <button type="button" className="sg25-btn sg25-btn-primary h-9 px-4" onClick={() => void saveOnlineShippingPackageLimit()} disabled={shippingPackageLimitSaving}>
+                        {shippingPackageLimitSaving ? "Saving" : "Save limit"}
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="button" className="sg25-btn sg25-btn-ghost h-9 shrink-0 px-4" onClick={() => setShippingPackageLimitUnlockOpen(true)}>
+                      <Icon name="lock" className="h-4 w-4" /> Unlock editing
+                    </button>
+                  )}
+                </div>
+                {!shippingPackageLimitEditing ? (
+                  <div className="mt-4 flex items-start justify-between gap-4 rounded-[9px] border border-sg-border bg-white p-4">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-sg-muted">Current limit</p>
+                      <p className="mt-2 text-[12px] leading-5 text-sg-muted">The cart, live shipping quote, and final payment all enforce this same value.</p>
+                    </div>
+                    <p className="shrink-0 text-right text-[18px] font-bold">{shippingPackageLimitConfig.maxPackages} packages</p>
+                  </div>
+                ) : (
+                  <fieldset disabled={shippingPackageLimitSaving} className="mt-4 space-y-3">
+                    <Field label="Maximum packages per online order">
+                      <input
+                        className="sg25-input mt-2 h-11"
+                        type="number"
+                        inputMode="numeric"
+                        min="1"
+                        max="25"
+                        step="1"
+                        value={shippingPackageLimitConfig.maxPackages}
+                        onChange={(event) => {
+                          setShippingPackageLimitStatus("");
+                          setShippingPackageLimitError("");
+                          setShippingPackageLimitConfig((current) => current ? { ...current, maxPackages: Math.floor(Number(event.target.value)) } : current);
+                        }}
+                      />
+                    </Field>
+                    <p className="rounded-[8px] border border-sg-warning/30 bg-sg-warning-soft px-3 py-3 text-[11px] leading-5 text-sg-warning">Allowed range: 1–25 packages. Lowering the limit can block carts that were previously eligible when checkout is recalculated or payment is submitted.</p>
+                  </fieldset>
+                )}
+                {shippingPackageLimitStatus ? <p className="mt-3 text-[11px] font-bold text-sg-success">{shippingPackageLimitStatus}</p> : null}
+                {shippingPackageLimitError ? <p className="mt-3 text-[11px] font-bold text-sg-danger">{shippingPackageLimitError}</p> : null}
+              </div>
+            ) : shippingPackageLimitError ? <p className="mt-4 text-[11px] font-bold text-sg-danger">{shippingPackageLimitError}</p> : null}
             {freeDeliveryConfig ? (
               <div className="mt-5 rounded-[9px] border border-sg-border bg-sg-canvas/60 p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2201,6 +2320,31 @@ export function AdvancedPage() {
                 setZoneFreeShippingUnlockOpen(false);
                 setZoneFreeShippingStatus("");
                 setZoneFreeShippingError("");
+              }}
+            >
+              Unlock editing
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {shippingPackageLimitUnlockOpen ? (
+        <Modal>
+          <WarningHeader title="Unlock online shipping package limit" description="This limit is enforced in the customer cart, shipping quote, and final payment step." />
+          <div className="mt-5 rounded-[8px] border border-sg-warning bg-sg-warning-soft p-4 text-[13px] text-sg-warning">
+            <p className="font-bold">Review fulfillment capacity before increasing it</p>
+            <p className="mt-1 leading-5">Larger orders can create more label purchases and packing work. Reducing the limit can reject an existing cart when the customer recalculates checkout or submits payment.</p>
+          </div>
+          <div className="mt-6 flex justify-end gap-2">
+            <button type="button" className="sg25-btn sg25-btn-ghost" onClick={() => setShippingPackageLimitUnlockOpen(false)}>Cancel</button>
+            <button
+              type="button"
+              className="sg25-btn sg25-btn-primary"
+              onClick={() => {
+                setShippingPackageLimitEditing(true);
+                setShippingPackageLimitUnlockOpen(false);
+                setShippingPackageLimitStatus("");
+                setShippingPackageLimitError("");
               }}
             >
               Unlock editing

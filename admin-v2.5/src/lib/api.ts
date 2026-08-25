@@ -749,6 +749,25 @@ export function saveZoneFreeShippingConfig(config: ZoneFreeShippingConfig, token
   return postJson<ZoneFreeShippingConfigResponse>("/api/admin-zone-free-shipping-config", { config }, token);
 }
 
+export type ShippingPackageLimitConfig = {
+  version: number;
+  maxPackages: number;
+};
+export type ShippingPackageLimitConfigResponse = {
+  config: ShippingPackageLimitConfig;
+  source: string;
+  migrationRequired?: boolean;
+  updatedAt?: string | null;
+};
+
+export function fetchShippingPackageLimitConfig(token?: string) {
+  return fetchJson<ShippingPackageLimitConfigResponse>("/api/admin-shipping-package-limit-config", token);
+}
+
+export function saveShippingPackageLimitConfig(config: ShippingPackageLimitConfig, token?: string) {
+  return postJson<ShippingPackageLimitConfigResponse>("/api/admin-shipping-package-limit-config", { config }, token);
+}
+
 export function fetchInventoryDashboard(token?: string) {
   return fetchJson<InventoryDashboardResponse>("/api/admin-inventory", token);
 }

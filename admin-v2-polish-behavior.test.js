@@ -119,6 +119,24 @@ test("Advanced UPS zone free-shipping settings are guarded and cover zones 2 thr
   assert.match(server, /\/api\/admin-zone-free-shipping-config/);
 });
 
+test("Advanced online shipping package limit is authenticated, guarded, and shared by checkout", () => {
+  const source = read("admin-v2.5/src/pages/AdvancedPage.tsx");
+  const api = read("admin-v2.5/src/lib/api.ts");
+  const server = read("server.js");
+  const handler = read("api/admin-shipping-package-limit-config.js");
+
+  assert.match(source, /Online Shipping Package Limit/);
+  assert.match(source, /Maximum packages per online order/);
+  assert.match(source, /min="1"/);
+  assert.match(source, /max="25"/);
+  assert.match(source, /cart, live shipping quote, and final payment/);
+  assert.match(source, /setShippingPackageLimitUnlockOpen\(true\)/);
+  assert.match(api, /fetchShippingPackageLimitConfig/);
+  assert.match(api, /saveShippingPackageLimitConfig/);
+  assert.match(server, /\/api\/admin-shipping-package-limit-config/);
+  assert.match(handler, /assertReportsAuthorized/);
+});
+
 test("admin-v2.5 Advanced page uses a browser-session access gate", () => {
   const app = read("admin-v2.5/src/App.tsx");
   const shell = read("admin-v2.5/src/components/layout/AdminShell.tsx");

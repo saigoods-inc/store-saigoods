@@ -21,7 +21,9 @@ import {
 import { assertPublicApiRequestAllowed } from "../lib/public-api-guard.js";
 import { loadDefaultShipFromOverride, warehouseAddressFingerprint } from "../lib/warehouse-settings.js";
 import { assertCompletedSquarePaymentMatchesOrder } from "../lib/square-payment-verification.js";
-import { shippingPackageLimitState } from "../lib/shipping-package-limit.js";
+import {
+  shippingPackageLimitState,
+} from "../lib/shipping-package-limit.js";
 
 /**
  * Deterministic rejection when the authoritative final quote says checkout cannot proceed.
@@ -48,8 +50,9 @@ export function buildCheckoutPayNotReadyBody(quote) {
 }
 
 /** Reject oversized public orders even when an older signed quote is replayed. */
-export function buildCheckoutPayPackageLimitBody(quote) {
-  const limit = shippingPackageLimitState(quote?.parcelSummary);
+export function buildCheckoutPayPackageLimitBody(quote, maxPackages) {
+  const signedMaxPackages = Number(maxPackages ?? quote?.shippingPackageLimit?.maxPackages);
+  const limit = shippingPackageLimitState(quote?.parcelSummary, signedMaxPackages);
   if (!limit.exceeded) return null;
   return {
     error: limit.message,
@@ -206,6 +209,10 @@ export default async function handler(req, res) {
           shippingContext: addrCheck.shippingContext,
           flow: "checkout",
           addressValidationResult: addrCheck,
+          // Normal storefront payments carry the saved limit in their signed quote.
+          // Keep legacy/no-token fallback payments fail-safe without adding a settings
+          // request before the existing shipping-readiness rejection gate.
+          shippingPackageLimitConfig: { maxPackages: 10 },
           ...(codeDiscount ? { manualDiscount: codeDiscount } : {}),
           ...selectedShipping,
         });
