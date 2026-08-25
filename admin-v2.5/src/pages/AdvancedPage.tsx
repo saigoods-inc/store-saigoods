@@ -9,12 +9,14 @@ import {
   fetchPaymentHealth,
   fetchPaymentFeeConfig,
   fetchFreeDeliveryConfig,
+  fetchZoneFreeShippingConfig,
   fetchShippingHealth,
   fetchWarehouseConfig,
   ApiError,
   savePackagingConfig,
   savePaymentFeeConfig,
   saveFreeDeliveryConfig,
+  saveZoneFreeShippingConfig,
   saveBundleCatalog,
   saveWarehouseConfig,
   type PackagingConfig,
@@ -24,6 +26,7 @@ import {
   type PaymentHealthResponse,
   type PaymentFeeConfig,
   type FreeDeliveryConfig,
+  type ZoneFreeShippingConfig,
   type ShippingHealthResponse,
   type WarehouseLocation,
 } from "../lib/api";
@@ -89,6 +92,8 @@ const productOptions = [
   { slug: "black-nitrile-general", name: "Black Nitrile - General" },
   { slug: "black-nitrile-heavy-duty", name: "Black Nitrile - Heavy Duty" },
 ];
+
+const upsZoneNumbers = [2, 3, 4, 5, 6, 7, 8] as const;
 const products = productOptions.map((product) => product.name);
 
 const initialBundles: BundleRow[] = [
@@ -437,11 +442,13 @@ function CurrencyCentsField({
   cents,
   onCommit,
   optional = false,
+  optionalPlaceholder = "Use default",
 }: {
   label: string;
   cents: number | null | undefined;
   onCommit: (cents: number | null) => void;
   optional?: boolean;
+  optionalPlaceholder?: string;
 }) {
   const formatted = cents == null ? "" : (cents / 100).toFixed(2);
   const [draft, setDraft] = useState(formatted);
@@ -468,7 +475,7 @@ function CurrencyCentsField({
           className="min-w-0 flex-1 bg-transparent text-[13px] font-bold outline-none disabled:cursor-not-allowed"
           inputMode="decimal"
           value={draft}
-          placeholder={optional ? "Use default" : "0.00"}
+          placeholder={optional ? optionalPlaceholder : "0.00"}
           onChange={(event) => {
             const next = event.target.value;
             if (/^\d*(?:\.\d{0,2})?$/.test(next)) setDraft(next);
@@ -544,6 +551,10 @@ function clonePackagingConfig(config: PackagingConfig) {
 
 function cloneFreeDeliveryConfig(config: FreeDeliveryConfig) {
   return JSON.parse(JSON.stringify(config)) as FreeDeliveryConfig;
+}
+
+function cloneZoneFreeShippingConfig(config: ZoneFreeShippingConfig) {
+  return JSON.parse(JSON.stringify(config)) as ZoneFreeShippingConfig;
 }
 
 function makePackagingCarton() {
@@ -695,6 +706,13 @@ export function AdvancedPage() {
   const [freeDeliverySaving, setFreeDeliverySaving] = useState(false);
   const [freeDeliveryStatus, setFreeDeliveryStatus] = useState("");
   const [freeDeliveryError, setFreeDeliveryError] = useState("");
+  const [zoneFreeShippingConfig, setZoneFreeShippingConfig] = useState<ZoneFreeShippingConfig | null>(null);
+  const [savedZoneFreeShippingConfig, setSavedZoneFreeShippingConfig] = useState<ZoneFreeShippingConfig | null>(null);
+  const [zoneFreeShippingEditing, setZoneFreeShippingEditing] = useState(false);
+  const [zoneFreeShippingUnlockOpen, setZoneFreeShippingUnlockOpen] = useState(false);
+  const [zoneFreeShippingSaving, setZoneFreeShippingSaving] = useState(false);
+  const [zoneFreeShippingStatus, setZoneFreeShippingStatus] = useState("");
+  const [zoneFreeShippingError, setZoneFreeShippingError] = useState("");
 
   const bundleGroups = useMemo(
     () =>
@@ -913,6 +931,53 @@ export function AdvancedPage() {
     setFreeDeliveryEditing(false);
     setFreeDeliveryStatus("");
     setFreeDeliveryError("");
+  }
+
+  useEffect(() => {
+    if (!auth.session) return;
+    let active = true;
+    void (async () => {
+      try {
+        const result = await fetchZoneFreeShippingConfig(await auth.getAccessToken());
+        if (active) {
+          setZoneFreeShippingConfig(result.config);
+          setSavedZoneFreeShippingConfig(cloneZoneFreeShippingConfig(result.config));
+        }
+      } catch (error) {
+        if (active) setZoneFreeShippingError(error instanceof Error ? error.message : "Could not load UPS zone free-shipping settings.");
+      }
+    })();
+    return () => { active = false; };
+  }, [auth]);
+
+  async function saveZoneFreeShippingThresholds() {
+    if (!zoneFreeShippingConfig) return;
+    const configuredCount = Object.values(zoneFreeShippingConfig.thresholdsCents).filter((cents) => Number(cents) > 0).length;
+    if (zoneFreeShippingConfig.active && configuredCount === 0) {
+      setZoneFreeShippingError("Add at least one UPS zone threshold before enabling this offer.");
+      return;
+    }
+    setZoneFreeShippingSaving(true);
+    setZoneFreeShippingError("");
+    setZoneFreeShippingStatus("");
+    try {
+      const result = await saveZoneFreeShippingConfig(zoneFreeShippingConfig, await auth.getAccessToken());
+      setZoneFreeShippingConfig(result.config);
+      setSavedZoneFreeShippingConfig(cloneZoneFreeShippingConfig(result.config));
+      setZoneFreeShippingEditing(false);
+      setZoneFreeShippingStatus(result.config.active ? "UPS zone free shipping is active for new storefront quotes." : "Saved as inactive.");
+    } catch (error) {
+      setZoneFreeShippingError(error instanceof Error ? error.message : "Could not save UPS zone free-shipping settings.");
+    } finally {
+      setZoneFreeShippingSaving(false);
+    }
+  }
+
+  function discardZoneFreeShippingChanges() {
+    if (savedZoneFreeShippingConfig) setZoneFreeShippingConfig(cloneZoneFreeShippingConfig(savedZoneFreeShippingConfig));
+    setZoneFreeShippingEditing(false);
+    setZoneFreeShippingStatus("");
+    setZoneFreeShippingError("");
   }
 
   function updatePackaging(mutator: (config: PackagingConfig) => void) {
@@ -1774,6 +1839,81 @@ export function AdvancedPage() {
                 {freeDeliveryError ? <p className="mt-3 text-[11px] font-bold text-sg-danger">{freeDeliveryError}</p> : null}
               </div>
             ) : freeDeliveryError ? <p className="mt-4 text-[11px] font-bold text-sg-danger">{freeDeliveryError}</p> : null}
+            {zoneFreeShippingConfig ? (
+              <div className="mt-5 rounded-[9px] border border-sg-border bg-sg-canvas/60 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-bold">UPS Zone Free Shipping</p>
+                    <p className="mt-1 text-[11px] leading-5 text-sg-muted">Customer storefront only. The lowest-cost carrier service becomes free; faster services remain paid and carrier labels are still purchased.</p>
+                  </div>
+                  {zoneFreeShippingEditing ? (
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <button type="button" className="sg25-btn sg25-btn-ghost h-9 px-4" onClick={discardZoneFreeShippingChanges} disabled={zoneFreeShippingSaving}>Discard</button>
+                      <button type="button" className="sg25-btn sg25-btn-primary h-9 px-4" onClick={() => void saveZoneFreeShippingThresholds()} disabled={zoneFreeShippingSaving}>
+                        {zoneFreeShippingSaving ? "Saving" : "Save thresholds"}
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="button" className="sg25-btn sg25-btn-ghost h-9 shrink-0 px-4" onClick={() => setZoneFreeShippingUnlockOpen(true)}>
+                      <Icon name="lock" className="h-4 w-4" /> Unlock editing
+                    </button>
+                  )}
+                </div>
+
+                {!zoneFreeShippingEditing ? (
+                  <div className="mt-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3 rounded-[9px] border border-sg-border bg-white p-4">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-sg-muted">Current status</p>
+                        <p className="mt-2 text-[16px] font-bold">Zone-based carrier promotion</p>
+                        <p className="mt-1 text-[12px] leading-5 text-sg-muted">Thresholds use the complete post-discount merchandise subtotal. This does not change the separate Free Delivery Area above.</p>
+                      </div>
+                      <StatusPill tone={zoneFreeShippingConfig.active ? "success" : "neutral"}>{zoneFreeShippingConfig.active ? "Active" : "Inactive"}</StatusPill>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {upsZoneNumbers.map((zone) => {
+                        const threshold = Number(zoneFreeShippingConfig.thresholdsCents[String(zone)]) || 0;
+                        return (
+                          <div key={zone} className="rounded-[8px] border border-sg-border bg-white p-3">
+                            <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-sg-muted">UPS Zone {zone}</p>
+                            <p className="mt-1 text-[14px] font-bold">{threshold > 0 ? money(threshold) : "Not offered"}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-start gap-3 rounded-[8px] border border-sg-border bg-sg-canvas/70 px-3 py-3 text-[11px] leading-5 text-sg-muted">
+                      <Icon name="lock" className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>Zones without a threshold do not receive free carrier shipping. Unlock editing to change an offer.</span>
+                    </div>
+                  </div>
+                ) : (
+                  <fieldset disabled={zoneFreeShippingSaving} className="mt-4 space-y-3">
+                    <ToggleSetting label="UPS zone free shipping" detail="Applies only to new customer storefront checkout quotes after merchandise discounts." enabled={zoneFreeShippingConfig.active} onChange={(active) => setZoneFreeShippingConfig((current) => current ? { ...current, active } : current)} />
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {upsZoneNumbers.map((zone) => (
+                        <CurrencyCentsField
+                          key={zone}
+                          label={`UPS Zone ${zone} minimum`}
+                          cents={zoneFreeShippingConfig.thresholdsCents[String(zone)] ?? null}
+                          optional
+                          optionalPlaceholder="Not offered"
+                          onCommit={(thresholdCents) => setZoneFreeShippingConfig((current) => {
+                            if (!current) return current;
+                            const thresholdsCents = { ...current.thresholdsCents };
+                            if (thresholdCents && thresholdCents > 0) thresholdsCents[String(zone)] = thresholdCents;
+                            else delete thresholdsCents[String(zone)];
+                            return { ...current, thresholdsCents };
+                          })}
+                        />
+                      ))}
+                    </div>
+                    <p className="rounded-[8px] border border-sg-warning/30 bg-sg-warning-soft px-3 py-3 text-[11px] leading-5 text-sg-warning">Leave a zone blank to offer no free shipping in that zone. Saving changes affects only newly calculated storefront quotes.</p>
+                  </fieldset>
+                )}
+                {zoneFreeShippingStatus ? <p className="mt-3 text-[11px] font-bold text-sg-success">{zoneFreeShippingStatus}</p> : null}
+                {zoneFreeShippingError ? <p className="mt-3 text-[11px] font-bold text-sg-danger">{zoneFreeShippingError}</p> : null}
+              </div>
+            ) : zoneFreeShippingError ? <p className="mt-4 text-[11px] font-bold text-sg-danger">{zoneFreeShippingError}</p> : null}
           </section>
 
           <section className="sg25-card p-4 md:p-5">
@@ -2036,6 +2176,31 @@ export function AdvancedPage() {
                 setFreeDeliveryUnlockOpen(false);
                 setFreeDeliveryStatus("");
                 setFreeDeliveryError("");
+              }}
+            >
+              Unlock editing
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {zoneFreeShippingUnlockOpen ? (
+        <Modal>
+          <WarningHeader title="Unlock UPS zone free-shipping settings" description="These thresholds decide when the lowest-cost carrier service becomes free in customer storefront checkout." />
+          <div className="mt-5 rounded-[8px] border border-sg-warning bg-sg-warning-soft p-4 text-[13px] text-sg-warning">
+            <p className="font-bold">Review every zone threshold carefully</p>
+            <p className="mt-1 leading-5">A threshold that is too low can undercharge shipping. Blank zones remain ineligible, faster services stay paid, and the separate local-delivery rule is not changed.</p>
+          </div>
+          <div className="mt-6 flex justify-end gap-2">
+            <button type="button" className="sg25-btn sg25-btn-ghost" onClick={() => setZoneFreeShippingUnlockOpen(false)}>Cancel</button>
+            <button
+              type="button"
+              className="sg25-btn sg25-btn-primary"
+              onClick={() => {
+                setZoneFreeShippingEditing(true);
+                setZoneFreeShippingUnlockOpen(false);
+                setZoneFreeShippingStatus("");
+                setZoneFreeShippingError("");
               }}
             >
               Unlock editing

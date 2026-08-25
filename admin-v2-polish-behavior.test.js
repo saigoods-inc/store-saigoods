@@ -103,6 +103,22 @@ test("Advanced bundle pricing follows box-to-carton hierarchy", () => {
   assert.match(source, /\.sort\(compareBundleHierarchy\)/);
 });
 
+test("Advanced UPS zone free-shipping settings are guarded and cover zones 2 through 8", () => {
+  const source = read("admin-v2.5/src/pages/AdvancedPage.tsx");
+  const api = read("admin-v2.5/src/lib/api.ts");
+  const server = read("server.js");
+
+  assert.match(source, /UPS Zone Free Shipping/);
+  assert.match(source, /const upsZoneNumbers = \[2, 3, 4, 5, 6, 7, 8\]/);
+  assert.match(source, /Customer storefront only/);
+  assert.match(source, /complete post-discount merchandise subtotal/);
+  assert.match(source, /setZoneFreeShippingUnlockOpen\(true\)/);
+  assert.match(source, /Save thresholds/);
+  assert.match(api, /fetchZoneFreeShippingConfig/);
+  assert.match(api, /saveZoneFreeShippingConfig/);
+  assert.match(server, /\/api\/admin-zone-free-shipping-config/);
+});
+
 test("admin-v2.5 Advanced page uses a browser-session access gate", () => {
   const app = read("admin-v2.5/src/App.tsx");
   const shell = read("admin-v2.5/src/components/layout/AdminShell.tsx");

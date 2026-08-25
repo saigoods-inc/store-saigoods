@@ -729,6 +729,26 @@ export function saveFreeDeliveryConfig(config: FreeDeliveryConfig, token?: strin
   return postJson<FreeDeliveryConfigResponse>("/api/admin-free-delivery-config", { config }, token);
 }
 
+export type ZoneFreeShippingConfig = {
+  version: number;
+  active: boolean;
+  thresholdsCents: Record<string, number>;
+};
+export type ZoneFreeShippingConfigResponse = {
+  config: ZoneFreeShippingConfig;
+  source: string;
+  migrationRequired?: boolean;
+  updatedAt?: string | null;
+};
+
+export function fetchZoneFreeShippingConfig(token?: string) {
+  return fetchJson<ZoneFreeShippingConfigResponse>("/api/admin-zone-free-shipping-config", token);
+}
+
+export function saveZoneFreeShippingConfig(config: ZoneFreeShippingConfig, token?: string) {
+  return postJson<ZoneFreeShippingConfigResponse>("/api/admin-zone-free-shipping-config", { config }, token);
+}
+
 export function fetchInventoryDashboard(token?: string) {
   return fetchJson<InventoryDashboardResponse>("/api/admin-inventory", token);
 }
