@@ -1878,7 +1878,6 @@ export function OrderBuilderPage() {
                       </span>
                     ) : null}
                   </span>
-                  <span className="mt-0.5 block text-[11px] leading-4 text-sg-muted">Optional · use only when the buyer supplied a qualifying certificate.</span>
                 </span>
               </label>
 
