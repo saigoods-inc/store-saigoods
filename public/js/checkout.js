@@ -391,6 +391,7 @@ function renderCheckoutShell(miniQuote, options = {}) {
             *Use a business address to avoid additional residential charges.
           </p>
         </div>
+        <p id="checkout-free-shipping-message" class="summary-card__note checkout-free-shipping-message" role="status" hidden></p>
         <div id="checkout-warnings" class="checkout-warnings" hidden></div>
       </aside>
     </section>
@@ -522,6 +523,7 @@ function quoteView(data) {
       userFacingError: data?.userFacingError ? String(data.userFacingError) : null,
       warnings: Array.isArray(data?.warnings) ? data.warnings : [],
       shippingRateOptions: Array.isArray(data?.shippingRateOptions) ? data.shippingRateOptions : [],
+      freeShipping: data?.freeShipping && typeof data.freeShipping === "object" ? data.freeShipping : null,
       estimatedDays: checkoutEstimatedDeliveryDays(data),
     };
   }
@@ -544,6 +546,7 @@ function quoteView(data) {
     userFacingError: null,
     warnings: Array.isArray(data?.warnings) ? data.warnings : [],
     shippingRateOptions: [],
+    freeShipping: null,
     estimatedDays: null,
   };
 }
@@ -610,9 +613,14 @@ function markEstimateStale() {
   renderShippingRateChoices(null);
   hideAddressSuggestion();
   const warningsEl = document.getElementById("checkout-warnings");
+  const freeShippingEl = document.getElementById("checkout-free-shipping-message");
   if (warningsEl) {
     warningsEl.hidden = true;
     warningsEl.innerHTML = "";
+  }
+  if (freeShippingEl) {
+    freeShippingEl.hidden = true;
+    freeShippingEl.textContent = "";
   }
   const sumShip = document.getElementById("sum-ship");
   const sumTax = document.getElementById("sum-tax");
@@ -685,9 +693,27 @@ function updateShippingRateHint(hint, rate) {
   const isLocal =
     String(rate.provider || "").trim().toLowerCase() === "local" ||
     String(rate.serviceCode || "").trim().toLowerCase() === "local_delivery";
-  hint.textContent = isLocal
-    ? "Free local delivery selected."
-    : `${rate.serviceLabel || "Shipping service"} selected. Choose another service if preferred.`;
+  hint.textContent = rate?.freeShippingApplied === true
+    ? "Free standard shipping selected."
+    : isLocal
+      ? "Free local delivery selected."
+      : `${rate.serviceLabel || "Shipping service"} selected. Choose another service if preferred.`;
+}
+
+function renderZoneFreeShippingMessage(data, rate = selectedShippingRate) {
+  const el = document.getElementById("checkout-free-shipping-message");
+  if (!el) return;
+  const promotion = data?.freeShipping;
+  if (!promotion?.configured || !promotion?.message) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  const freeRateSelected = rate?.freeShippingApplied === true;
+  el.textContent = promotion.eligible && !freeRateSelected
+    ? "Free standard shipping is available."
+    : promotion.message;
+  el.hidden = false;
 }
 
 function applySelectedShippingRate(rate) {
@@ -718,8 +744,12 @@ function applySelectedShippingRate(rate) {
     totals: { ...(latestEstimate.totals || {}), shippingCents, taxCents, totalCents, totalFormatted: money(totalCents) },
     totalCents,
     totalFormatted: money(totalCents),
+    freeShipping: latestEstimate?.freeShipping
+      ? { ...latestEstimate.freeShipping, applied: rate?.freeShippingApplied === true }
+      : null,
   };
   applyCheckoutOrderSummary(latestEstimate);
+  renderZoneFreeShippingMessage(latestEstimate, rate);
 }
 
 function renderShippingRateChoices(data, previousSelection = null) {
@@ -772,6 +802,7 @@ function renderShippingRateChoices(data, previousSelection = null) {
   });
   updateShippingRateHint(hint, defaultRate);
   if (defaultRate) applySelectedShippingRate(defaultRate);
+  renderZoneFreeShippingMessage(data, defaultRate);
 }
 
 function scheduleQuoteExpiry(data) {
@@ -1412,6 +1443,7 @@ async function runEstimate(options = {}) {
       } else if (data?.freeDelivery?.message && data.freeDelivery.reason === "minimum_not_met") {
         w.unshift(data.freeDelivery.message);
       }
+      renderZoneFreeShippingMessage(data, selectedShippingRate);
       if (data.hardinDiscountBlocked === "incomplete_address" && readDiscountCode()) {
         w.push(
           'Complete your shipping address and click "Confirm address & discount" to apply a discount code.',

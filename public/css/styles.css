@@ -2802,6 +2802,19 @@ button {
   margin-top: 0.75rem;
 }
 
+.checkout-free-shipping-message {
+  margin: 0.85rem 0 0;
+  padding: 0.7rem 0.8rem;
+  border-radius: var(--radius-sm);
+  background: #eef8f0;
+  color: #246b35;
+  font-weight: 700;
+}
+
+.checkout-free-shipping-message[hidden] {
+  display: none !important;
+}
+
 .checkout-footnote {
   margin-top: 1.25rem;
   font-size: var(--fs-small);
