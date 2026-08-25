@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthProvider";
@@ -754,6 +755,7 @@ export function OrderBuilderPage() {
   const [taxExemptionCertificateFile, setTaxExemptionCertificateFile] = useState<File | null>(null);
   const [taxExemptionCertificateReference, setTaxExemptionCertificateReference] = useState("");
   const [taxExemptionDragActive, setTaxExemptionDragActive] = useState(false);
+  const [taxReviewWarning, setTaxReviewWarning] = useState<string[] | null>(null);
   const [address, setAddress] = useState<ManualOrderAddress>({
     line1: "",
     line2: "",
@@ -1287,6 +1289,43 @@ export function OrderBuilderPage() {
     return { manualDiscountType: "none" as const, manualDiscountValue: 0 };
   }
 
+  function taxExemptionReviewIssues() {
+    const issues: string[] = [];
+    const shippingState = address.state.trim().toUpperCase();
+    if (!customer.name.trim()) issues.push("Enter the customer name.");
+    if (!customer.email.trim() || !customer.email.includes("@")) issues.push("Enter a valid customer email.");
+    if (!shippingState) issues.push("Select the shipping state.");
+    if (!taxExemption.exemptionType) issues.push("Select the exemption type.");
+    if (!taxExemption.jurisdiction) {
+      issues.push("Select the certificate jurisdiction.");
+    } else if (shippingState && taxExemption.jurisdiction !== shippingState) {
+      issues.push("Make the certificate jurisdiction match the shipping state.");
+    }
+    if (!taxExemptionCertificateSelected) issues.push("Upload the buyer's exemption certificate.");
+    if (taxExemption.exemptionType === "other" && taxExemption.internalNote.trim().length < 10) {
+      issues.push("Add a manual-review note explaining the exemption.");
+    }
+    if (taxExemption.effectiveDate && taxExemption.expirationDate && taxExemption.expirationDate < taxExemption.effectiveDate) {
+      issues.push("Correct the certificate dates; expiration cannot be before the effective date.");
+    }
+    return issues;
+  }
+
+  function handleTaxExemptionReview(checked: boolean) {
+    if (!checked) {
+      updateTaxExemption({ documentReviewed: false });
+      return;
+    }
+    const issues = taxExemptionReviewIssues();
+    if (issues.length) {
+      setTaxReviewWarning(issues);
+      setFieldErrors((current) => ({ ...current, taxExemption: issues[0] }));
+      return;
+    }
+    setTaxReviewWarning(null);
+    updateTaxExemption({ documentReviewed: true });
+  }
+
   function validateRemoteOrder(forCreate = false) {
     const errors: Record<string, string> = {};
     if (mode !== "remote") errors.mode = "Switch to Remote order to use this flow.";
@@ -1811,51 +1850,40 @@ export function OrderBuilderPage() {
               <Field label="Email" value={customer.email} onChange={(value) => updateCustomer("email", value)} placeholder="customer@email.com" type="email" required error={fieldErrors.customerEmail} />
               <Field label="Phone" value={customer.phone} onChange={(value) => updateCustomer("phone", value)} placeholder="Optional" error={fieldErrors.customerPhone} />
             </div>
-          </section>
-
-          <section className="sg25-card order-2 p-4 sm:p-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <Icon name="receipt" className="h-4 w-4 text-sg-primary" />
-                <div>
-                  <h2 className="text-lg font-bold">Tax Exemption</h2>
-                  <p className="mt-0.5 text-[12px] text-sg-muted">Admin-only review for this Order Builder order. Standard taxable treatment remains the default.</p>
-                </div>
-              </div>
-              <span className={`rounded-full px-3 py-1 text-[11px] font-bold ${taxExemptionReady ? "bg-sg-success-soft text-sg-success" : "bg-sg-input-bg text-sg-muted"}`}>
-                {taxExemptionReady ? "Ready for approval" : taxExemption.requested ? "Review required" : "Taxable"}
-              </span>
-            </div>
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-2" role="group" aria-label="Tax treatment">
-              <button
-                type="button"
-                aria-pressed={!taxExemption.requested}
-                className={optionButtonClass(!taxExemption.requested)}
-                onClick={() => {
-                  setTaxExemption({ ...initialTaxExemption, jurisdiction: address.state.trim().toUpperCase() || "TN" });
-                  setTaxExemptionCertificateFile(null);
-                  setTaxExemptionCertificateReference("");
-                  markDirty();
-                }}
-              >
-                Standard taxable treatment
-              </button>
-              <button
-                type="button"
-                aria-pressed={taxExemption.requested}
-                className={optionButtonClass(taxExemption.requested)}
-                onClick={() => updateTaxExemption({ requested: true, jurisdiction: address.state.trim().toUpperCase() || taxExemption.jurisdiction })}
-              >
-                Apply tax-exempt treatment
-              </button>
-            </div>
+            <div className="mt-5 border-t border-sg-border pt-4">
+              <label className={`flex cursor-pointer items-start gap-3 rounded-[10px] border p-3 transition ${taxExemption.requested ? "border-sg-primary bg-sg-primary-soft/45" : "border-sg-border bg-white hover:border-sg-primary/40"}`}>
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-sg-primary"
+                  checked={taxExemption.requested}
+                  aria-expanded={taxExemption.requested}
+                  onChange={(event) => {
+                    if (event.target.checked) {
+                      updateTaxExemption({ requested: true, jurisdiction: address.state.trim().toUpperCase() || taxExemption.jurisdiction });
+                      return;
+                    }
+                    setTaxExemption({ ...initialTaxExemption, jurisdiction: address.state.trim().toUpperCase() || "TN" });
+                    setTaxExemptionCertificateFile(null);
+                    setTaxExemptionCertificateReference("");
+                    setTaxReviewWarning(null);
+                    markDirty();
+                  }}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[13px] font-bold text-sg-text">Apply tax exemption</span>
+                    {taxExemption.requested ? (
+                      <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${taxExemptionReady ? "bg-sg-success-soft text-sg-success" : "bg-white text-sg-muted"}`}>
+                        {taxExemptionReady ? "Reviewed" : "Needs review"}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] leading-4 text-sg-muted">Optional · use only when the buyer supplied a qualifying certificate.</span>
+                </span>
+              </label>
 
             {taxExemption.requested ? (
-              <div className="mt-4 space-y-4 rounded-[10px] border border-sg-border bg-sg-input-bg/45 p-4">
-                <div className="rounded-[9px] bg-sg-amber-soft px-3 py-2.5 text-[12px] leading-5 text-sg-amber">
-                  Tax remains enabled until a certificate is stored privately and an administrator confirms that it applies to this customer, jurisdiction, products, and transaction.
-                </div>
+              <div className="mt-3 space-y-4 rounded-[10px] border border-sg-border bg-sg-input-bg/45 p-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="block min-w-0">
                     <span className="text-[12px] font-semibold text-sg-muted">Exemption type<span className="ml-0.5 text-sg-danger">*</span></span>
@@ -1894,6 +1922,10 @@ export function OrderBuilderPage() {
                   placeholder="Why this certificate applies to this order"
                 />
 
+                <div>
+                  <p className="text-[12px] font-semibold text-sg-muted">Certificate document<span className="ml-0.5 text-sg-danger">*</span></p>
+                  <p className="mt-0.5 text-[10px] text-sg-muted">PDF, PNG, or JPEG · maximum 2 MB · stored privately</p>
+                </div>
                 <input
                   ref={taxExemptionInputRef}
                   type="file"
@@ -1929,7 +1961,7 @@ export function OrderBuilderPage() {
                     }}
                   >
                     <span className="text-[12px] font-bold text-sg-text">Drop the exemption certificate here</span>
-                    <span className="mt-1 text-[11px] text-sg-muted">PDF, PNG, or JPEG · maximum 2 MB · stored privately</span>
+                    <span className="mt-1 text-[11px] text-sg-muted">or click to choose a file</span>
                   </button>
                 )}
 
@@ -1938,13 +1970,14 @@ export function OrderBuilderPage() {
                     type="checkbox"
                     className="mt-0.5 h-4 w-4 accent-sg-primary"
                     checked={taxExemption.documentReviewed}
-                    onChange={(event) => updateTaxExemption({ documentReviewed: event.target.checked })}
+                    onChange={(event) => handleTaxExemptionReview(event.target.checked)}
                   />
                   <span className="text-[12px] font-semibold leading-5 text-sg-text">I reviewed the certificate and confirm it applies to this customer, shipping jurisdiction, products, and transaction.</span>
                 </label>
                 {fieldErrors.taxExemption ? <p className="text-[12px] font-semibold text-sg-danger">{fieldErrors.taxExemption}</p> : null}
               </div>
             ) : null}
+            </div>
           </section>
 
           <section className="sg25-card order-3 overflow-hidden p-0">
@@ -2597,6 +2630,34 @@ export function OrderBuilderPage() {
           </div>
         </aside>
       </section>
+      {taxReviewWarning ? createPortal(
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="tax-review-warning-title"
+          onClick={() => setTaxReviewWarning(null)}
+        >
+          <section className="w-full max-w-md rounded-[14px] bg-white p-5 shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sg-amber-soft text-sg-amber">
+                <Icon name="alert" className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <h2 id="tax-review-warning-title" className="text-lg font-bold">Complete the exemption details</h2>
+                <p className="mt-1 text-[12px] leading-5 text-sg-muted">The certificate cannot be marked reviewed until these required items are complete:</p>
+              </div>
+            </div>
+            <ul className="mt-4 list-disc space-y-2 pl-5 text-[12px] leading-5 text-sg-text">
+              {taxReviewWarning.map((issue) => <li key={issue}>{issue}</li>)}
+            </ul>
+            <div className="mt-5 flex justify-end">
+              <button type="button" className="sg25-btn sg25-btn-primary" onClick={() => setTaxReviewWarning(null)}>Review fields</button>
+            </div>
+          </section>
+        </div>,
+        document.body,
+      ) : null}
     </div>
   );
 }
