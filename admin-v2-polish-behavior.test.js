@@ -101,6 +101,8 @@ test("Advanced bundle pricing follows box-to-carton hierarchy", () => {
   assert.match(source, /a\.kind === "case" \? 1 : 0/);
   assert.match(source, /a\.units - b\.units/);
   assert.match(source, /\.sort\(compareBundleHierarchy\)/);
+  assert.doesNotMatch(source, /Packing materials and cartons/);
+  assert.doesNotMatch(source, /Active source:/);
 });
 
 test("Advanced UPS zone free-shipping settings are guarded and cover zones 2 through 8", () => {

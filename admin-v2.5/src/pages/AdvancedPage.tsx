@@ -694,7 +694,6 @@ export function AdvancedPage() {
   const [packagingSaving, setPackagingSaving] = useState(false);
   const [packagingStatus, setPackagingStatus] = useState("");
   const [packagingError, setPackagingError] = useState("");
-  const [packagingSource, setPackagingSource] = useState("");
   const [packagingMigrationRequired, setPackagingMigrationRequired] = useState(false);
   const [shippingHealth, setShippingHealth] = useState<ShippingHealthResponse | null>(null);
   const [shippingHealthLoading, setShippingHealthLoading] = useState(false);
@@ -786,7 +785,6 @@ export function AdvancedPage() {
         if (active) {
           setPackagingConfig(result.config || null);
           setSavedPackagingConfig(result.config ? clonePackagingConfig(result.config) : null);
-          setPackagingSource(result.source || "");
           setPackagingMigrationRequired(result.migrationRequired === true);
         }
       } catch (error) {
@@ -1066,7 +1064,6 @@ export function AdvancedPage() {
       const result = await savePackagingConfig(packagingConfig, await auth.getAccessToken());
       setPackagingConfig(result.config || packagingConfig);
       setSavedPackagingConfig(clonePackagingConfig(result.config || packagingConfig));
-      setPackagingSource(result.source || "");
       setPackagingMigrationRequired(false);
       setPackagingStatus("Packaging profiles saved. New checkout quotes and packing plans will use these dimensions.");
       setPackagingEditing(false);
@@ -1475,7 +1472,6 @@ export function AdvancedPage() {
               }
             />
             {packagingMigrationRequired ? <p className="mt-3 rounded-[8px] bg-sg-warning-soft px-3 py-2 text-[13px] font-bold text-sg-warning">Install sql/patch-runtime-packaging-settings.sql, then save these profiles to make them durable.</p> : null}
-            {packagingSource ? <p className="mt-2 text-[11px] font-semibold text-sg-muted">Active source: {packagingSource === "supabase" ? "Supabase" : "bundled defaults"}</p> : null}
             {packagingError ? <p className="mt-3 rounded-[8px] bg-sg-danger-soft px-3 py-2 text-[13px] font-bold text-sg-danger">{packagingError}</p> : null}
             {packagingStatus ? <p className="mt-3 rounded-[8px] bg-sg-success-soft px-3 py-2 text-[13px] font-bold text-sg-success">{packagingStatus}</p> : null}
             {packagingLoading ? <p className="mt-4 rounded-[8px] border border-sg-border bg-sg-input-bg px-3 py-3 text-[13px] text-sg-muted">Loading packaging profiles...</p> : null}
@@ -1483,18 +1479,14 @@ export function AdvancedPage() {
               <>
                 <div className="mt-5 space-y-3 select-text" style={{ userSelect: "text" }}>
                   <section>
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                      <div>
-                        <h3 className="text-[17px] font-bold">Packing materials and cartons</h3>
-                        <p className="mt-1 text-[12px] leading-5 text-sg-muted">Choose the smallest approved outer package that fits the order. Factory cases ship unopened.</p>
-                      </div>
-                      {packagingEditing ? (
+                    {packagingEditing ? (
+                      <div className="mb-3 flex justify-end">
                         <button type="button" className="sg25-btn sg25-btn-ghost" onClick={() => updatePackaging((config) => { config.shippingCartons = [...(config.shippingCartons || []), makePackagingCarton()]; })}>
                           Add carton
                         </button>
-                      ) : null}
-                    </div>
-                    <div className="mt-4 space-y-2">
+                      </div>
+                    ) : null}
+                    <div className="space-y-2">
                       {[
                         { type: "corrugated_carton", title: "Loose-box shipping cartons", detail: "For orders that do not fill a sealed 10-box factory case." },
                         { type: "factory_case", title: "Factory cases", detail: "Original manufacturer cartons shipped as received after inspection." },
