@@ -2080,7 +2080,7 @@ function OrderDrawer({
               <span className={`inline-flex rounded-full px-3 py-1 text-[12px] font-semibold ${statusChipClass(payment.tone)}`}>{payment.label}</span>
               {taxExemption ? <span className="inline-flex rounded-full bg-sg-success-soft px-3 py-1 text-[12px] font-semibold text-sg-success">Tax exempt</span> : null}
             </div>
-            <p className="mt-1.5 text-[13px] text-sg-muted">
+            <p className="mt-1.5 break-words text-[13px] text-sg-muted">
               <span className="font-semibold text-sg-text">{detailValue(order.customer_name)}</span>
               {order.customer_email ? <span> · {order.customer_email}</span> : null}
               <span> · Created {formatDateTime(order.created_at)}</span>
@@ -2092,8 +2092,8 @@ function OrderDrawer({
         </div>
 
         <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-          <div className="overflow-x-auto border-b border-sg-border bg-sg-input-bg/25 px-5 py-4 sm:px-7">
-            <ol className="flex min-w-[680px] items-center gap-3">
+          <div className="border-b border-sg-border bg-sg-input-bg/25 px-5 py-4 sm:overflow-x-auto sm:px-7">
+            <ol className="grid gap-2 sm:flex sm:min-w-[680px] sm:items-center sm:gap-3">
               {steps.map((step, index) => {
                 const state = orderStepState(index, order, labels);
                 const nextState = index < steps.length - 1 ? orderStepState(index + 1, order, labels) : "pending";
@@ -2107,20 +2107,20 @@ function OrderDrawer({
                   state === "done" ? "text-emerald-700" : state === "active" ? "text-sg-primary" : "text-sg-muted";
                 const lineClass = state === "done" && nextState === "done" ? "bg-emerald-200" : "bg-sg-border";
                 return (
-                  <li key={step} className="flex min-w-0 flex-1 items-center gap-3 last:flex-none">
+                  <li key={step} className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] items-center gap-x-3 rounded-[8px] bg-white/70 px-2 py-2 sm:flex sm:flex-1 sm:gap-3 sm:rounded-none sm:bg-transparent sm:p-0 sm:last:flex-none">
                     <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[12px] font-bold ${dotClass}`}>
                       {state === "done" ? "✓" : index + 1}
                     </span>
-                    <span className={`shrink-0 text-[13px] font-semibold ${labelClass}`}>{step}</span>
-                    {index < steps.length - 1 ? <span className={`h-px min-w-10 flex-1 ${lineClass}`} /> : null}
+                    <span className={`min-w-0 break-words text-[12px] font-semibold sm:shrink-0 sm:text-[13px] ${labelClass}`}>{step}</span>
+                    {index < steps.length - 1 ? <span className={`hidden h-px min-w-10 flex-1 sm:block ${lineClass}`} /> : null}
                   </li>
                 );
               })}
             </ol>
           </div>
 
-          <div className="grid gap-4 px-5 py-5 sm:px-7 lg:grid-cols-[minmax(0,1.75fr)_minmax(280px,1fr)]">
-            <div className="space-y-4">
+          <div className="grid min-w-0 gap-4 px-5 py-5 sm:px-7 lg:grid-cols-[minmax(0,1.75fr)_minmax(280px,1fr)]">
+            <div className="min-w-0 space-y-4">
               <section className="rounded-[10px] border border-sg-border p-4">
                 <DrawerSectionTitle icon="clipboard">Order Overview</DrawerSectionTitle>
                 <div className="mt-3 divide-y divide-sg-border/30 text-[13px]">
@@ -2180,12 +2180,12 @@ function OrderDrawer({
                     {packingParcels.length ? (
                       <div className="mt-3 space-y-2">
                         {packingParcels.map((parcel, index) => (
-                          <div key={`${parcel.metadata || "parcel"}-${index}`} className="rounded-[8px] border border-sg-border bg-sg-input-bg px-3 py-3 text-[13px]">
-                            <p className="font-bold text-sg-text">{packingParcelSummary(parcel, index)}</p>
-                            <p className="mt-2 font-semibold text-sg-text">Carton Type: {packingCartonType(packingContents[index])}</p>
+                          <div key={`${parcel.metadata || "parcel"}-${index}`} className="min-w-0 rounded-[8px] border border-sg-border bg-sg-input-bg px-3 py-3 text-[13px]">
+                            <p className="break-words font-bold text-sg-text">{packingParcelSummary(parcel, index)}</p>
+                            <p className="mt-2 break-words font-semibold text-sg-text">Carton Type: {packingCartonType(packingContents[index])}</p>
                             <p className="mt-2 font-semibold text-sg-text">Item(s) to pack:</p>
                             <ul className="mt-1 list-disc space-y-1 pl-5 text-sg-muted">
-                              {packingItems(packingContents[index]).map((item) => <li key={item}>{item}</li>)}
+                              {packingItems(packingContents[index]).map((item) => <li key={item} className="break-words">{item}</li>)}
                             </ul>
                           </div>
                         ))}
@@ -2677,7 +2677,7 @@ function OrderDrawer({
               ) : null}
             </div>
 
-            <div className="space-y-4">
+            <div className="min-w-0 space-y-4">
               <section className="rounded-[10px] border border-sg-border p-4">
                 <DrawerSectionTitle icon="clock">Activity Timeline</DrawerSectionTitle>
                 <div className="mt-4 space-y-0">

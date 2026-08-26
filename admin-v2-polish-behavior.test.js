@@ -212,6 +212,20 @@ test("expired manual payment links offer unchanged resend or quote-recalculating
   assert.match(prepare, /resetExpiredManualPaymentLink\(order\.id\)/);
 });
 
+test("Orders drawer uses a mobile-safe progress layout", () => {
+  const source = read("admin-v2.5/src/pages/OrdersPage.tsx");
+
+  assert.match(source, /sm:overflow-x-auto/);
+  assert.match(source, /grid gap-2 sm:flex sm:min-w-\[680px\]/);
+  assert.match(source, /grid-cols-\[28px_minmax\(0,1fr\)\]/);
+  assert.match(source, /hidden h-px min-w-10 flex-1 sm:block/);
+  assert.match(source, /mt-1\.5 break-words text-\[13px\] text-sg-muted/);
+  assert.match(source, /grid min-w-0 gap-4 px-5 py-5/);
+  assert.match(source, /<div className="min-w-0 space-y-4">/);
+  assert.match(source, /className="mt-2 break-words font-semibold text-sg-text">Carton Type/);
+  assert.doesNotMatch(source, /<ol className="flex min-w-\[680px\]/);
+});
+
 test("Order Builder product controls stay unclipped and use polished select and quantity controls", () => {
   const source = read("admin-v2.5/src/pages/OrderBuilderPage.tsx");
   const select = read("admin-v2.5/src/components/ui/CustomSelect.tsx");
