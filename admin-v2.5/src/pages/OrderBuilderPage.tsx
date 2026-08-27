@@ -1351,8 +1351,6 @@ export function OrderBuilderPage() {
         const negotiatedCents = parseDollarsToCents(row.negotiatedUnitPrice);
         if (negotiatedCents < 1 || negotiatedCents > 10_000_000) {
           errors[`item-${row.id}`] = `Item ${index + 1} needs a selling price between $0.01 and $100,000.00.`;
-        } else if (row.negotiationReason.trim().length < 3) {
-          errors[`item-${row.id}`] = `Item ${index + 1} needs a short price-change reason.`;
         }
       }
     });
@@ -2120,7 +2118,6 @@ export function OrderBuilderPage() {
                               onChange={(value) => patchItemRow(row.id, { negotiationReason: value })}
                               placeholder="e.g. Contract price approved"
                               compact
-                              required
                             />
                           </div>
                         ) : null}
