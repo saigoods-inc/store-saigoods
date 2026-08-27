@@ -219,6 +219,7 @@ export default async function handler(req, res) {
       ? selectManualOrderRateFromToken(
           verifyManualOrderQuoteToken(rawBody.quoteToken, rawBody),
           rawBody,
+          { actor, approvedAt: new Date().toISOString() },
         )
       : await computeCheckoutEstimate(estimateBody, {
           requireCompleteAddress: isB2b,

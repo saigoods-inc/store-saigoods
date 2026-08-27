@@ -432,6 +432,10 @@ export interface ManualOrderEstimateRequest {
   discountCode?: string;
   quoteToken?: string;
   taxExemption?: ManualOrderTaxExemptionRequest;
+  adminFreeShipping?: {
+    requested: boolean;
+    reason?: string;
+  };
 }
 
 export interface ManualOrderTaxExemptionRequest {
@@ -469,6 +473,7 @@ export interface ManualOrderShippingRateOption {
   residentialSurchargeCents?: number;
   residentialSurchargeFormatted?: string;
   freeShippingApplied?: boolean;
+  freeShippingSource?: "ups_zone" | "admin_override";
   carrierTotalAmountCents?: number;
   carrierTotalAmountFormatted?: string;
   shippingDiscountCents?: number;
@@ -506,7 +511,16 @@ export interface ManualOrderQuoteResponse {
     amountRemainingCents?: number;
     amountRemainingFormatted?: string;
     message?: string | null;
+    source?: "ups_zone" | "admin_override";
   };
+  adminFreeShipping?: {
+    applied?: boolean;
+    reason?: string;
+    originalShippingCents?: number;
+    amountWaivedCents?: number;
+    approvedAt?: string | null;
+    approvedBy?: string | null;
+  } | null;
   freeShipping?: {
     active?: boolean;
     configured?: boolean;

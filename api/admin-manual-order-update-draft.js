@@ -11,6 +11,10 @@ import { getOrderByIdForService, updateManualOrderDraft } from "../lib/orders.js
 import { normalizeDiscountCode } from "../lib/discount-codes.js";
 import { assertReportsAuthorized, getReportsActor } from "../lib/reports-auth.js";
 import {
+  selectManualOrderRateFromToken,
+  verifyManualOrderQuoteToken,
+} from "../lib/manual-order-quote-token.js";
+import {
   applyTaxExemptionToQuote,
   approvedTaxExemptionSnapshot,
   deleteTaxExemptionCertificate,
@@ -202,13 +206,19 @@ export default async function handler(req, res) {
 
     const isCarrier = parsed.fulfillmentMethod === "carrier";
     const isB2b = parsed.fulfillmentMethod === "b2b_shipping";
-    let quote = await computeCheckoutEstimate(estimateBody, {
-      requireCompleteAddress: isCarrier || isB2b,
-      manualOrderDiscount: true,
-      strictShippo: isCarrier,
-      allowForceStockOverride: true,
-      allowManualB2bShipping: true,
-    });
+    let quote = isCarrier
+      ? selectManualOrderRateFromToken(
+          verifyManualOrderQuoteToken(rawBody.quoteToken, rawBody),
+          rawBody,
+          { actor, approvedAt: new Date().toISOString() },
+        )
+      : await computeCheckoutEstimate(estimateBody, {
+          requireCompleteAddress: isB2b,
+          manualOrderDiscount: true,
+          strictShippo: false,
+          allowForceStockOverride: true,
+          allowManualB2bShipping: true,
+        });
     if (isCarrier) {
       const carrierQuoteError = invalidCarrierQuoteMessage(quote);
       if (carrierQuoteError) {

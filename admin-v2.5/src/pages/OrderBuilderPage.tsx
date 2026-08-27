@@ -755,6 +755,8 @@ export function OrderBuilderPage() {
   const [b2bInvoiceDragActive, setB2bInvoiceDragActive] = useState(false);
   const [selectedRateId, setSelectedRateId] = useState("");
   const [selectedRateSnapshot, setSelectedRateSnapshot] = useState<ManualOrderShippingRateOption | null>(null);
+  const [adminFreeShipping, setAdminFreeShipping] = useState(false);
+  const [adminFreeShippingReason, setAdminFreeShippingReason] = useState("");
   const [products, setProducts] = useState<ProductOption[]>(fallbackProducts);
   const [itemRows, setItemRows] = useState<OrderItemRow[]>([]);
   const [customer, setCustomer] = useState({ name: "", email: "", phone: "" });
@@ -913,6 +915,8 @@ export function OrderBuilderPage() {
         setQuoteReceivedAt(null);
         setSelectedRateId("");
         setSelectedRateSnapshot(null);
+        setAdminFreeShipping(false);
+        setAdminFreeShippingReason("");
         setAddressVerification({ status: "idle", fingerprint: "", suggestion: null, message: "Verify the address to get current shipping rates." });
         setStatus({ tone: "warning", message: `Editing expired order ${String(order.order_ref || editOrderId)}. Review it and get current totals before sending a new link.` });
         setEditDraftLoaded(true);
@@ -1086,6 +1090,8 @@ export function OrderBuilderPage() {
         : fulfillmentMethod === "carrier"
           ? quote?.freeDelivery?.applied
             ? 0
+            : adminFreeShipping && selectedRateSnapshot
+              ? 0
             : quoteDirty
             ? 0
             : rateAmountCents(selectedRateSnapshot)
@@ -1109,7 +1115,7 @@ export function OrderBuilderPage() {
       taxExcludedCents: taxExemptionReady ? taxableTaxCents : 0,
       totalCents: discountedSubtotalCents + shippingCents + taxCents,
     };
-  }, [address.state, customB2bShipping, customDiscountValue, discountCodeCheck, discountMode, fulfillmentMethod, itemRows, products, quote, quoteDirty, selectedItems.length, selectedRateSnapshot, taxExemptionReady]);
+  }, [address.state, adminFreeShipping, customB2bShipping, customDiscountValue, discountCodeCheck, discountMode, fulfillmentMethod, itemRows, products, quote, quoteDirty, selectedItems.length, selectedRateSnapshot, taxExemptionReady]);
 
   const selectedRate = useMemo(() => {
     const rates = quote?.shippingRateOptions || [];
@@ -1153,6 +1159,8 @@ export function OrderBuilderPage() {
     setQuoteReceivedAt(null);
     setSelectedRateId("");
     setSelectedRateSnapshot(null);
+    setAdminFreeShipping(false);
+    setAdminFreeShippingReason("");
     setStatus(null);
     setFieldErrors({});
   }
@@ -1392,6 +1400,9 @@ export function OrderBuilderPage() {
     if (fulfillmentMethod === "carrier" && forCreate && !quote?.freeDelivery?.applied && !selectedRateId) {
       errors.carrierRate = "Select a carrier rate before creating the order.";
     }
+    if (fulfillmentMethod === "carrier" && adminFreeShipping && adminFreeShippingReason.trim().length < 3) {
+      errors.adminFreeShipping = "Enter an internal reason before applying free shipping.";
+    }
     if (fulfillmentMethod === "b2b_shipping") {
       const freightCents = parseDollarsToCents(customB2bShipping);
       if (freightCents < 1 || freightCents > 10_000_000) {
@@ -1446,6 +1457,9 @@ export function OrderBuilderPage() {
       localDeliveryNote: fulfillmentMethod === "local_delivery" || quote?.freeDelivery?.applied ? deliveryNote.trim() : "",
       ...manualDiscountPayload(),
       ...(taxExemption.requested ? { taxExemption: taxExemptionPayload() } : {}),
+      ...(includeSelectedRate && fulfillmentMethod === "carrier" && adminFreeShipping
+        ? { adminFreeShipping: { requested: true, reason: adminFreeShippingReason.trim() } }
+        : {}),
       ...(includeSelectedRate && quote?.quoteToken ? { quoteToken: quote.quoteToken } : {}),
     };
     if (includeSelectedRate && selectedRate) {
@@ -1582,6 +1596,8 @@ export function OrderBuilderPage() {
     setQuote(null);
     setSelectedRateId("");
     setSelectedRateSnapshot(null);
+    setAdminFreeShipping(false);
+    setAdminFreeShippingReason("");
     setQuoteDirty(true);
     setStatus({ tone: "success", message: "Suggested address accepted. You can now get carrier rates." });
     setFieldErrors((current) => {
@@ -1612,6 +1628,8 @@ export function OrderBuilderPage() {
       if (options.refreshCarrierRates) {
         setSelectedRateId("");
         setSelectedRateSnapshot(null);
+        setAdminFreeShipping(false);
+        setAdminFreeShippingReason("");
       }
       if (options.refreshCarrierRates) {
         setStatus(null);
@@ -1642,6 +1660,8 @@ export function OrderBuilderPage() {
         setQuoteDirty(false);
         setSelectedRateId("");
         setSelectedRateSnapshot(null);
+        setAdminFreeShipping(false);
+        setAdminFreeShippingReason("");
         setStatus(null);
         return null;
       }
@@ -2271,6 +2291,8 @@ export function OrderBuilderPage() {
                       setFulfillmentMethod(option.value);
                       setSelectedRateId("");
                       setSelectedRateSnapshot(null);
+                      setAdminFreeShipping(false);
+                      setAdminFreeShippingReason("");
                       markDirty();
                     }}
                   >
@@ -2517,17 +2539,23 @@ export function OrderBuilderPage() {
               <span><strong>Tax-exempt order.</strong> The certificate and approval evidence will be saved privately with the order.</span>
             </div>
           ) : null}
+          {fulfillmentMethod === "carrier" && quote?.freeShipping?.message ? (
+            <div className={`mt-3 rounded-[10px] p-3 text-[12px] leading-5 ${quote.freeShipping.eligible ? "bg-sg-success-soft text-sg-success" : "bg-sg-amber-soft text-sg-amber"}`}>
+              {quote.freeShipping.message}
+            </div>
+          ) : null}
+          {fulfillmentMethod === "carrier" && adminFreeShipping && selectedRate ? (
+            <div className="mt-3 flex items-start gap-2 rounded-[10px] bg-sg-success-soft p-3 text-[12px] leading-5 text-sg-success">
+              <Icon name="check" className="mt-0.5 h-4 w-4 shrink-0" />
+              <span><strong>Admin free shipping.</strong> Customer shipping is $0; SAI Goods retains the {formatUsdCents(rateAmountCents(selectedRate))} carrier expense and will purchase the selected label.</span>
+            </div>
+          ) : null}
           {quote?.freeDelivery?.applied ? (
             <div className="mt-3 rounded-[10px] bg-sg-success-soft p-3 text-[12px] leading-5 text-sg-success">
               {quote.freeDelivery.message || "Free local delivery applies. SAI Goods will deliver this order without a carrier label."}
             </div>
           ) : quote?.freeDelivery?.reason === "minimum_not_met" && quote.freeDelivery.message ? (
             <div className="mt-3 rounded-[10px] bg-sg-amber-soft p-3 text-[12px] leading-5 text-sg-amber">{quote.freeDelivery.message}</div>
-          ) : null}
-          {fulfillmentMethod === "carrier" && quote?.freeShipping?.message ? (
-            <div className={`mt-3 rounded-[10px] p-3 text-[12px] leading-5 ${quote.freeShipping.eligible ? "bg-sg-success-soft text-sg-success" : "bg-sg-amber-soft text-sg-amber"}`}>
-              {quote.freeShipping.message}
-            </div>
           ) : null}
           {quoteDirty && quote ? <p className="mt-3 text-[12px] text-sg-amber">Inputs changed after the last quote. Recalculate before sending.</p> : null}
           {summaryWarnings.length ? (
@@ -2573,6 +2601,8 @@ export function OrderBuilderPage() {
                         const nextSelected = isSelected ? "" : id;
                         setSelectedRateId(nextSelected);
                         setSelectedRateSnapshot(nextSelected ? rate : null);
+                        setAdminFreeShipping(false);
+                        setAdminFreeShippingReason("");
                         setFieldErrors((current) => {
                           const next = { ...current };
                           delete next.carrierRate;
@@ -2602,6 +2632,67 @@ export function OrderBuilderPage() {
                   );
                 })}
               </div>
+              {selectedRate ? (
+                <div className="mt-3 rounded-[10px] border border-sg-border bg-sg-warm-soft p-3">
+                  {selectedRate.freeShippingApplied ? (
+                    <div className="flex items-start gap-2 text-[12px] leading-5 text-sg-success">
+                      <Icon name="check" className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span><strong>UPS Zone Free Shipping applies.</strong> The customer pays $0 shipping; SAI Goods still purchases the selected label.</span>
+                    </div>
+                  ) : (
+                    <>
+                      <label className="flex cursor-pointer items-start gap-3">
+                        <input
+                          type="checkbox"
+                          className="mt-1 h-4 w-4 accent-sg-primary"
+                          checked={adminFreeShipping}
+                          disabled={actionsDisabled}
+                          onChange={(event) => {
+                            setAdminFreeShipping(event.target.checked);
+                            if (!event.target.checked) setAdminFreeShippingReason("");
+                            setFieldErrors((current) => {
+                              const next = { ...current };
+                              delete next.adminFreeShipping;
+                              return next;
+                            });
+                          }}
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-[12px] font-bold text-sg-text">Offer free shipping to this customer</span>
+                          <span className="mt-0.5 block text-[11px] leading-4 text-sg-muted">
+                            Customer charge becomes $0. SAI Goods will still purchase this label for {formatUsdCents(rateAmountCents(selectedRate))}.
+                          </span>
+                        </span>
+                      </label>
+                      {adminFreeShipping ? (
+                        <div className="mt-3">
+                          <label className="text-[11px] font-semibold text-sg-muted" htmlFor="admin-free-shipping-reason">
+                            Internal reason <span className="text-sg-danger">*</span>
+                          </label>
+                          <input
+                            id="admin-free-shipping-reason"
+                            type="text"
+                            maxLength={240}
+                            value={adminFreeShippingReason}
+                            disabled={actionsDisabled}
+                            onChange={(event) => {
+                              setAdminFreeShippingReason(event.target.value);
+                              setFieldErrors((current) => {
+                                const next = { ...current };
+                                delete next.adminFreeShipping;
+                                return next;
+                              });
+                            }}
+                            placeholder="e.g. Approved customer service recovery"
+                            className="mt-1 w-full rounded-[9px] border border-sg-border bg-white px-3 py-2 text-[12px] text-sg-text outline-none focus:border-sg-primary"
+                          />
+                          {fieldErrors.adminFreeShipping ? <p className="mt-1 text-[11px] font-semibold text-sg-danger">{fieldErrors.adminFreeShipping}</p> : null}
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              ) : null}
             </div>
           ) : null}
           <div className="mt-5 space-y-3">
