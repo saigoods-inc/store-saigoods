@@ -241,6 +241,8 @@ test("Order Builder product controls stay unclipped and use polished select and 
   assert.match(source, /useState<OrderItemRow\[\]>\(\[\]\)/);
   assert.match(source, /setItemRows\(\(current\) => current\.filter\(\(row\) => row\.id !== itemId\)\)/);
   assert.match(source, /itemRows\.length \? "Add another item" : "Add item"/);
+  assert.match(source, /sm:grid-cols-2 2xl:grid-cols-\[minmax\(220px,1\.6fr\)/);
+  assert.doesNotMatch(source, /sm:grid-cols-2 xl:grid-cols-\[minmax\(220px,1\.6fr\)/);
 });
 
 test("Order Builder exposes an admin selling-price override without changing the catalog", () => {

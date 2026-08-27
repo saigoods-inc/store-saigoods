@@ -2030,7 +2030,7 @@ export function OrderBuilderPage() {
                         <Icon name="trash" className="h-4 w-4" />
                       </button>
                     </div>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1.6fr)_minmax(130px,.8fr)_minmax(140px,.8fr)_170px]">
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 2xl:grid-cols-[minmax(220px,1.6fr)_minmax(130px,.8fr)_minmax(140px,.8fr)_170px]">
                       <label className="block min-w-0">
                         <span className="text-[11px] font-bold uppercase text-sg-muted">Product</span>
                         <CustomSelect
