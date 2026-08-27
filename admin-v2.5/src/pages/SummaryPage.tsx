@@ -331,6 +331,13 @@ function MiniAlertGrid({
       countTone: "bg-sg-danger text-white",
     },
     {
+      title: "Pending Shipping Cost",
+      count: alerts.pendingShippingCost?.count || 0,
+      rows: alerts.pendingShippingCost?.rows?.slice(0, 3).map((row) => row.orderRef || "Carrier cost pending") || [],
+      tone: "border-sg-danger bg-sg-danger-soft/75",
+      countTone: "bg-sg-danger text-white",
+    },
+    {
       title: "High Shipping Cost",
       count: alerts.unusuallyHighShipping?.count || 0,
       rows: alerts.unusuallyHighShipping?.rows?.slice(0, 3).map((row) => `${row.orderRef || "Order"} · ${formatUsdCents(row.shippingExpenseCents || 0)}`) || [],
@@ -1227,6 +1234,11 @@ export function SummaryPage() {
 
   const summary = summaryQuery.data;
   const kpis = summary.kpis || {};
+  const currentProfitStatus = kpis.currentProfitStatus || "actual";
+  const currentProfitStatusLabel = currentProfitStatus === "pending" ? "Pending" : currentProfitStatus === "estimated" ? "Estimated" : "Actual";
+  const currentProfitSubtext = currentProfitStatus === "pending"
+    ? `${formatNumber(kpis.currentProfitPendingOrders || 0)} order${Number(kpis.currentProfitPendingOrders || 0) === 1 ? "" : "s"} missing required cost information · Merchandise revenue minus product costs, payment fees, and shipping expense.`
+    : `${currentProfitStatusLabel} · Merchandise revenue minus product costs, payment fees, and shipping expense.`;
   const shippingVarianceCents = Number(kpis.totalShippingVarianceCents || 0);
   const squareFeeOrders = Number(kpis.squareFeeOrders || 0);
   const actualSquareFeeOrders = Number(kpis.actualSquareFeeOrders || 0);
@@ -1273,8 +1285,8 @@ export function SummaryPage() {
         />
         <SummaryKpi
           label="Current Profit"
-          value={formatUsdCents(kpis.currentProfitCents)}
-          subtext={Number(kpis.marketplaceProfitEstimatedOrders || 0) > 0 ? `${formatNumber(kpis.marketplaceProfitEstimatedOrders)} marketplace order${Number(kpis.marketplaceProfitEstimatedOrders) === 1 ? "" : "s"} awaiting final costs` : "Net after variable costs"}
+          value={currentProfitStatus === "pending" ? "Pending" : formatUsdCents(kpis.currentProfitCents)}
+          subtext={currentProfitSubtext}
           icon={<span className="text-2xl">$</span>}
           iconToneClassName="bg-sg-success-soft text-sg-success"
         />

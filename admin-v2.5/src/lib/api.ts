@@ -23,6 +23,8 @@ export interface SummaryKpis {
   marketplaceOrders?: number;
   marketplaceProfitCompleteOrders?: number;
   marketplaceProfitEstimatedOrders?: number;
+  currentProfitPendingOrders?: number;
+  currentProfitStatus?: "actual" | "estimated" | "pending";
 }
 
 export class ApiError extends Error {
@@ -69,6 +71,7 @@ export interface RecentOrderRow {
   channel?: string;
   currentProfitCents?: number | null;
   currentProfitEstimated?: boolean;
+  currentProfitStatus?: "actual" | "estimated" | "pending";
 }
 
 export interface SummaryResponse {
@@ -93,6 +96,7 @@ export interface SummaryResponse {
   };
   alerts?: {
     missingShippingCost?: { count?: number; rows?: Array<{ orderRef?: string; reason?: string }> };
+    pendingShippingCost?: { count?: number; rows?: Array<{ orderRef?: string; reason?: string; fulfillmentMethod?: string }> };
     paidNotFulfilled?: { count?: number; rows?: Array<{ orderRef?: string; customer?: string; orderStatus?: string }> };
     feeCalculationIssues?: { count?: number; rows?: Array<{ orderRef?: string; reason?: string }> };
     unusuallyHighShipping?: { count?: number; rows?: Array<{ orderRef?: string; shippingExpenseCents?: number; revenueCents?: number }> };
