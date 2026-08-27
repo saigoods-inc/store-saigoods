@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { useAuth } from "../auth/AuthProvider";
 import { useAdminShellHeaderMeta } from "../components/layout/AdminShell";
-import { fetchNexusSummary, fetchSummary, type NexusSummaryRow, type SummaryPreset, type SummaryResponse } from "../lib/api";
+import { fetchNexusSummary, fetchSummary, type NexusSummaryRow, type StateRevenueRow, type SummaryPreset, type SummaryResponse } from "../lib/api";
 import { formatBucketLabel, formatDateTime, formatNumber, formatShortDate, formatUsdCents, percentDelta, signedCurrencyLabel, stateName } from "../lib/format";
 import { Icon } from "../lib/icons";
 
@@ -581,7 +581,7 @@ function SalesOverview({
       </div>
 
       <div className="mt-5">
-        <p className="text-[11px] font-medium text-sg-muted sm:text-[12px]">Paid revenue</p>
+        <p className="text-[11px] font-medium text-sg-muted sm:text-[12px]">Merchandise revenue</p>
         <div className="mt-2 flex flex-wrap items-center gap-2.5">
           <p className="text-[1.56rem] font-extrabold leading-none sm:text-[1.72rem] xl:text-[1.82rem]">{formatUsdCents(selectedTotalRevenue)}</p>
           {deltaPercent != null ? (
@@ -745,9 +745,9 @@ function ProductPerformance({
   const totalTracked = ranking.reduce((sum, row) => sum + Number(row.revenueCents || 0), 0);
   const formatExportDate = (value: string | null | undefined) => {
     if (!value) return "";
-    const date = new Date(`${value.slice(0, 10)}T00:00:00Z`);
+    const date = new Date(`${value.slice(0, 10)}T12:00:00Z`);
     if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/Chicago" });
   };
   const dateRangeLabel =
     summary.dateRange?.start && summary.dateRange?.end
@@ -964,10 +964,18 @@ function InventoryHealth({ summary }: { summary: SummaryResponse }) {
   );
 }
 
-function ShippingZoneRanking({ rows }: { rows: NexusSummaryRow[] }) {
+function StateRevenueRanking({
+  rows,
+  totalStates,
+  totalOrders,
+  totalRevenueCents,
+}: {
+  rows: StateRevenueRow[];
+  totalStates: number;
+  totalOrders: number;
+  totalRevenueCents: number;
+}) {
   const top = rows.slice(0, 5);
-  const totalRevenue = top.reduce((sum, row) => sum + Number(row.total_revenue || 0), 0);
-  const totalOrders = top.reduce((sum, row) => sum + Number(row.total_orders || 0), 0);
 
   return (
     <section className="sg25-card p-4 sm:p-5">
@@ -978,8 +986,8 @@ function ShippingZoneRanking({ rows }: { rows: NexusSummaryRow[] }) {
               <Icon name="pin" className="h-[18px] w-[18px]" />
             </div>
             <div>
-              <h2 className="text-[0.98rem] font-bold sm:text-[1.04rem]">Shipping Zone Ranking</h2>
-              <p className="mt-1 text-[11px] leading-[1.15] text-sg-muted sm:text-[12px]">States ranked by order volume and paid revenue.</p>
+              <h2 className="text-[0.98rem] font-bold sm:text-[1.04rem]">State Revenue Ranking</h2>
+              <p className="mt-1 text-[11px] leading-[1.15] text-sg-muted sm:text-[12px]">Website shipping states ranked for the selected date range.</p>
             </div>
           </div>
         </div>
@@ -998,10 +1006,15 @@ function ShippingZoneRanking({ rows }: { rows: NexusSummaryRow[] }) {
       </div>
 
       <div className="mt-4 space-y-3">
+        {!top.length ? (
+          <div className="rounded-[10px] border border-dashed border-sg-border px-4 py-6 text-center text-[12px] text-sg-muted">
+            No website orders with a recognized shipping state match these filters.
+          </div>
+        ) : null}
         {top.map((row, index) => {
           const revenue = Number(row.total_revenue || 0);
           const orders = Number(row.total_orders || 0);
-          const share = totalRevenue > 0 ? Math.round((revenue / totalRevenue) * 100) : 0;
+          const share = totalRevenueCents > 0 ? Math.round((revenue / totalRevenueCents) * 100) : 0;
           const shareBarWidth = share > 0 ? Math.min(Math.max(share, 14), 100) : 0;
           const avgOrder = orders > 0 ? Math.round(revenue / orders) : 0;
           const isTop = index === 0;
@@ -1094,8 +1107,10 @@ function ShippingZoneRanking({ rows }: { rows: NexusSummaryRow[] }) {
       </div>
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-sg-border pt-4 text-[12px] sm:text-[13px]">
-        <span className="text-sg-muted">{top.length} states · {formatNumber(totalOrders)} total orders</span>
-        <strong className="text-sg-primary">{formatUsdCents(totalRevenue)} total revenue</strong>
+        <span className="text-sg-muted">
+          {formatNumber(totalStates)} states · {formatNumber(totalOrders)} website orders{totalStates > 5 ? " · top 5 shown" : ""}
+        </span>
+        <strong className="text-sg-primary">{formatUsdCents(totalRevenueCents)} total revenue</strong>
       </div>
     </section>
   );
@@ -1234,6 +1249,7 @@ export function SummaryPage() {
 
   const summary = summaryQuery.data;
   const kpis = summary.kpis || {};
+  const stateRevenue = summary.breakdown?.stateRevenue;
   const currentProfitStatus = kpis.currentProfitStatus || "actual";
   const currentProfitStatusLabel = currentProfitStatus === "pending" ? "Pending" : currentProfitStatus === "estimated" ? "Estimated" : "Actual";
   const currentProfitSubtext = currentProfitStatus === "pending"
@@ -1361,9 +1377,9 @@ export function SummaryPage() {
             compact
           />
           <SummaryKpi
-            label="Stock Revenue Potential"
+            label="Stock List-Price Potential"
             value={formatUsdCents(kpis.inventorySellThroughRevenueCents)}
-            subtext={`${formatNumber(kpis.inventorySellThroughCaseUnits)} cartons, ${formatNumber(kpis.inventorySellThroughBoxUnits)} boxes on hand`}
+            subtext={`${formatNumber(kpis.inventorySellThroughCaseUnits)} cases, ${formatNumber(kpis.inventorySellThroughBoxUnits)} boxes on hand · current list prices`}
             icon={<Icon name="package" className="h-5 w-5" />}
             iconToneClassName="bg-sg-success-soft text-sg-success"
             compact
@@ -1396,7 +1412,12 @@ export function SummaryPage() {
         </div>
       </div>
 
-      <ShippingZoneRanking rows={nexusRows} />
+      <StateRevenueRanking
+        rows={stateRevenue?.rows || []}
+        totalStates={Number(stateRevenue?.totalStates || 0)}
+        totalOrders={Number(stateRevenue?.totalOrders || 0)}
+        totalRevenueCents={Number(stateRevenue?.totalRevenueCents || 0)}
+      />
       <NexusPreview rows={nexusRows} />
     </div>
   );

@@ -61,6 +61,12 @@ export interface ProductRankingRow {
   quantityUnits?: number;
 }
 
+export interface StateRevenueRow {
+  state: string;
+  total_revenue: number;
+  total_orders: number;
+}
+
 export interface RecentOrderRow {
   orderRef?: string;
   customer?: string;
@@ -92,6 +98,13 @@ export interface SummaryResponse {
     salesOverviewSeries?: {
       products?: Array<{ slug: string; name?: string; label?: string }>;
       buckets?: SalesOverviewBucket[];
+    };
+    stateRevenue?: {
+      rows?: StateRevenueRow[];
+      totalStates?: number;
+      totalOrders?: number;
+      totalRevenueCents?: number;
+      scope?: "website_shipping_address";
     };
   };
   alerts?: {
