@@ -313,7 +313,7 @@ function modeButtonClass(active: boolean) {
 
 function priceModeButtonClass(active: boolean) {
   return [
-    "inline-flex h-9 items-center justify-center rounded-full px-4 text-[12px] font-semibold transition",
+    "inline-flex h-9 items-center justify-center gap-1.5 rounded-full px-4 text-[12px] font-semibold transition",
     active ? "bg-[#f5f5f5] text-sg-primary" : "text-sg-muted hover:bg-[#f5f5f5] hover:text-sg-text",
   ].join(" ");
 }
@@ -480,6 +480,7 @@ function Field({
   required = false,
   error,
   compact = false,
+  prefix,
 }: {
   label: string;
   value: string;
@@ -489,6 +490,7 @@ function Field({
   required?: boolean;
   error?: string;
   compact?: boolean;
+  prefix?: string;
 }) {
   return (
     <label className="block min-w-0">
@@ -496,17 +498,20 @@ function Field({
         {label}
         {required ? <span className="ml-0.5 text-sg-danger">*</span> : null}
       </span>
-      <input
-        className={`sg25-input ${compact ? "mt-1" : "mt-2"} h-10 rounded-[7px] bg-sg-input-bg px-2.5 ${
-          error ? "border-sg-danger bg-sg-danger-soft/40" : ""
-        }`}
-        type={type}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        required={required}
-        aria-invalid={Boolean(error)}
-      />
+      <span className={`relative block ${compact ? "mt-1" : "mt-2"}`}>
+        {prefix ? <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[13px] font-bold text-sg-muted">{prefix}</span> : null}
+        <input
+          className={`sg25-input h-10 rounded-[7px] bg-sg-input-bg pr-2.5 ${prefix ? "pl-7" : "px-2.5"} ${
+            error ? "border-sg-danger bg-sg-danger-soft/40" : ""
+          }`}
+          type={type}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          required={required}
+          aria-invalid={Boolean(error)}
+        />
+      </span>
       {error ? <p className="mt-1 text-[11px] font-semibold text-sg-danger">{error}</p> : null}
     </label>
   );
@@ -1021,7 +1026,7 @@ export function OrderBuilderPage() {
   }, [fulfillmentMethod, itemRows, products]);
 
   const summaryProductLines = useMemo(() => {
-    const pricedRows = priceOrderRows(itemRows, products, fulfillmentMethod === "b2b_shipping");
+    const pricedRows = priceOrderRows(itemRows, products, true);
     const grouped = new Map<string, { key: string; name: string; detail: string; totalCents: number; cases: number; boxes: number; size: SizeCode }>();
     for (const row of itemRows) {
       const quantity = Math.max(0, Math.floor(row.quantity || 0));
@@ -1046,7 +1051,7 @@ export function OrderBuilderPage() {
       ].join(" · "),
       total: formatUsdCents(line.totalCents),
     }));
-  }, [fulfillmentMethod, itemRows, products]);
+  }, [itemRows, products]);
 
   const taxExemptionCertificateSelected = Boolean(taxExemptionCertificateFile || taxExemptionCertificateReference);
   const taxExemptionReady = Boolean(
@@ -1057,7 +1062,7 @@ export function OrderBuilderPage() {
   );
 
   const previewTotals = useMemo(() => {
-    const pricedRows = priceOrderRows(itemRows, products, fulfillmentMethod === "b2b_shipping");
+    const pricedRows = priceOrderRows(itemRows, products, true);
     const subtotalCents = pricedRows.totalCents;
     const discountCents =
       discountMode === "percent_5"
@@ -2092,6 +2097,7 @@ export function OrderBuilderPage() {
                                 className={priceModeButtonClass(row.pricingMode === pricingMode)}
                                 onClick={() => patchItemRow(row.id, { pricingMode })}
                               >
+                                <Icon name={pricingMode === "catalog" ? "tag" : "edit"} className="h-3.5 w-3.5" />
                                 {pricingMode === "catalog" ? "Catalog price" : "Custom price"}
                               </button>
                             ))}
@@ -2105,6 +2111,8 @@ export function OrderBuilderPage() {
                               onChange={(value) => patchItemRow(row.id, { negotiatedUnitPrice: value })}
                               placeholder="e.g. 69.00"
                               compact
+                              prefix="$"
+                              required
                             />
                             <Field
                               label="Reason for price change"
@@ -2112,6 +2120,7 @@ export function OrderBuilderPage() {
                               onChange={(value) => patchItemRow(row.id, { negotiationReason: value })}
                               placeholder="e.g. Contract price approved"
                               compact
+                              required
                             />
                           </div>
                         ) : null}

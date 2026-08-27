@@ -251,6 +251,10 @@ test("Order Builder exposes an admin selling-price override without changing the
   assert.match(source, /"Catalog price" : "Custom price"/);
   assert.match(source, /label="Custom unit price"/);
   assert.match(source, /label="Reason for price change"/);
+  assert.match(source, /prefix="\$"/);
+  assert.match(source, /name=\{pricingMode === "catalog" \? "tag" : "edit"\}/);
+  assert.match(source, /const summaryProductLines = useMemo\(\(\) => \{[\s\S]*?priceOrderRows\(itemRows, products, true\)/);
+  assert.match(source, /const previewTotals = useMemo\(\(\) => \{[\s\S]*?priceOrderRows\(itemRows, products, true\)/);
   assert.match(source, /adminUnitPriceOverrideCents: parseDollarsToCents/);
   assert.match(source, /adminPriceOverrideReason: row\.negotiationReason\.trim\(\)/);
   assert.match(source, /priceOrderRows\(itemRows, products, true\)/);
