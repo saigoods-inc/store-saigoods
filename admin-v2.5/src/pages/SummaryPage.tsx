@@ -284,6 +284,100 @@ function SummaryKpi({
   );
 }
 
+function FinancialReconciliationPanel({ summary }: { summary: SummaryResponse }) {
+  const reconciliation = summary.breakdown?.financialReconciliation;
+  if (!reconciliation) return null;
+
+  const status = reconciliation.currentProfitStatus || "actual";
+  const pendingOrders = Number(reconciliation.pendingProfitOrders || 0);
+  const difference = reconciliation.reconciliationDifferenceCents;
+  const revenueRows = [
+    ["Net merchandise", reconciliation.netMerchandiseRevenueCents],
+    ["Customer-paid shipping", reconciliation.shippingRevenueCents],
+  ] as const;
+  const costRows = [
+    ["Product cost", reconciliation.productCostCents],
+    ["Processing & marketplace fees", reconciliation.platformFeesCents],
+    ["Carrier expense", reconciliation.shippingExpenseCents],
+    ["Other recorded costs", reconciliation.otherCostsCents],
+  ] as const;
+
+  return (
+    <section className="sg25-card overflow-hidden p-4 sm:p-5" aria-labelledby="financial-reconciliation-title">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-sg-border pb-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Icon name="receipt" className="h-5 w-5 text-sg-primary" />
+            <h2 id="financial-reconciliation-title" className="text-[0.98rem] font-bold sm:text-[1.04rem]">Profit reconciliation</h2>
+          </div>
+          <p className="mt-1.5 max-w-3xl text-[11px] leading-[1.35] text-sg-muted sm:text-[12px]">
+            {reconciliation.formula || "Revenue minus recorded order costs. Collected tax is excluded."}
+          </p>
+        </div>
+        <span className={`inline-flex rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] ${
+          status === "pending"
+            ? "bg-sg-warning-soft text-sg-warning"
+            : difference === 0
+              ? "bg-sg-success-soft text-sg-success"
+              : "bg-sg-info-soft text-sg-info"
+        }`}>
+          {status === "pending" ? `${pendingOrders} pending cost ${pendingOrders === 1 ? "order" : "orders"}` : difference === 0 ? `${status} · reconciled` : status}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_auto_1.35fr_auto_1fr] lg:items-center">
+        <div className="rounded-[10px] bg-sg-input-bg p-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-sg-muted">Sales revenue</p>
+          <div className="mt-3 space-y-2.5">
+            {revenueRows.map(([label, cents]) => (
+              <div key={label} className="flex items-center justify-between gap-4 text-[12px] sm:text-[13px]">
+                <span className="text-sg-muted">{label}</span>
+                <strong>{formatUsdCents(cents || 0)}</strong>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-4 border-t border-sg-border pt-3 text-[13px] sm:text-[14px]">
+            <span className="font-semibold">Total revenue</span>
+            <strong>{formatUsdCents(reconciliation.totalRevenueCents || 0)}</strong>
+          </div>
+        </div>
+
+        <span className="hidden text-xl font-bold text-sg-muted lg:block">−</span>
+
+        <div className="rounded-[10px] bg-sg-input-bg p-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-sg-muted">Recorded costs</p>
+          <div className="mt-3 grid gap-x-6 gap-y-2.5 sm:grid-cols-2">
+            {costRows.map(([label, cents]) => (
+              <div key={label} className="flex items-center justify-between gap-4 text-[12px] sm:text-[13px]">
+                <span className="text-sg-muted">{label}</span>
+                <strong>{formatUsdCents(cents || 0)}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <span className="hidden text-xl font-bold text-sg-muted lg:block">=</span>
+
+        <div className={`rounded-[10px] p-4 ${status === "pending" ? "bg-sg-warning-soft" : "bg-sg-success-soft"}`}>
+          <p className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${status === "pending" ? "text-sg-warning" : "text-sg-success"}`}>Current profit</p>
+          <p className={`mt-3 text-[1.65rem] font-extrabold leading-none ${status === "pending" ? "text-sg-warning" : "text-sg-success"}`}>
+            {status === "pending" ? "Pending" : formatUsdCents(reconciliation.currentProfitCents || 0)}
+          </p>
+          <p className="mt-2 text-[11px] leading-[1.3] text-sg-muted">
+            {status === "pending" ? "Complete the missing cost records before relying on this total." : `${status === "estimated" ? "Includes frozen cost estimates" : "Uses recorded actual costs"}.`}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-2 border-t border-sg-border pt-4 text-[11px] text-sg-muted sm:grid-cols-3 sm:text-[12px]">
+        <p>Price adjustments recorded: <strong className="text-sg-text">{formatUsdCents(reconciliation.pricingAdjustmentsCents || 0)}</strong></p>
+        <p>Refunds recorded: <strong className="text-sg-text">{formatUsdCents(reconciliation.refundsCents || 0)}</strong></p>
+        <p>Tax collected (excluded): <strong className="text-sg-text">{formatUsdCents(reconciliation.taxCollectedCents || 0)}</strong></p>
+      </div>
+    </section>
+  );
+}
+
 function MiniAlertGrid({
   summary,
   nexusRows,
@@ -1322,6 +1416,8 @@ export function SummaryPage() {
         />
         </div>
       </section>
+
+      <FinancialReconciliationPanel summary={summary} />
 
       <section aria-labelledby="operations-overview-title">
         <div className="mb-3">

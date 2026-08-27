@@ -80,6 +80,24 @@ export interface RecentOrderRow {
   currentProfitStatus?: "actual" | "estimated" | "pending";
 }
 
+export interface FinancialReconciliation {
+  totalRevenueCents?: number;
+  netMerchandiseRevenueCents?: number;
+  shippingRevenueCents?: number;
+  taxCollectedCents?: number;
+  productCostCents?: number;
+  platformFeesCents?: number;
+  shippingExpenseCents?: number;
+  otherCostsCents?: number;
+  pricingAdjustmentsCents?: number;
+  refundsCents?: number;
+  currentProfitCents?: number;
+  currentProfitStatus?: "actual" | "estimated" | "pending";
+  pendingProfitOrders?: number;
+  reconciliationDifferenceCents?: number | null;
+  formula?: string;
+}
+
 export interface SummaryResponse {
   generatedAt?: string;
   dateRange?: {
@@ -94,6 +112,7 @@ export interface SummaryResponse {
   };
   breakdown?: {
     recentFinancialActivity?: RecentOrderRow[];
+    financialReconciliation?: FinancialReconciliation;
     productRanking?: ProductRankingRow[];
     salesOverviewSeries?: {
       products?: Array<{ slug: string; name?: string; label?: string }>;
