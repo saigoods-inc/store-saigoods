@@ -670,7 +670,9 @@ function rowsFromDraftItems(rawItems: unknown, products: ProductOption[]) {
     const product = products.find((entry) => entry.slug === String(item.slug || ""));
     if (!product) return;
     const bundleLines = Array.isArray(item.bundleLines) ? item.bundleLines : [];
-    const pricing = recordValue(item.b2bPricing);
+    const pricing = Object.keys(recordValue(item.adminPriceOverride)).length
+      ? recordValue(item.adminPriceOverride)
+      : recordValue(item.b2bPricing);
     if (bundleLines.length === 1 && item.clientLineId) {
       const rawBundle = recordValue(bundleLines[0]);
       const bundle = product.bundles.find((entry) => entry.id === String(rawBundle.id || ""));
@@ -973,7 +975,7 @@ export function OrderBuilderPage() {
   }, []);
 
   const selectedItems = useMemo<ManualOrderItem[]>(() => {
-    if (fulfillmentMethod === "b2b_shipping") {
+    if (fulfillmentMethod === "b2b_shipping" || itemRows.some((row) => row.pricingMode === "negotiated")) {
       return itemRows.flatMap((row) => {
         const quantity = Math.max(0, Math.floor(row.quantity || 0));
         if (!quantity) return [];
@@ -990,8 +992,8 @@ export function OrderBuilderPage() {
           quantities,
           boxQuantities,
           ...(row.pricingMode === "negotiated" ? {
-            b2bNegotiatedUnitPriceCents: parseDollarsToCents(row.negotiatedUnitPrice),
-            b2bNegotiationReason: row.negotiationReason.trim(),
+            adminUnitPriceOverrideCents: parseDollarsToCents(row.negotiatedUnitPrice),
+            adminPriceOverrideReason: row.negotiationReason.trim(),
           } : {}),
         }];
       });
@@ -1340,12 +1342,12 @@ export function OrderBuilderPage() {
       if (max != null && quantity > max) {
         errors[`item-${row.id}`] = `Item ${index + 1} exceeds the shared stock available for this product and size.`;
       }
-      if (fulfillmentMethod === "b2b_shipping" && row.pricingMode === "negotiated") {
+      if (row.pricingMode === "negotiated") {
         const negotiatedCents = parseDollarsToCents(row.negotiatedUnitPrice);
         if (negotiatedCents < 1 || negotiatedCents > 10_000_000) {
-          errors[`item-${row.id}`] = `Item ${index + 1} needs a negotiated unit price between $0.01 and $100,000.00.`;
+          errors[`item-${row.id}`] = `Item ${index + 1} needs a selling price between $0.01 and $100,000.00.`;
         } else if (row.negotiationReason.trim().length < 3) {
-          errors[`item-${row.id}`] = `Item ${index + 1} needs a short negotiation reason.`;
+          errors[`item-${row.id}`] = `Item ${index + 1} needs a short price-change reason.`;
         }
       }
     });
@@ -1369,7 +1371,7 @@ export function OrderBuilderPage() {
     }
     if (discountMode !== "none" && previewTotals.volumePricingBlocksDiscount) {
       errors.discount = previewTotals.negotiatedPricingApplied
-        ? "Negotiated B2B prices cannot be combined with another discount."
+        ? "Custom selling prices cannot be combined with another discount."
         : "This automatic volume price cannot be combined with another discount.";
     }
 
@@ -1795,7 +1797,7 @@ export function OrderBuilderPage() {
             : "Check totals before creating the order."
         : "";
   const createDisabled = actionsDisabled || Boolean(createReadinessMessage);
-  const displayedRowPricing = priceOrderRows(itemRows, products, fulfillmentMethod === "b2b_shipping");
+  const displayedRowPricing = priceOrderRows(itemRows, products, true);
   const catalogRowPricing = priceOrderRows(itemRows, products, false);
 
   useEffect(() => {
@@ -2075,11 +2077,10 @@ export function OrderBuilderPage() {
                         />
                       </div>
                     </div>
-                    {fulfillmentMethod === "b2b_shipping" ? (
-                      <div className="mt-3 rounded-[10px] border border-sg-border bg-sg-input-bg/45 p-3">
+                    <div className="mt-3 rounded-[10px] border border-sg-border bg-sg-input-bg/45 p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div>
-                            <p className="text-[11px] font-bold uppercase text-sg-muted">B2B product price</p>
+                            <p className="text-[11px] font-bold uppercase text-sg-muted">Selling price</p>
                             <p className="mt-0.5 text-[11px] text-sg-muted">Automatic catalog price: {formatUsdCents(Math.round((catalogRowPricing.lineTotals.get(row.id) || 0) / Math.max(1, row.quantity)))}/unit</p>
                           </div>
                           <div className="flex rounded-full bg-white p-1" role="group" aria-label={`Item ${index + 1} price type`}>
@@ -2091,7 +2092,7 @@ export function OrderBuilderPage() {
                                 className={priceModeButtonClass(row.pricingMode === pricingMode)}
                                 onClick={() => patchItemRow(row.id, { pricingMode })}
                               >
-                                {pricingMode === "catalog" ? "Catalog price" : "Negotiated price"}
+                                {pricingMode === "catalog" ? "Catalog price" : "Custom price"}
                               </button>
                             ))}
                           </div>
@@ -2099,14 +2100,14 @@ export function OrderBuilderPage() {
                         {row.pricingMode === "negotiated" ? (
                           <div className="mt-3 grid gap-3 sm:grid-cols-2">
                             <Field
-                              label="Negotiated unit price"
+                              label="Custom unit price"
                               value={row.negotiatedUnitPrice}
                               onChange={(value) => patchItemRow(row.id, { negotiatedUnitPrice: value })}
                               placeholder="e.g. 69.00"
                               compact
                             />
                             <Field
-                              label="Reason / agreement note"
+                              label="Reason for price change"
                               value={row.negotiationReason}
                               onChange={(value) => patchItemRow(row.id, { negotiationReason: value })}
                               placeholder="e.g. Contract price approved"
@@ -2114,8 +2115,7 @@ export function OrderBuilderPage() {
                             />
                           </div>
                         ) : null}
-                      </div>
-                    ) : null}
+                    </div>
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-sg-border pt-3 text-[11px]">
                       <span className={sellableBoxes === 0 ? "font-semibold text-sg-danger" : "text-sg-muted"}>
                         {sellableBoxes == null

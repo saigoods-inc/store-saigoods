@@ -371,6 +371,8 @@ export interface ManualOrderItem {
   boxQuantities?: Record<string, number>;
   b2bNegotiatedUnitPriceCents?: number;
   b2bNegotiationReason?: string;
+  adminUnitPriceOverrideCents?: number;
+  adminPriceOverrideReason?: string;
 }
 
 export interface ManualOrderEstimateRequest {
