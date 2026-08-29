@@ -541,7 +541,18 @@ function itemSummary(order: OrderRow) {
 
 function itemRows(order: OrderRow) {
   const items = parseItems(order);
-  const singleItemFallbackTotal = items.length === 1 ? Number(order.subtotal_cents) || Number(order.total_cents) || 0 : 0;
+  const orderSubtotal = Number(order.subtotal_cents);
+  const singleItemFallbackTotal =
+    items.length === 1 && order.subtotal_cents != null && Number.isFinite(orderSubtotal)
+      ? Math.max(0, Math.round(orderSubtotal))
+      : null;
+  const centsValue = (record: Record<string, unknown>, keys: string[]) => {
+    for (const key of keys) {
+      if (record[key] == null || !Number.isFinite(Number(record[key]))) continue;
+      return Math.max(0, Math.round(Number(record[key])));
+    }
+    return null;
+  };
   const prettySize = (value: string) => {
     const raw = String(value || "").trim();
     return ({ S: "Small", M: "Medium", L: "Large", XL: "X Large" } as Record<string, string>)[raw] || raw;
@@ -581,9 +592,10 @@ function itemRows(order: OrderRow) {
         Array.from(new Set(allocatedSizes)).join(", ") ||
         "-";
       const quantity = Number(record.quantity || record.qty || 1);
-      const rawTotal = Number(record.line_total_cents || record.total_cents || 0);
-      const unitTotal = Number(record.price_cents || record.unit_price_cents || 0) * (Number.isFinite(quantity) && quantity > 0 ? quantity : 1);
-      const totalCents = rawTotal || unitTotal || singleItemFallbackTotal;
+      const normalizedQuantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+      const rawTotal = centsValue(record, ["lineTotalCents", "line_total_cents", "totalCents", "total_cents"]);
+      const unitPrice = centsValue(record, ["unitPriceCents", "unit_price_cents", "priceCents", "price_cents"]);
+      const totalCents = rawTotal ?? (unitPrice != null ? unitPrice * normalizedQuantity : singleItemFallbackTotal);
       const bundleLines = Array.isArray(record.bundleLines) ? record.bundleLines : [];
       const bundleQuantity = bundleLines.reduce((sum, line) => {
         const lineRecord = line && typeof line === "object" ? (line as Record<string, unknown>) : {};
@@ -614,7 +626,7 @@ function itemRows(order: OrderRow) {
         packLines: allocationDetails.map((line) => line.label),
         bundle: bundleDetails.join(", ") || legacyBundle || "-",
         quantity: displayQuantity,
-        total: formatUsdCents(totalCents),
+        total: totalCents == null ? "Not recorded" : formatUsdCents(totalCents),
       };
     })
     .filter((item) => item.name.trim());

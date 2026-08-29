@@ -226,6 +226,15 @@ test("Orders drawer uses a mobile-safe progress layout", () => {
   assert.doesNotMatch(source, /<ol className="flex min-w-\[680px\]/);
 });
 
+test("Orders drawer resolves persisted item totals without inventing zero-dollar lines", () => {
+  const source = read("admin-v2.5/src/pages/OrdersPage.tsx");
+
+  assert.match(source, /\["lineTotalCents", "line_total_cents", "totalCents", "total_cents"\]/);
+  assert.match(source, /\["unitPriceCents", "unit_price_cents", "priceCents", "price_cents"\]/);
+  assert.match(source, /totalCents == null \? "Not recorded" : formatUsdCents\(totalCents\)/);
+  assert.doesNotMatch(source, /Number\(record\.line_total_cents \|\| record\.total_cents \|\| 0\)/);
+});
+
 test("Order Builder product controls stay unclipped and use polished select and quantity controls", () => {
   const source = read("admin-v2.5/src/pages/OrderBuilderPage.tsx");
   const select = read("admin-v2.5/src/components/ui/CustomSelect.tsx");
