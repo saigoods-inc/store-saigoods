@@ -11,6 +11,7 @@ test("public pages expose safe crawl directives and canonical URLs", () => {
   const checkout = read("./public/checkout.html");
 
   assert.match(home, /rel="canonical" href="https:\/\/store\.saigoods\.com\/"/);
+  assert.match(home, /name="google-site-verification" content="[A-Za-z0-9_-]+"/);
   assert.match(home, /application\/ld\+json/);
   assert.match(productFallback, /name="robots" content="noindex, follow"/);
   assert.match(cart, /name="robots" content="noindex, follow"/);
