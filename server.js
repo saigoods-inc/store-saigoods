@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { enrichCartQuoteApiResponse } from "./lib/cart-api-response.js";
+import { resolveAnalyticsConfigFromEnv } from "./lib/analytics-config.js";
 import { fetchNexusSummaryRows, fetchTaxSummaryTnRows } from "./lib/orders.js";
 import { buildQuote } from "./lib/quote.js";
 import {
@@ -102,6 +103,12 @@ const server = createServer(async (req, res) => {
   try {
     const requestUrl = new URL(req.url, `http://${req.headers.host || `localhost:${port}`}`);
     const { pathname } = requestUrl;
+
+    if (pathname === "/api/analytics-config" && req.method === "GET") {
+      return sendJson(res, 200, resolveAnalyticsConfigFromEnv(), {
+        "Cache-Control": "no-store",
+      });
+    }
 
     if (pathname === "/api/products" && req.method === "GET") {
       // Always read from disk so site metadata (phone, address, etc.) updates without restarting Node.

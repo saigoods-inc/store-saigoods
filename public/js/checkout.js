@@ -1,6 +1,7 @@
 import { formatCartUnitLabel, formatSizeLineText, getCartQuote } from "./catalog.js";
 import { clearCart, getCart } from "./cart-store.js";
 import { escapeHtml, initSite, setButtonBusy, showToast } from "./site.js";
+import { trackBeginCheckout, trackPurchase } from "./analytics.js";
 
 const root = document.querySelector("[data-checkout-root]");
 
@@ -147,6 +148,7 @@ async function init() {
     miniQuote = { items: [] };
   }
   renderCheckoutShell(miniQuote);
+  trackBeginCheckout(miniQuote);
   applyCheckoutAddressValidationDevBanner(config);
   await initSquareCard(config.squareApplicationId, config.squareLocationId);
   wireEvents();
@@ -1439,8 +1441,9 @@ function wireEvents() {
         throw new Error(data.error || "Payment failed.");
       }
 
-      clearCart();
       checkoutSucceeded = true;
+      trackPurchase(data);
+      clearCart();
       showCheckoutSuccessModal({
         orderId: data.orderId,
         orderRef: data.orderRef,

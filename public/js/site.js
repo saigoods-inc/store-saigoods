@@ -1,5 +1,6 @@
 import { getStore } from "./catalog.js";
 import { getCartCount } from "./cart-store.js";
+import { initAnalytics } from "./analytics.js";
 
 export async function initSite({
   page,
@@ -7,6 +8,7 @@ export async function initSite({
   onSearchChange = null,
   onSearchSubmit = null,
 } = {}) {
+  void initAnalytics();
   const store = await getStore();
 
   renderHeader(store.site, page, searchValue);
