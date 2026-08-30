@@ -111,7 +111,7 @@ function renderCatalog(products) {
         : "";
       const cta = cardOos
         ? `<span class="button button--primary button--disabled" aria-disabled="true">Unavailable</span>`
-        : `<a class="button button--primary" href="/product.html?slug=${encodeURIComponent(product.slug)}">
+        : `<a class="button button--primary" href="/products/${encodeURIComponent(product.slug)}">
                 Choose options
               </a>`;
       return `

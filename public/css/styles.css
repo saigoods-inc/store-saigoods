@@ -1699,6 +1699,7 @@ button {
   color: #4b4f5f;
 }
 
+.product-info h1,
 .product-info h2 {
   margin: 0;
   font-family: var(--font-display);

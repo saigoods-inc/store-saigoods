@@ -242,7 +242,7 @@ function renderCartItemSummary(item, sizes) {
 
 function renderCartItem(item, sizes) {
   const slugEnc = encodeURIComponent(item.slug);
-  const productHref = `/product.html?slug=${slugEnc}`;
+  const productHref = `/products/${slugEnc}`;
 
   return `
     <article class="cart-card" data-slug="${escapeHtml(item.slug)}">

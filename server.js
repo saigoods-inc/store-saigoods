@@ -60,6 +60,8 @@ import checkoutEstimateHandler from "./api/checkout-estimate.js";
 import checkoutPayHandler from "./api/checkout-pay.js";
 import nexusSummaryHandler from "./api/nexus-summary.js";
 import productsHandler from "./api/products.js";
+import productPageHandler from "./api/product-page.js";
+import sitemapHandler from "./api/sitemap.js";
 import shippoWebhookHandler from "./api/webhooks/shippo.js";
 import squareWebhookHandler from "./api/webhooks/square.js";
 import squareSandboxWebhookHandler from "./api/webhooks/square-sandbox.js";
@@ -133,6 +135,23 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/api/products") {
       await productsHandler({ method: req.method }, adaptExpressStyleResponse(res));
+      return;
+    }
+
+    if (pathname === "/sitemap.xml") {
+      await sitemapHandler({ method: req.method }, adaptExpressStyleResponse(res));
+      return;
+    }
+
+    const seoProductMatch = pathname.match(/^\/products\/([^/]+)\/?$/);
+    if (seoProductMatch) {
+      await productPageHandler(
+        {
+          method: req.method,
+          query: { slug: decodeURIComponent(seoProductMatch[1]) },
+        },
+        adaptExpressStyleResponse(res),
+      );
       return;
     }
 
@@ -806,6 +825,14 @@ const server = createServer(async (req, res) => {
 
     if (pathname === "/product.html") {
       return serveFile(res, path.join(publicDir, "product.html"), req.method);
+    }
+
+    if (pathname === "/contact" || pathname === "/contact.html") {
+      return serveFile(res, path.join(publicDir, "contact.html"), req.method);
+    }
+
+    if (pathname === "/robots.txt") {
+      return serveFile(res, path.join(publicDir, "robots.txt"), req.method);
     }
 
     if (pathname === "/cart.html") {

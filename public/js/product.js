@@ -20,7 +20,10 @@ import { trackAddToCart, trackViewItem } from "./analytics.js";
 
 const productRoot = document.querySelector("[data-product-detail]");
 const currentUrl = new URL(window.location.href);
-const slug = currentUrl.searchParams.get("slug");
+const productPathMatch = currentUrl.pathname.match(/^\/products\/([^/]+)\/?$/);
+const slug = productPathMatch
+  ? decodeURIComponent(productPathMatch[1])
+  : currentUrl.searchParams.get("slug");
 
 let store;
 let product;
@@ -62,6 +65,8 @@ async function init() {
     return;
   }
 
+  applyProductMetadata(product);
+
   const sizes = storefrontSizesForProduct(product, store);
   const bundles = sortBundlesHierarchically(product.bundles);
 
@@ -80,6 +85,23 @@ async function init() {
   trackViewItem(product);
   productRoot.addEventListener("click", handleProductClick);
   document.addEventListener("click", onClickOutsideOpenBundle, false);
+}
+
+function applyProductMetadata(currentProduct) {
+  const canonicalUrl = `${window.location.origin}/products/${encodeURIComponent(currentProduct.slug)}`;
+  const description = String(currentProduct.subtext || currentProduct.description || "").trim();
+  document.title = `${currentProduct.name} | SAI Goods`;
+
+  const descriptionMeta = document.querySelector('meta[name="description"]');
+  if (descriptionMeta && description) descriptionMeta.setAttribute("content", description);
+
+  let canonical = document.querySelector('link[rel="canonical"]');
+  if (!canonical) {
+    canonical = document.createElement("link");
+    canonical.setAttribute("rel", "canonical");
+    document.head.append(canonical);
+  }
+  canonical.setAttribute("href", canonicalUrl);
 }
 
 /**
@@ -677,7 +699,7 @@ function renderProduct() {
       </div>
 
       <div class="product-info">
-        <h2>${escapeHtml(product.name)}</h2>
+        <h1>${escapeHtml(product.name)}</h1>
         <div class="product-info__intro">
           <p class="product-info__copy">${escapeHtml(product.description)}</p>
           <p class="product-info__pack-note">${escapeHtml(casePackagingNote(product))}</p>

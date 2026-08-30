@@ -126,6 +126,7 @@ function renderHeader(site, page, searchValue) {
   const logoHref = page === "home" ? "#hero" : "/index.html#hero";
   const shopHref = page === "home" ? "#products" : "/index.html#products";
   const b2bHref = page === "home" ? "#b2b" : "/index.html#b2b";
+  const contactHref = page === "home" ? "#contact" : "/contact";
 
   headerRoot.innerHTML = `
     <div class="site-header">
@@ -138,7 +139,7 @@ function renderHeader(site, page, searchValue) {
         <nav class="store-nav" aria-label="Store navigation">
           <a href="${shopHref}">Shop</a>
           <a href="${b2bHref}">Bulk order</a>
-          <a href="#contact">Contact</a>
+          <a href="${contactHref}">Contact</a>
         </nav>
 
         <form class="search-form" role="search" data-global-search>
@@ -185,6 +186,7 @@ function renderFooter(site) {
             <nav class="footer-links" aria-label="Footer store links">
               <a href="/index.html#products">All gloves</a>
               <a href="/index.html#b2b">Bulk order</a>
+              <a href="/contact">Contact</a>
               <a href="/cart.html">View cart</a>
             </nav>
           </div>
