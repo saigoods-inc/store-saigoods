@@ -192,6 +192,15 @@ function renderFooter(site) {
           </div>
 
           <div class="widget">
+            <h3 class="widget__title">POLICIES</h3>
+            <nav class="footer-links" aria-label="Customer policies">
+              <a href="/shipping">Shipping policy</a>
+              <a href="/returns">Returns &amp; refunds</a>
+              <a href="/privacy">Privacy policy</a>
+            </nav>
+          </div>
+
+          <div class="widget">
             <h3 class="widget__title">CONTACT</h3>
             <div class="widget__list">
               <address class="contact">

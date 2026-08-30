@@ -34,6 +34,9 @@
   "rewrites": [
     { "source": "/products/:slug", "destination": "/api/product-page?slug=:slug" },
     { "source": "/contact", "destination": "/contact.html" },
+    { "source": "/shipping", "destination": "/shipping.html" },
+    { "source": "/returns", "destination": "/returns.html" },
+    { "source": "/privacy", "destination": "/privacy.html" },
     { "source": "/sitemap.xml", "destination": "/api/sitemap" },
     { "source": "/admin/orders", "destination": "/admin/orders.html" },
     { "source": "/admin/tax", "destination": "/admin/tax.html" },

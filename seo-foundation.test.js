@@ -30,13 +30,33 @@ test("internal storefront links use canonical product paths", () => {
   assert.match(cartJs, /\/products\//);
 });
 
-test("Vercel exposes clean product, contact, and sitemap routes", () => {
+test("Vercel exposes clean product, policy, contact, and sitemap routes", () => {
   const config = JSON.parse(read("./vercel.json"));
   const rewrites = new Map((config.rewrites || []).map(({ source, destination }) => [source, destination]));
 
   assert.equal(rewrites.get("/products/:slug"), "/api/product-page?slug=:slug");
   assert.equal(rewrites.get("/contact"), "/contact.html");
+  assert.equal(rewrites.get("/shipping"), "/shipping.html");
+  assert.equal(rewrites.get("/returns"), "/returns.html");
+  assert.equal(rewrites.get("/privacy"), "/privacy.html");
   assert.equal(rewrites.get("/sitemap.xml"), "/api/sitemap");
+});
+
+test("approved policy pages are indexable and linked from the shared footer", () => {
+  const footer = read("./public/js/site.js");
+  const policies = [
+    ["shipping", "Shipping Policy"],
+    ["returns", "Returns & Refunds Policy"],
+    ["privacy", "Privacy Policy"],
+  ];
+
+  for (const [slug, title] of policies) {
+    const html = read(`./public/${slug}.html`);
+    assert.match(html, new RegExp(`<title>${title.replace("&", "&amp;")} \\| SAI Goods<\\/title>`));
+    assert.match(html, new RegExp(`rel="canonical" href="https:\\/\\/store\\.saigoods\\.com\\/${slug}"`));
+    assert.match(html, /name="robots" content="index, follow"/);
+    assert.match(footer, new RegExp(`href="\\/${slug}"`));
+  }
 });
 
 test("robots.txt allows the storefront and advertises the sitemap", () => {

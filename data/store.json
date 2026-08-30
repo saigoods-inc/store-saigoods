@@ -1,7 +1,7 @@
 {
   "site": {
     "name": "SAI Goods Store",
-    "legalName": "SAI Goods Inc.",
+    "legalName": "SAI Goods, Inc.",
     "sizes": ["S", "M", "L", "XL"],
     "addressLines": [
       "901 Broadway Unit 24210",
