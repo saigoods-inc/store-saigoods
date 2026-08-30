@@ -38,6 +38,7 @@
     { "source": "/returns", "destination": "/returns.html" },
     { "source": "/privacy", "destination": "/privacy.html" },
     { "source": "/sitemap.xml", "destination": "/api/sitemap" },
+    { "source": "/merchant-feed.xml", "destination": "/api/merchant-feed" },
     { "source": "/admin/orders", "destination": "/admin/orders.html" },
     { "source": "/admin/tax", "destination": "/admin/tax.html" },
     { "source": "/admin/nexus", "destination": "/admin/nexus.html" },

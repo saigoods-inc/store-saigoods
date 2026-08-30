@@ -40,6 +40,7 @@ test("Vercel exposes clean product, policy, contact, and sitemap routes", () => 
   assert.equal(rewrites.get("/returns"), "/returns.html");
   assert.equal(rewrites.get("/privacy"), "/privacy.html");
   assert.equal(rewrites.get("/sitemap.xml"), "/api/sitemap");
+  assert.equal(rewrites.get("/merchant-feed.xml"), "/api/merchant-feed");
 });
 
 test("approved policy pages are indexable and linked from the shared footer", () => {
