@@ -2,6 +2,11 @@ import { createCheckout, formatCartUnitLabel, formatSizeLineText, getCartQuote }
 import { clearCart, getCart, removeProduct } from "./cart-store.js";
 import { responsiveRasterImg } from "./image-utils.js";
 import { escapeHtml, initSite, setButtonBusy, showToast } from "./site.js";
+import {
+  trackBeginCheckout,
+  trackRemoveFromCart,
+  trackViewCart,
+} from "./analytics.js";
 
 const cartRoot = document.querySelector("[data-cart-root]");
 const currentUrl = new URL(window.location.href);
@@ -9,6 +14,7 @@ const currentUrl = new URL(window.location.href);
 let store;
 let quote = null;
 let isCheckingOut = false;
+let hasTrackedViewCart = false;
 
 document.addEventListener("DOMContentLoaded", init);
 
@@ -42,6 +48,10 @@ async function refreshQuote() {
   }
 
   renderCart();
+  if (quote?.items?.length && !hasTrackedViewCart) {
+    hasTrackedViewCart = true;
+    trackViewCart(quote);
+  }
 }
 
 function renderCart() {
@@ -307,6 +317,7 @@ async function handleCartClick(event) {
   }
 
   if (action === "remove") {
+    trackRemoveFromCart(quote?.items?.find((item) => item.slug === slug));
     removeProduct(slug, store.site.sizes);
     await refreshQuote();
     showToast("Item removed from your cart.", "success");
@@ -321,6 +332,7 @@ async function startCheckout(button) {
   try {
     isCheckingOut = true;
     setButtonBusy(button, true, "Redirecting...");
+    trackBeginCheckout(quote);
     const response = await createCheckout(getCart(store.site.sizes));
     window.location.href = response.checkoutUrl;
   } catch (error) {

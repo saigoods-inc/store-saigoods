@@ -261,7 +261,13 @@ export default async function handler(req, res) {
         paymentId: pending.payment_id,
         orderId: pending.id,
         orderRef: pending.order_ref,
+        currency: quote.currency || "USD",
+        subtotalCents: quote.subtotalCents,
+        shippingCents: quote.shippingCents,
+        taxCents: quote.taxCents,
+        totalCents: quote.totalCents,
         totalFormatted: quote.totalFormatted,
+        items: quote.items,
         hardinDiscountApplied: Boolean(normalizedCode),
       });
       return;
@@ -334,7 +340,13 @@ export default async function handler(req, res) {
         paymentId,
         orderId: pending.id,
         orderRef: pending.order_ref,
+        currency: quote.currency || "USD",
+        subtotalCents: quote.subtotalCents,
+        shippingCents: quote.shippingCents,
+        taxCents: quote.taxCents,
+        totalCents: quote.totalCents,
         totalFormatted: quote.totalFormatted,
+        items: quote.items,
         hardinDiscountApplied: Boolean(normalizedCode),
       });
       return;
@@ -373,7 +385,13 @@ export default async function handler(req, res) {
       paymentId,
       orderId: pending.id,
       orderRef: pending.order_ref,
+      currency: quote.currency || "USD",
+      subtotalCents: quote.subtotalCents,
+      shippingCents: quote.shippingCents,
+      taxCents: quote.taxCents,
+      totalCents: quote.totalCents,
       totalFormatted: quote.totalFormatted,
+      items: quote.items,
       hardinDiscountApplied: Boolean(normalizedCode),
     });
   } catch (error) {

@@ -4,6 +4,7 @@ import { access, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveAnalyticsConfigFromEnv } from "./lib/analytics-config.js";
 import { mergeInventoryIntoProduct } from "./lib/stock.js";
 import adminDiscountCodesHandler from "./api/admin-discount-codes.js";
 import adminStockHandler from "./api/admin-stock.js";
@@ -123,6 +124,12 @@ const server = createServer(async (req, res) => {
   try {
     const requestUrl = new URL(req.url, `http://${req.headers.host || `localhost:${port}`}`);
     const { pathname } = requestUrl;
+
+    if (pathname === "/api/analytics-config" && req.method === "GET") {
+      return sendJson(res, 200, resolveAnalyticsConfigFromEnv(), {
+        "Cache-Control": "no-store",
+      });
+    }
 
     if (pathname === "/api/products") {
       await productsHandler({ method: req.method }, adaptExpressStyleResponse(res));

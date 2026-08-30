@@ -16,6 +16,7 @@ import {
   sizesOrderedForAllocation,
 } from "./size-availability.js";
 import { escapeHtml, initSite, showToast } from "./site.js";
+import { trackAddToCart, trackViewItem } from "./analytics.js";
 
 const productRoot = document.querySelector("[data-product-detail]");
 const currentUrl = new URL(window.location.href);
@@ -76,6 +77,7 @@ async function init() {
 
   hydrateProductStateFromCart();
   renderProduct();
+  trackViewItem(product);
   productRoot.addEventListener("click", handleProductClick);
   document.addEventListener("click", onClickOutsideOpenBundle, false);
 }
@@ -846,15 +848,15 @@ async function handleProductClick(event) {
     if (!(await selectionFitsOnlinePurchaseLimit(target))) {
       return;
     }
-    setProductQuantities(
-      product.slug,
-      {
-        quantities: { ...caseBySize },
-        boxQuantities: { ...boxBySize },
-        bundleLines: bundleLinesPayload(),
-      },
-      store.site.sizes,
-    );
+    const cartPayload = {
+      quantities: { ...caseBySize },
+      boxQuantities: { ...boxBySize },
+      bundleLines: bundleLinesPayload(),
+    };
+    setProductQuantities(product.slug, cartPayload, store.site.sizes);
+    void getCartQuote([{ slug: product.slug, ...cartPayload }])
+      .then(trackAddToCart)
+      .catch(() => {});
     const parts = [];
     const cb = sumChannel(caseBySize);
     const bb = sumChannel(boxBySize);

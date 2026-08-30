@@ -2,6 +2,7 @@ import { formatCurrency, getStore, searchProducts, storefrontSizesForProduct } f
 import { responsiveRasterImg } from "./image-utils.js";
 import { isProductStorefrontOutOfStock } from "./size-availability.js";
 import { escapeHtml, initSite } from "./site.js";
+import { trackViewItemList } from "./analytics.js";
 
 const productGrid = document.querySelector("[data-product-grid]");
 const introRoot = document.querySelector("[data-product-intros]");
@@ -66,6 +67,7 @@ async function init() {
 
   renderIntroPanels(store.products);
   applySearch(activeQuery);
+  trackViewItemList(store.products);
 }
 
 function handleSearch(query) {
