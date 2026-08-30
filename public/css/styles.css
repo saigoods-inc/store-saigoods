@@ -1548,7 +1548,7 @@ button {
 .legal-page__heading > p:not(.eyebrow):not(.legal-page__effective-date) {
   max-width: 36rem;
   font-size: 1rem;
-  line-height: 1.6;
+  line-height: 1.45;
 }
 
 .legal-page__content {
@@ -1569,7 +1569,7 @@ button {
 .legal-page__content p,
 .legal-page__content li {
   color: var(--muted);
-  line-height: var(--leading-relaxed);
+  line-height: 1.55;
 }
 
 .legal-page__content p {
@@ -1595,7 +1595,7 @@ button {
   top: 6rem;
   padding: 1.4rem;
   border: 1px solid var(--line);
-  border-radius: 1rem;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 0.75rem 2rem rgba(37, 36, 42, 0.06);
 }
@@ -1621,6 +1621,7 @@ button {
 @media (max-width: 760px) {
   .legal-page__layout {
     grid-template-columns: 1fr;
+    gap: 1.5rem;
   }
 
   .legal-page__aside {
@@ -3121,7 +3122,7 @@ button {
   text-decoration-thickness: 2px;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 980px) {
   .checkout-layout {
     grid-template-columns: 1fr;
   }
@@ -3832,5 +3833,67 @@ button {
 
   .store-benefits__grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Shared footer hierarchy and responsive column rhythm */
+.footer__content {
+  padding-top: 2.75rem;
+  gap: 1.5rem;
+}
+
+.footer__top {
+  display: grid;
+  grid-template-columns: minmax(13rem, 1.25fr) minmax(9rem, 0.7fr) minmax(11rem, 0.9fr) minmax(14rem, 1.1fr);
+  gap: 2rem;
+}
+
+.brand__name {
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+
+.brand__address,
+.footer-links a,
+.contact__label,
+.contact__value,
+.credential__value {
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.widget__title,
+.credential__label {
+  font-size: 0.75rem;
+  line-height: 1.25;
+  letter-spacing: 0.08em;
+}
+
+.widget__title {
+  margin-bottom: 0.45rem;
+}
+
+.footer-links {
+  gap: 0.4rem;
+}
+
+.widget__list {
+  gap: 0.8rem;
+}
+
+@media (max-width: 900px) {
+  .footer__top {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .footer__content {
+    padding-top: 2.25rem;
+  }
+
+  .footer__top {
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
   }
 }

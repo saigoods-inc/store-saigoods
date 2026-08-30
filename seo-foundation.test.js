@@ -81,6 +81,7 @@ test("policy layouts keep their contact card beside the page heading", () => {
     assert.ok(primaryStart > layoutStart, `${slug} has a primary content column`);
     assert.ok(headingStart > primaryStart, `${slug} keeps its heading in the primary column`);
     assert.ok(asideStart > headingStart, `${slug} keeps its support card in the top-level grid`);
+    assert.doesNotMatch(html, />Customer policies<\/p>/i, `${slug} omits the retired policy eyebrow`);
   }
 });
 
