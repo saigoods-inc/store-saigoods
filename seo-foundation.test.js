@@ -92,3 +92,17 @@ test("robots.txt allows the storefront and advertises the sitemap", () => {
   assert.match(robots, /Sitemap: https:\/\/store\.saigoods\.com\/sitemap\.xml/);
   assert.doesNotMatch(robots, /Disallow: \/$/m);
 });
+
+test("cart count badge remains a compact circle", () => {
+  const styles = read("./public/css/styles.css");
+  const badgeRule = styles.match(/\.cart-link__count\s*\{([\s\S]*?)\}/)?.[1] || "";
+
+  assert.match(badgeRule, /display:\s*inline-flex/);
+  assert.match(badgeRule, /width:\s*1rem/);
+  assert.match(badgeRule, /height:\s*1rem/);
+  assert.match(badgeRule, /min-width:\s*1rem/);
+  assert.match(badgeRule, /padding:\s*0/);
+  assert.match(badgeRule, /border-radius:\s*50%/);
+  assert.match(badgeRule, /font-size:\s*0\.625rem/);
+  assert.match(badgeRule, /line-height:\s*1/);
+});
