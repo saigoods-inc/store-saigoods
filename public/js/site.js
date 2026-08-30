@@ -2,18 +2,12 @@ import { getStore } from "./catalog.js";
 import { getCartCount } from "./cart-store.js";
 import { initAnalytics } from "./analytics.js";
 
-export async function initSite({
-  page,
-  searchValue = "",
-  onSearchChange = null,
-  onSearchSubmit = null,
-} = {}) {
+export async function initSite({ page } = {}) {
   void initAnalytics();
   const store = await getStore();
 
-  renderHeader(store.site, page, searchValue);
+  renderHeader(store.site, page);
   renderFooter(store.site);
-  bindSearch(store.products, onSearchChange, onSearchSubmit);
   updateCartBadges();
 
   window.addEventListener("cart:updated", updateCartBadges);
@@ -116,7 +110,7 @@ export function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function renderHeader(site, page, searchValue) {
+function renderHeader(site, page) {
   const headerRoot = document.querySelector("[data-site-header]");
 
   if (!headerRoot) {
@@ -141,13 +135,6 @@ function renderHeader(site, page, searchValue) {
           <a href="${b2bHref}">Bulk order</a>
           <a href="${contactHref}">Contact</a>
         </nav>
-
-        <form class="search-form" role="search" data-global-search>
-          <button class="search-form__button" type="submit" aria-label="Search products">
-            <img src="/img/search-icon.svg" alt="" aria-hidden="true" width="16" height="16" decoding="async" />
-          </button>
-          <input type="search" name="search" value="${escapeHtml(searchValue)}" placeholder="Search gloves" aria-label="Search products" autocomplete="off" />
-        </form>
 
         <a class="cart-link" href="/cart.html" aria-label="View cart">
           <img src="/img/cart-icon.svg" alt="" aria-hidden="true" width="22" height="22" decoding="async" />
@@ -179,16 +166,6 @@ function renderFooter(site) {
             <address class="brand__address">
               ${site.addressLines.map((line) => escapeHtml(line)).join("<br>")}
             </address>
-          </div>
-
-          <div class="widget">
-            <h3 class="widget__title">SHOP</h3>
-            <nav class="footer-links" aria-label="Footer store links">
-              <a href="/index.html#products">All gloves</a>
-              <a href="/index.html#b2b">Bulk order</a>
-              <a href="/contact">Contact</a>
-              <a href="/cart.html">View cart</a>
-            </nav>
           </div>
 
           <div class="widget">
@@ -264,43 +241,6 @@ function renderFooter(site) {
       </div>
     </div>
   `;
-}
-
-function bindSearch(products, onSearchChange, onSearchSubmit) {
-  const searchForm = document.querySelector("[data-global-search]");
-  const searchInput = searchForm?.querySelector("input");
-
-  if (!searchForm || !searchInput) {
-    return;
-  }
-
-  if (typeof onSearchChange === "function") {
-    searchInput.addEventListener("input", () => {
-      onSearchChange(searchInput.value, products);
-    });
-  }
-
-  searchForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const query = searchInput.value.trim();
-
-    if (typeof onSearchSubmit === "function") {
-      const handled = onSearchSubmit(query, products);
-
-      if (handled) {
-        return;
-      }
-    }
-
-    const destination = new URL("/index.html", window.location.origin);
-
-    if (query) {
-      destination.searchParams.set("search", query);
-      destination.hash = "products";
-    }
-
-    window.location.href = destination.toString();
-  });
 }
 
 function updateCartBadges() {

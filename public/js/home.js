@@ -1,4 +1,4 @@
-import { formatCurrency, getStore, searchProducts, storefrontSizesForProduct } from "./catalog.js";
+import { formatCurrency, getStore, storefrontSizesForProduct } from "./catalog.js";
 import { responsiveRasterImg } from "./image-utils.js";
 import { isProductStorefrontOutOfStock } from "./size-availability.js";
 import { escapeHtml, initSite } from "./site.js";
@@ -6,7 +6,6 @@ import { trackViewItemList } from "./analytics.js";
 
 const productGrid = document.querySelector("[data-product-grid]");
 const introRoot = document.querySelector("[data-product-intros]");
-const searchMeta = document.querySelector("[data-search-meta]");
 
 const PRODUCT_THICKNESS_BY_SLUG = {
   "nitrile-standard": "4 mil",
@@ -14,8 +13,6 @@ const PRODUCT_THICKNESS_BY_SLUG = {
   "black-nitrile-heavy-duty": "8 mil",
 };
 
-const currentUrl = new URL(window.location.href);
-let activeQuery = currentUrl.searchParams.get("search")?.trim() || "";
 let store;
 
 /** Index catalog only — mirrors the 1-carton bundle (`case_1`); PDP uses full bundle + size selection. */
@@ -58,45 +55,20 @@ function initAnnouncementBar() {
 
 async function init() {
   initAnnouncementBar();
-  store = await initSite({
-    page: "home",
-    searchValue: activeQuery,
-    onSearchChange: (query) => handleSearch(query),
-    onSearchSubmit: (query) => handleSearchSubmit(query),
-  });
+  store = await initSite({ page: "home" });
 
   renderIntroPanels(store.products);
-  applySearch(activeQuery);
+  renderCatalog(store.products);
   trackViewItemList(store.products);
-}
-
-function handleSearch(query) {
-  applySearch(query);
-  return true;
-}
-
-function handleSearchSubmit(query) {
-  applySearch(query);
-  document.querySelector("#products")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  return true;
-}
-
-function applySearch(query) {
-  activeQuery = query.trim();
-  const results = searchProducts(store.products, activeQuery);
-
-  renderCatalog(results);
-  renderSearchMeta(results.length);
-  syncUrl();
 }
 
 function renderCatalog(products) {
   if (!products.length) {
     productGrid.innerHTML = `
       <div class="empty-state">
-        <h3>No products match that search.</h3>
-        <p>Try keywords like "black", "heavy", "medical", or "powder free".</p>
-        <a class="button button--secondary" href="/index.html#products">Clear search</a>
+        <h3>Products are temporarily unavailable.</h3>
+        <p>Please refresh the page or contact our sales team for assistance.</p>
+        <a class="button button--secondary" href="/contact">Contact sales</a>
       </div>
     `;
     return;
@@ -138,20 +110,6 @@ function renderCatalog(products) {
       `;
     })
     .join("");
-}
-
-function renderSearchMeta(resultCount) {
-  if (!activeQuery) {
-    searchMeta.innerHTML = "";
-    return;
-  }
-
-  searchMeta.innerHTML = `
-    <p>
-      Showing <strong>${resultCount}</strong> result${resultCount === 1 ? "" : "s"} for
-      "<strong>${escapeHtml(activeQuery)}</strong>".
-    </p>
-  `;
 }
 
 function renderIntroPanels(products) {
@@ -208,18 +166,4 @@ function renderIntroPanels(products) {
       `;
     })
     .join("");
-}
-
-function syncUrl() {
-  const nextUrl = new URL(window.location.href);
-
-  if (activeQuery) {
-    nextUrl.searchParams.set("search", activeQuery);
-    nextUrl.hash = "products";
-  } else {
-    nextUrl.searchParams.delete("search");
-    nextUrl.hash = "";
-  }
-
-  window.history.replaceState({}, "", `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
 }

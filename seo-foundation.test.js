@@ -59,6 +59,31 @@ test("approved policy pages are indexable and linked from the shared footer", ()
   }
 });
 
+test("shared storefront chrome keeps retired search and footer shop features removed", () => {
+  const headerAndFooter = read("./public/js/site.js");
+  const home = read("./public/index.html");
+
+  assert.doesNotMatch(headerAndFooter, /data-global-search|search-form|Search gloves/);
+  assert.doesNotMatch(headerAndFooter, /<h3 class="widget__title">SHOP<\/h3>/);
+  assert.doesNotMatch(headerAndFooter, /Footer store links/);
+  assert.doesNotMatch(home, /data-search-meta/);
+});
+
+test("policy layouts keep their contact card beside the page heading", () => {
+  for (const slug of ["shipping", "returns", "privacy"]) {
+    const html = read(`./public/${slug}.html`);
+    const layoutStart = html.indexOf('<div class="legal-page__layout">');
+    const primaryStart = html.indexOf('<div class="legal-page__primary">', layoutStart);
+    const headingStart = html.indexOf('<header class="page-heading legal-page__heading">', primaryStart);
+    const asideStart = html.indexOf('<aside class="legal-page__aside"', layoutStart);
+
+    assert.ok(layoutStart >= 0, `${slug} has the policy layout`);
+    assert.ok(primaryStart > layoutStart, `${slug} has a primary content column`);
+    assert.ok(headingStart > primaryStart, `${slug} keeps its heading in the primary column`);
+    assert.ok(asideStart > headingStart, `${slug} keeps its support card in the top-level grid`);
+  }
+});
+
 test("robots.txt allows the storefront and advertises the sitemap", () => {
   const robots = read("./public/robots.txt");
   assert.match(robots, /User-agent: \*/);
