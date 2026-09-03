@@ -35,12 +35,59 @@ test("Vercel exposes clean product, policy, contact, and sitemap routes", () => 
   const rewrites = new Map((config.rewrites || []).map(({ source, destination }) => [source, destination]));
 
   assert.equal(rewrites.get("/products/:slug"), "/api/product-page?slug=:slug");
+  assert.equal(rewrites.get("/lydus-nitrile-gloves"), "/lydus-nitrile-gloves.html");
   assert.equal(rewrites.get("/contact"), "/contact.html");
   assert.equal(rewrites.get("/shipping"), "/shipping.html");
   assert.equal(rewrites.get("/returns"), "/returns.html");
   assert.equal(rewrites.get("/privacy"), "/privacy.html");
   assert.equal(rewrites.get("/sitemap.xml"), "/api/sitemap");
   assert.equal(rewrites.get("/merchant-feed.xml"), "/api/merchant-feed");
+});
+
+test("legacy LYDUS product URLs permanently redirect to canonical product paths", () => {
+  const config = JSON.parse(read("./vercel.json"));
+  const redirects = config.redirects || [];
+  const legacyQuery = redirects.find((redirect) => redirect.source === "/product.html");
+  const oldGeneral = redirects.find(
+    (redirect) => redirect.source === "/products/lydus™-black-nitrile-general-series",
+  );
+
+  assert.equal(legacyQuery?.destination, "/products/:slug");
+  assert.equal(legacyQuery?.permanent, true);
+  assert.equal(legacyQuery?.has?.[0]?.type, "query");
+  assert.equal(legacyQuery?.has?.[0]?.key, "slug");
+  assert.match(legacyQuery?.has?.[0]?.value || "", /black-nitrile-general/);
+  assert.equal(oldGeneral?.destination, "/products/black-nitrile-general");
+  assert.equal(oldGeneral?.permanent, true);
+});
+
+test("LYDUS comparison page is indexable, useful, and internally linked", () => {
+  const guide = read("./public/lydus-nitrile-gloves.html");
+  const home = read("./public/index.html");
+  const sharedChrome = read("./public/js/site.js");
+
+  assert.match(guide, /<h1>Choose the right LYDUS nitrile glove for the job\.<\/h1>/);
+  assert.match(guide, /rel="canonical" href="https:\/\/store\.saigoods\.com\/lydus-nitrile-gloves"/);
+  assert.match(guide, /name="robots" content="index, follow/);
+  for (const slug of ["nitrile-standard", "black-nitrile-general", "black-nitrile-heavy-duty"]) {
+    assert.match(guide, new RegExp(`href="\\/products\\/${slug}"`));
+  }
+  assert.match(home, /href="\/lydus-nitrile-gloves"/);
+  assert.match(sharedChrome, /href="\/lydus-nitrile-gloves"/);
+});
+
+test("shipping and return structured data match the published policies", () => {
+  const shipping = read("./public/shipping.html");
+  const returns = read("./public/returns.html");
+
+  assert.match(shipping, /"@type": "ShippingService"/);
+  assert.match(shipping, /"minValue": 300/);
+  assert.match(shipping, /"value": 0, "currency": "USD"/);
+  assert.match(shipping, /"addressCountry": "US"/);
+  assert.match(returns, /"@type": "MerchantReturnPolicy"/);
+  assert.match(returns, /"merchantReturnDays": 3/);
+  assert.match(returns, /"returnFees": "https:\/\/schema\.org\/ReturnFeesCustomerResponsibility"/);
+  assert.match(returns, /"restockingFee": 0\.1/);
 });
 
 test("approved policy pages are indexable and linked from the shared footer", () => {

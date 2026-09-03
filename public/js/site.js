@@ -132,6 +132,7 @@ function renderHeader(site, page) {
 
         <nav class="store-nav" aria-label="Store navigation">
           <a href="${shopHref}">Shop</a>
+          <a href="/lydus-nitrile-gloves">LYDUS guide</a>
           <a href="${b2bHref}">Bulk order</a>
           <a href="${contactHref}">Contact</a>
         </nav>
@@ -171,6 +172,7 @@ function renderFooter(site) {
           <div class="widget">
             <h3 class="widget__title">POLICIES</h3>
             <nav class="footer-links" aria-label="Customer policies">
+              <a href="/lydus-nitrile-gloves">LYDUS nitrile glove guide</a>
               <a href="/shipping">Shipping policy</a>
               <a href="/returns">Returns &amp; refunds</a>
               <a href="/privacy">Privacy policy</a>

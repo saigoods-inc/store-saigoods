@@ -31,8 +31,28 @@
       ]
     }
   ],
+  "redirects": [
+    {
+      "source": "/product.html",
+      "has": [
+        {
+          "type": "query",
+          "key": "slug",
+          "value": "(?<slug>nitrile-standard|black-nitrile-general|black-nitrile-heavy-duty)"
+        }
+      ],
+      "destination": "/products/:slug",
+      "permanent": true
+    },
+    {
+      "source": "/products/lydus™-black-nitrile-general-series",
+      "destination": "/products/black-nitrile-general",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     { "source": "/products/:slug", "destination": "/api/product-page?slug=:slug" },
+    { "source": "/lydus-nitrile-gloves", "destination": "/lydus-nitrile-gloves.html" },
     { "source": "/contact", "destination": "/contact.html" },
     { "source": "/shipping", "destination": "/shipping.html" },
     { "source": "/returns", "destination": "/returns.html" },

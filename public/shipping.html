@@ -11,6 +11,38 @@
     <meta property="og:title" content="Shipping Policy | SAI Goods" />
     <meta property="og:description" content="Processing, delivery, tracking, and shipping support information for SAI Goods orders." />
     <meta property="og:url" content="https://store.saigoods.com/shipping" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "OnlineStore",
+        "@id": "https://store.saigoods.com/#organization",
+        "name": "SAI Goods Inc.",
+        "url": "https://store.saigoods.com/",
+        "hasShippingService": {
+          "@type": "ShippingService",
+          "@id": "https://store.saigoods.com/shipping#standard-shipping",
+          "name": "United States standard shipping",
+          "description": "UPS shipping within the United States. Eligible merchandise orders of $300 or more receive free standard shipping; charges for lower orders are calculated before payment.",
+          "fulfillmentType": "https://schema.org/FulfillmentTypeDelivery",
+          "handlingTime": {
+            "@type": "ServicePeriod",
+            "duration": { "@type": "QuantitativeValue", "minValue": 0, "maxValue": 1, "unitCode": "DAY" },
+            "businessDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+          },
+          "shippingConditions": {
+            "@type": "ShippingConditions",
+            "shippingDestination": { "@type": "DefinedRegion", "addressCountry": "US" },
+            "orderValue": { "@type": "MonetaryAmount", "minValue": 300, "currency": "USD" },
+            "shippingRate": { "@type": "MonetaryAmount", "value": 0, "currency": "USD" },
+            "transitTime": {
+              "@type": "ServicePeriod",
+              "duration": { "@type": "QuantitativeValue", "minValue": 1, "maxValue": 3, "unitCode": "DAY" },
+              "businessDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+            }
+          }
+        }
+      }
+    </script>
     <link rel="stylesheet" href="/css/styles.css" />
   </head>
   <body>
