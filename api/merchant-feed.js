@@ -1,5 +1,6 @@
 import { mergeInventoryIntoStore } from "../lib/stock.js";
 import { primeRuntimeStore } from "../lib/runtime-store.js";
+import { loadRuntimeFulfillmentPackagingConfig } from "../lib/fulfillment-cartonization.js";
 import { renderMerchantFeed } from "../lib/seo.js";
 
 export default async function handler(req, res) {
@@ -24,7 +25,8 @@ export default async function handler(req, res) {
       console.error("[merchant-feed] Inventory enrichment failed; using catalog availability.", error);
     }
 
-    const xml = renderMerchantFeed(publicStore.products, publicStore.site);
+    const packaging = await loadRuntimeFulfillmentPackagingConfig();
+    const xml = renderMerchantFeed(publicStore.products, publicStore.site, packaging);
     res.status(200);
     res.setHeader("Content-Type", "application/xml; charset=utf-8");
     res.setHeader("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");

@@ -18,6 +18,8 @@ export default async function handler(req, res) {
 
   const rawSlug = Array.isArray(req.query?.slug) ? req.query.slug[0] : req.query?.slug;
   const slug = String(rawSlug || "").trim();
+  const rawBundle = Array.isArray(req.query?.bundle) ? req.query.bundle[0] : req.query?.bundle;
+  const offerId = String(rawBundle || "").trim();
 
   try {
     const { store } = await primeRuntimeStore();
@@ -35,7 +37,7 @@ export default async function handler(req, res) {
       console.error("[seo] Inventory enrichment failed; rendering catalog availability.", error);
     }
 
-    const html = renderProductPage(product, store.site);
+    const html = renderProductPage(product, store.site, { offerId });
     sendHtml(
       res,
       200,
