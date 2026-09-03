@@ -66,9 +66,12 @@ test("LYDUS comparison page is indexable, useful, and internally linked", () => 
   const home = read("./public/index.html");
   const sharedChrome = read("./public/js/site.js");
 
-  assert.match(guide, /<h1>Choose the right LYDUS nitrile glove for the job\.<\/h1>/);
+  assert.match(guide, /<h1>One range\.<br \/>Three levels<br \/>of protection\.<\/h1>/);
   assert.match(guide, /rel="canonical" href="https:\/\/store\.saigoods\.com\/lydus-nitrile-gloves"/);
   assert.match(guide, /name="robots" content="index, follow/);
+  assert.match(guide, /"@type": "ItemList"/);
+  assert.match(guide, /Compare LYDUS nitrile gloves/);
+  assert.match(guide, /Supplier physical properties/);
   for (const slug of ["nitrile-standard", "black-nitrile-general", "black-nitrile-heavy-duty"]) {
     assert.match(guide, new RegExp(`href="\\/products\\/${slug}"`));
   }
