@@ -12,6 +12,7 @@ test("public pages expose safe crawl directives and canonical URLs", () => {
 
   assert.match(home, /rel="canonical" href="https:\/\/store\.saigoods\.com\/"/);
   assert.match(home, /name="google-site-verification" content="[A-Za-z0-9_-]+"/);
+  assert.match(home, /<h1 class="hero__title">Nitrile gloves you can count on\.<\/h1>/);
   assert.match(home, /application\/ld\+json/);
   assert.match(productFallback, /name="robots" content="noindex, follow"/);
   assert.match(cart, /name="robots" content="noindex, follow"/);
@@ -30,12 +31,27 @@ test("internal storefront links use canonical product paths", () => {
   assert.match(cartJs, /\/products\//);
 });
 
+test("storefront leads from products to decision support and bulk ordering", () => {
+  const home = read("./public/index.html");
+  const homeJs = read("./public/js/home.js");
+  const products = home.indexOf('id="products"');
+  const chooser = home.indexOf('id="choose-your-glove"');
+  const bulk = home.indexOf('id="b2b"');
+
+  assert.ok(products > 0, "product catalog is present");
+  assert.ok(products < chooser, "product catalog appears before comparison guidance");
+  assert.ok(chooser < bulk, "decision support leads into bulk ordering");
+  assert.doesNotMatch(home, /class="store-benefits"/);
+  assert.doesNotMatch(home, /data-product-intros/);
+  assert.doesNotMatch(homeJs, /renderIntroPanels|introRoot/);
+});
+
 test("Vercel exposes clean product, policy, contact, and sitemap routes", () => {
   const config = JSON.parse(read("./vercel.json"));
   const rewrites = new Map((config.rewrites || []).map(({ source, destination }) => [source, destination]));
 
   assert.equal(rewrites.get("/products/:slug"), "/api/product-page?slug=:slug");
-  assert.equal(rewrites.get("/lydus-nitrile-gloves"), "/lydus-nitrile-gloves.html");
+  assert.equal(rewrites.has("/lydus-nitrile-gloves"), false);
   assert.equal(rewrites.get("/contact"), "/contact.html");
   assert.equal(rewrites.get("/shipping"), "/shipping.html");
   assert.equal(rewrites.get("/returns"), "/returns.html");
@@ -61,22 +77,31 @@ test("legacy LYDUS product URLs permanently redirect to canonical product paths"
   assert.equal(oldGeneral?.permanent, true);
 });
 
-test("LYDUS comparison page is indexable, useful, and internally linked", () => {
-  const guide = read("./public/lydus-nitrile-gloves.html");
+test("LYDUS comparison guidance is consolidated into the storefront", () => {
   const home = read("./public/index.html");
   const sharedChrome = read("./public/js/site.js");
+  const config = JSON.parse(read("./vercel.json"));
+  const guideRedirect = (config.redirects || []).find(
+    (redirect) => redirect.source === "/lydus-nitrile-gloves",
+  );
 
-  assert.match(guide, /<h1>One range\.<br \/>Three levels<br \/>of protection\.<\/h1>/);
-  assert.match(guide, /rel="canonical" href="https:\/\/store\.saigoods\.com\/lydus-nitrile-gloves"/);
-  assert.match(guide, /name="robots" content="index, follow/);
-  assert.match(guide, /"@type": "ItemList"/);
-  assert.match(guide, /Compare LYDUS nitrile gloves/);
-  assert.match(guide, /Supplier physical properties/);
+  assert.match(home, /id="choose-your-glove"/);
+  assert.match(
+    home,
+    /Compare the <span class="lydus-word">LYDUS<sup>®<\/sup><\/span> range\./,
+  );
+  assert.match(home, /"@type": "ItemList"/);
+  assert.match(home, /4 mil/);
+  assert.match(home, /5 mil/);
+  assert.match(home, /8 mil/);
   for (const slug of ["nitrile-standard", "black-nitrile-general", "black-nitrile-heavy-duty"]) {
-    assert.match(guide, new RegExp(`href="\\/products\\/${slug}"`));
+    assert.match(home, new RegExp(`href="\\/products\\/${slug}"`));
   }
-  assert.match(home, /href="\/lydus-nitrile-gloves"/);
-  assert.match(sharedChrome, /href="\/lydus-nitrile-gloves"/);
+  assert.doesNotMatch(home, /href="\/lydus-nitrile-gloves"/);
+  assert.doesNotMatch(sharedChrome, /href="\/lydus-nitrile-gloves"/);
+  assert.doesNotMatch(sharedChrome, /Choose your glove/);
+  assert.equal(guideRedirect?.destination, "/#choose-your-glove");
+  assert.equal(guideRedirect?.permanent, true);
 });
 
 test("shipping and return structured data match the published policies", () => {

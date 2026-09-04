@@ -33,6 +33,11 @@
   ],
   "redirects": [
     {
+      "source": "/lydus-nitrile-gloves",
+      "destination": "/#choose-your-glove",
+      "permanent": true
+    },
+    {
       "source": "/product.html",
       "has": [
         {
@@ -52,7 +57,6 @@
   ],
   "rewrites": [
     { "source": "/products/:slug", "destination": "/api/product-page?slug=:slug" },
-    { "source": "/lydus-nitrile-gloves", "destination": "/lydus-nitrile-gloves.html" },
     { "source": "/contact", "destination": "/contact.html" },
     { "source": "/shipping", "destination": "/shipping.html" },
     { "source": "/returns", "destination": "/returns.html" },

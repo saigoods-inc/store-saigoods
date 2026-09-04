@@ -5,7 +5,6 @@ import { escapeHtml, initSite } from "./site.js";
 import { trackViewItemList } from "./analytics.js";
 
 const productGrid = document.querySelector("[data-product-grid]");
-const introRoot = document.querySelector("[data-product-intros]");
 
 const PRODUCT_THICKNESS_BY_SLUG = {
   "nitrile-standard": "4 mil",
@@ -20,9 +19,9 @@ function catalogCardPriceLabel(product) {
   const case1 = product.bundles?.find((b) => b.id === "case_1");
   const cents = Number(case1?.priceCents);
   if (case1 && Number.isFinite(cents) && cents > 0) {
-    return `${formatCurrency(cents)} per carton`;
+    return formatCurrency(cents);
   }
-  return `${formatCurrency(product.priceCents)} per carton`;
+  return formatCurrency(product.priceCents);
 }
 
 document.addEventListener("DOMContentLoaded", init);
@@ -57,7 +56,6 @@ async function init() {
   initAnnouncementBar();
   store = await initSite({ page: "home" });
 
-  renderIntroPanels(store.products);
   renderCatalog(store.products);
   trackViewItemList(store.products);
 }
@@ -84,7 +82,7 @@ function renderCatalog(products) {
       const cta = cardOos
         ? `<span class="button button--primary button--disabled" aria-disabled="true">Unavailable</span>`
         : `<a class="button button--primary" href="/products/${encodeURIComponent(product.slug)}">
-                Choose options
+                Buy this product
               </a>`;
       return `
         <article class="product-card product-card--${escapeHtml(product.intro.theme)}${cardOos ? " product-card--oos" : ""}" data-product-slug="${escapeHtml(product.slug)}">
@@ -99,7 +97,11 @@ function renderCatalog(products) {
 
           <div class="product-card__body">
             <h3>${escapeHtml(product.name)}</h3>
-            <p class="product-card__price">${catalogCardPriceLabel(product)}</p>
+            <p class="product-card__price"><strong>${catalogCardPriceLabel(product)}</strong> <span>per carton</span></p>
+            <div class="product-card__value" aria-label="50 pairs per box and ${escapeHtml(product.boxesPerCase || 10)} boxes per case">
+              <span><strong>50 pairs per box</strong> <span aria-hidden="true">·</span> ${escapeHtml(product.boxesPerCase || 10)} boxes per case</span>
+              <small>2× a typical 25-pair box</small>
+            </div>
             <p class="product-card__copy">${escapeHtml(product.subtext)}</p>
             ${oosBlock}
             <div class="product-card__actions">
@@ -107,62 +109,6 @@ function renderCatalog(products) {
             </div>
           </div>
         </article>
-      `;
-    })
-    .join("");
-}
-
-function renderIntroPanels(products) {
-  introRoot.innerHTML = products
-    .map((product, index) => {
-      return `
-        <section class="intro-panel intro-panel--${escapeHtml(product.intro.theme)}">
-          <div class="intro-panel__grid ${index % 2 === 1 ? "intro-panel__grid--reverse" : ""}">
-            <div class="intro-panel__copy">
-              <p class="eyebrow eyebrow--accent">${escapeHtml(product.intro.eyebrow)}</p>
-              <h2>${escapeHtml(product.intro.headline)}</h2>
-              ${
-                product.slug === "nitrile-standard" ||
-                product.slug === "black-nitrile-general" ||
-                product.slug === "black-nitrile-heavy-duty"
-                  ? `
-                <p class="intro-panel__subheading">
-                  ${
-                    product.slug === "nitrile-standard"
-                      ? "Standard"
-                      : product.slug === "black-nitrile-general"
-                        ? "General Purpose"
-                        : "Heavy Duty"
-                  }
-                </p>
-              `
-                  : ""
-              }
-              <p class="intro-panel__body">${escapeHtml(product.intro.body)}</p>
-
-              <ul class="feature-list">
-                ${product.intro.features
-                  .map(
-                    (feature) => `
-                      <li>
-                        <img src="/img/check-icon.svg" alt="" aria-hidden="true" width="22" height="22" decoding="async" />
-                        <span>${escapeHtml(feature)}</span>
-                      </li>
-                    `,
-                  )
-                  .join("")}
-              </ul>
-            </div>
-
-            <div class="intro-panel__media">
-              ${responsiveRasterImg(product.intro.image, {
-                alt: `${product.name} gloves`,
-                loading: "lazy",
-                sizes: "(max-width: 768px) 92vw, 50vw",
-              })}
-            </div>
-          </div>
-        </section>
       `;
     })
     .join("");

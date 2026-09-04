@@ -7,6 +7,7 @@ export async function initSite({ page } = {}) {
   const store = await getStore();
 
   renderHeader(store.site, page);
+  initHeaderNavigation();
   renderFooter(store.site);
   updateCartBadges();
 
@@ -130,12 +131,24 @@ function renderHeader(site, page) {
           <span class="brand-mark__name">SAI Goods Store</span>
         </a>
 
-        <nav class="store-nav" aria-label="Store navigation">
+        <div class="store-nav-backdrop" aria-hidden="true"></div>
+
+        <nav class="store-nav" id="store-navigation" aria-label="Store navigation">
+          <div class="store-nav__drawer-head">
+            <button class="store-nav__close" type="button" aria-label="Close menu">
+              <span aria-hidden="true"></span>
+            </button>
+          </div>
           <a href="${shopHref}">Shop</a>
-          <a href="/lydus-nitrile-gloves">LYDUS guide</a>
-          <a href="${b2bHref}">Bulk order</a>
+          <a href="${b2bHref}">For business</a>
           <a href="${contactHref}">Contact</a>
         </nav>
+
+        <button class="store-nav-toggle" type="button" aria-controls="store-navigation" aria-expanded="false" aria-label="Open menu">
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+        </button>
 
         <a class="cart-link" href="/cart.html" aria-label="View cart">
           <img src="/img/cart-icon.svg" alt="" aria-hidden="true" width="22" height="22" decoding="async" />
@@ -144,6 +157,69 @@ function renderHeader(site, page) {
       </div>
     </div>
   `;
+}
+
+function initHeaderNavigation() {
+  const toggle = document.querySelector(".store-nav-toggle");
+  const navigation = document.querySelector(".store-nav");
+  const backdrop = document.querySelector(".store-nav-backdrop");
+  const closeButton = document.querySelector(".store-nav__close");
+  const mobileNavigation = window.matchMedia("(max-width: 760px)");
+
+  if (!toggle || !navigation || !backdrop || !closeButton) {
+    return;
+  }
+
+  function setOpen(open, { returnFocus = false } = {}) {
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+    navigation.classList.toggle("is-open", open);
+    backdrop.classList.toggle("is-visible", open);
+    document.body.classList.toggle("nav-drawer-open", open);
+    navigation.toggleAttribute("inert", mobileNavigation.matches && !open);
+
+    if (mobileNavigation.matches && !open) {
+      navigation.setAttribute("aria-hidden", "true");
+    } else {
+      navigation.removeAttribute("aria-hidden");
+    }
+
+    if (open) {
+      closeButton.focus();
+    } else if (returnFocus) {
+      toggle.focus();
+    }
+  }
+
+  toggle.addEventListener("click", () => {
+    setOpen(toggle.getAttribute("aria-expanded") !== "true");
+  });
+
+  closeButton.addEventListener("click", () => {
+    setOpen(false, { returnFocus: true });
+  });
+
+  backdrop.addEventListener("click", () => {
+    setOpen(false, { returnFocus: true });
+  });
+
+  navigation.addEventListener("click", (event) => {
+    if (event.target instanceof Element && event.target.closest("a")) {
+      setOpen(false);
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && toggle.getAttribute("aria-expanded") === "true") {
+      setOpen(false, { returnFocus: true });
+    }
+  });
+
+  mobileNavigation.addEventListener("change", () => {
+    setOpen(false);
+  });
+
+  setOpen(false);
 }
 
 function renderFooter(site) {
@@ -172,7 +248,6 @@ function renderFooter(site) {
           <div class="widget">
             <h3 class="widget__title">POLICIES</h3>
             <nav class="footer-links" aria-label="Customer policies">
-              <a href="/lydus-nitrile-gloves">LYDUS nitrile glove guide</a>
               <a href="/shipping">Shipping policy</a>
               <a href="/returns">Returns &amp; refunds</a>
               <a href="/privacy">Privacy policy</a>
