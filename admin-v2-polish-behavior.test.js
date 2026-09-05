@@ -394,3 +394,12 @@ test("Order Builder exposes audited admin free shipping after a carrier rate is 
   assert.match(source, /Customer shipping is \$0/);
   assert.match(source, /setAdminFreeShipping\(false\)/);
 });
+
+test("Orders drawer resolves persisted item totals without inventing zero-dollar lines", () => {
+  const source = read("admin-v2.5/src/pages/OrdersPage.tsx");
+
+  assert.match(source, /\["lineTotalCents", "line_total_cents", "totalCents", "total_cents"\]/);
+  assert.match(source, /\["unitPriceCents", "unit_price_cents", "priceCents", "price_cents"\]/);
+  assert.match(source, /totalCents == null \? "Not recorded" : formatUsdCents\(totalCents\)/);
+  assert.doesNotMatch(source, /Number\(record\.line_total_cents \|\| record\.total_cents \|\| 0\)/);
+});
