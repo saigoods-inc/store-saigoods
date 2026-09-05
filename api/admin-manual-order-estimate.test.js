@@ -2,8 +2,68 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { computeManualOrderEstimateWithRetry } from "./admin-manual-order-estimate.js";
+import { computeCheckoutEstimate } from "../lib/checkout-estimate-logic.js";
 
 const noWait = async () => {};
+
+const localAddress = {
+  line1: "2009 Ben Hill Ct",
+  city: "Nolensville",
+  state: "TN",
+  postalCode: "37135",
+  country: "US",
+};
+
+function customPricedAdminItem() {
+  return {
+    slug: "nitrile-standard",
+    clientLineId: "admin-line-1",
+    bundleLines: [{ id: "box_1", qty: 2 }],
+    quantities: { S: 0, M: 0, L: 0 },
+    boxQuantities: { S: 0, M: 2, L: 0 },
+    adminUnitPriceOverrideCents: 875,
+    adminPriceOverrideReason: "",
+  };
+}
+
+for (const fulfillmentMethod of ["local_delivery", "pickup"]) {
+  test(`authorized admin custom pricing works for ${fulfillmentMethod}`, async () => {
+    const quote = await computeCheckoutEstimate(
+      {
+        items: [customPricedAdminItem()],
+        fulfillmentMethod,
+        address: localAddress,
+        forceStockOverride: true,
+      },
+      {
+        manualOrderDiscount: true,
+        allowForceStockOverride: true,
+        strictShippo: false,
+      },
+    );
+    assert.equal(quote.subtotalCents, 1750);
+    assert.equal(quote.items[0].adminPriceOverride.unitPriceCents, 875);
+    assert.equal(quote.manualNoCarrierFulfillment, fulfillmentMethod);
+  });
+}
+
+test("custom pricing remains blocked when the server has not authorized the admin path", async () => {
+  await assert.rejects(
+    computeCheckoutEstimate(
+      {
+        items: [customPricedAdminItem()],
+        fulfillmentMethod: "local_delivery",
+        address: localAddress,
+        forceStockOverride: true,
+      },
+      {
+        allowForceStockOverride: true,
+        strictShippo: false,
+      },
+    ),
+    /only available for authorized admin orders/i,
+  );
+});
 
 test("manual carrier estimate retries one complete transient response", async () => {
   let calls = 0;

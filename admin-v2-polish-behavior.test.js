@@ -191,6 +191,24 @@ test("Order Builder product controls stay unclipped and use polished select and 
   assert.match(source, /useState<OrderItemRow\[\]>\(\[\]\)/);
   assert.match(source, /setItemRows\(\(current\) => current\.filter\(\(row\) => row\.id !== itemId\)\)/);
   assert.match(source, /itemRows\.length \? "Add another item" : "Add item"/);
+  assert.match(source, /sm:grid-cols-2 2xl:grid-cols-\[minmax\(220px,1\.6fr\)/);
+  assert.doesNotMatch(source, /sm:grid-cols-2 xl:grid-cols-\[minmax\(220px,1\.6fr\)/);
+});
+
+test("Order Builder exposes an admin selling-price override without changing the catalog", () => {
+  const source = read("admin-v2.5/src/pages/OrderBuilderPage.tsx");
+  const api = read("admin-v2.5/src/lib/api.ts");
+
+  assert.match(source, />Selling price</);
+  assert.match(source, /"Catalog price" : "Custom price"/);
+  assert.match(source, /label="Custom unit price"/);
+  assert.match(source, /label="Reason for price change"/);
+  assert.match(source, /prefix="\$"/);
+  assert.match(source, /adminUnitPriceOverrideCents: parseDollarsToCents/);
+  assert.match(source, /adminPriceOverrideReason: row\.negotiationReason\.trim\(\)/);
+  assert.doesNotMatch(source, /fulfillmentMethod === "b2b_shipping" \? \(\s*<div className="mt-3 rounded-\[10px\]/);
+  assert.match(api, /adminUnitPriceOverrideCents\?: number/);
+  assert.match(api, /adminPriceOverrideReason\?: string/);
 });
 
 test("Order Builder uses compact fulfillment choices and disables sticky summary when it grows too tall", () => {
