@@ -1076,6 +1076,29 @@ button {
   font-style: italic;
 }
 
+.product-info__spec-link {
+  margin: -0.25rem 0 0.25rem;
+}
+
+.product-info__spec-link a {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--leading-normal);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--ink) 38%, transparent);
+  text-underline-offset: 0.22em;
+}
+
+.product-info__spec-link a:hover,
+.product-info__spec-link a:focus-visible {
+  color: var(--accent-dark);
+  text-decoration-color: currentColor;
+}
+
 /* Nitrile Examination Gloves intro (blue panel) */
 .intro-panel--blue {
   background: linear-gradient(120deg, #dce9fb 0%, #e7f1ff 40%, #f3f7ff 100%);

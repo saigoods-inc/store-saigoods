@@ -629,6 +629,17 @@ function renderProduct() {
           </div>
         </div>
 
+        ${
+          product.specificationUrl
+            ? `<p class="product-info__spec-link">
+                <a href="${escapeHtml(product.specificationUrl)}" target="_blank" rel="noopener noreferrer">
+                  View complete product specifications and certifications on SAI Goods
+                  <span aria-hidden="true">↗</span>
+                </a>
+              </p>`
+            : ""
+        }
+
         ${bundleSection}
 
         <div class="selection-summary">
