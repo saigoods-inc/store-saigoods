@@ -395,6 +395,10 @@ export interface ManualOrderEstimateRequest {
   manualDiscountValue?: number;
   discountCode?: string;
   quoteToken?: string;
+  adminFreeShipping?: {
+    requested: boolean;
+    reason?: string;
+  };
 }
 
 export interface ManualOrderShippingRateOption {
@@ -412,6 +416,12 @@ export interface ManualOrderShippingRateOption {
   estimatedDays?: number | null;
   residentialSurchargeCents?: number;
   residentialSurchargeFormatted?: string;
+  freeShippingApplied?: boolean;
+  freeShippingSource?: "ups_zone" | "admin_override";
+  carrierTotalAmountCents?: number;
+  carrierTotalAmountFormatted?: string;
+  shippingDiscountCents?: number;
+  shippingDiscountFormatted?: string;
 }
 
 export interface ManualOrderQuoteResponse {
@@ -445,7 +455,24 @@ export interface ManualOrderQuoteResponse {
     amountRemainingCents?: number;
     amountRemainingFormatted?: string;
     message?: string | null;
+    source?: "ups_zone" | "admin_override";
   };
+  adminFreeShipping?: {
+    applied?: boolean;
+    reason?: string;
+    originalShippingCents?: number;
+    amountWaivedCents?: number;
+    approvedAt?: string | null;
+    approvedBy?: string | null;
+  } | null;
+  freeShipping?: {
+    active?: boolean;
+    configured?: boolean;
+    eligible?: boolean;
+    applied?: boolean;
+    source?: "ups_zone" | "admin_override";
+    message?: string | null;
+  } | null;
 }
 
 export interface ManualOrderCreateRequest extends ManualOrderEstimateRequest {

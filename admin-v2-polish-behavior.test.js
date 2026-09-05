@@ -385,3 +385,12 @@ test("Nexus keyboard openers and volume-relative activity wording", () => {
   assert.match(source, /e\.key === " " \|\| e\.key === "Spacebar"/);
   assert.match(source, /e\.preventDefault\(\)/);
 });
+
+test("Order Builder exposes audited admin free shipping after a carrier rate is selected", () => {
+  const source = read("admin-v2.5/src/pages/OrderBuilderPage.tsx");
+  assert.match(source, /Offer free shipping to this customer/);
+  assert.match(source, /Internal reason/);
+  assert.match(source, /adminFreeShipping: \{ requested: true, reason:/);
+  assert.match(source, /Customer shipping is \$0/);
+  assert.match(source, /setAdminFreeShipping\(false\)/);
+});

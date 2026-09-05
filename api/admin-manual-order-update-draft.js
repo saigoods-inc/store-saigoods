@@ -9,7 +9,11 @@ import {
 } from "../lib/manual-order-fulfillment.js";
 import { updateManualOrderDraft } from "../lib/orders.js";
 import { normalizeDiscountCode } from "../lib/discount-codes.js";
-import { assertReportsAuthorized } from "../lib/reports-auth.js";
+import { assertReportsAuthorized, getReportsActor } from "../lib/reports-auth.js";
+import {
+  selectManualOrderRateFromToken,
+  verifyManualOrderQuoteToken,
+} from "../lib/manual-order-quote-token.js";
 
 function parseOptionalYmd(input) {
   if (input === null || input === undefined || input === "") {
@@ -120,7 +124,8 @@ function invalidCarrierQuoteMessage(quote) {
   if (!quote?.canCheckout || quote?.userFacingError) {
     return quote?.userFacingError || "Carrier shipping is not ready. Get and confirm a carrier rate before updating this order.";
   }
-  if (quoteStatus !== "rated" || !providerQuoteId || !service || shippingCents <= 0) {
+  const validFreeShipping = shipping.freeShippingApplied === true && quote?.freeShipping?.applied === true;
+  if (quoteStatus !== "rated" || !providerQuoteId || !service || (shippingCents <= 0 && !validFreeShipping)) {
     return "Carrier shipping is missing a confirmed paid rate. Get and confirm a carrier rate before updating this order.";
   }
   return "";
@@ -134,6 +139,7 @@ export default async function handler(req, res) {
 
   try {
     await assertReportsAuthorized(req);
+    const actor = await getReportsActor(req);
     const parsed = parseBody(req.body || {});
     if (parsed.error) {
       res.status(400).json({ error: parsed.error });
@@ -188,13 +194,19 @@ export default async function handler(req, res) {
 
     const isCarrier = parsed.fulfillmentMethod === "carrier";
     const isB2b = parsed.fulfillmentMethod === "b2b_shipping";
-    const quote = await computeCheckoutEstimate(estimateBody, {
-      requireCompleteAddress: isCarrier || isB2b,
-      manualOrderDiscount: true,
-      strictShippo: isCarrier,
-      allowForceStockOverride: true,
-      allowManualB2bShipping: true,
-    });
+    const quote = isCarrier
+      ? selectManualOrderRateFromToken(
+          verifyManualOrderQuoteToken(rawBody.quoteToken, rawBody),
+          rawBody,
+          { actor, approvedAt: new Date().toISOString() },
+        )
+      : await computeCheckoutEstimate(estimateBody, {
+          requireCompleteAddress: isB2b,
+          manualOrderDiscount: true,
+          strictShippo: false,
+          allowForceStockOverride: true,
+          allowManualB2bShipping: true,
+        });
     if (isCarrier) {
       const carrierQuoteError = invalidCarrierQuoteMessage(quote);
       if (carrierQuoteError) {

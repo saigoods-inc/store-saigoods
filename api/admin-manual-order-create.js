@@ -9,7 +9,7 @@ import {
 } from "../lib/manual-order-fulfillment.js";
 import { createManualOrderDraft } from "../lib/orders.js";
 import { normalizeDiscountCode } from "../lib/discount-codes.js";
-import { assertReportsAuthorized } from "../lib/reports-auth.js";
+import { assertReportsAuthorized, getReportsActor } from "../lib/reports-auth.js";
 import {
   selectManualOrderRateFromToken,
   verifyManualOrderQuoteToken,
@@ -127,7 +127,8 @@ function invalidCarrierQuoteMessage(quote) {
   if (!quote?.canCheckout || quote?.userFacingError) {
     return quote?.userFacingError || "Carrier shipping is not ready. Get and confirm a carrier rate before creating this order.";
   }
-  if (quoteStatus !== "rated" || !providerQuoteId || !service || shippingCents <= 0) {
+  const validFreeShipping = shipping.freeShippingApplied === true && quote?.freeShipping?.applied === true;
+  if (quoteStatus !== "rated" || !providerQuoteId || !service || (shippingCents <= 0 && !validFreeShipping)) {
     return "Carrier shipping is missing a confirmed paid rate. Get and confirm a carrier rate before creating this order.";
   }
   return "";
@@ -141,6 +142,7 @@ export default async function handler(req, res) {
 
   try {
     await assertReportsAuthorized(req);
+    const actor = await getReportsActor(req);
     const parsed = parseCreateBody(req.body || {});
     if (parsed.error) {
       res.status(400).json({ error: parsed.error });
@@ -208,6 +210,7 @@ export default async function handler(req, res) {
       ? selectManualOrderRateFromToken(
           verifyManualOrderQuoteToken(rawBody.quoteToken, rawBody),
           rawBody,
+          { actor, approvedAt: new Date().toISOString() },
         )
       : await computeCheckoutEstimate(estimateBody, {
           requireCompleteAddress: isB2b,
