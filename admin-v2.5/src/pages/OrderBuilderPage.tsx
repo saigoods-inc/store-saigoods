@@ -1218,9 +1218,6 @@ export function OrderBuilderPage() {
     if (fulfillmentMethod === "carrier" && forCreate && !quote?.freeDelivery?.applied && !selectedRateId) {
       errors.carrierRate = "Select a carrier rate before creating the order.";
     }
-    if (fulfillmentMethod === "carrier" && adminFreeShipping && adminFreeShippingReason.trim().length < 3) {
-      errors.adminFreeShipping = "Enter an internal reason before applying free shipping.";
-    }
     if (fulfillmentMethod === "b2b_shipping") {
       const freightCents = parseDollarsToCents(customB2bShipping);
       if (freightCents < 1 || freightCents > 10_000_000) {
@@ -2299,7 +2296,7 @@ export function OrderBuilderPage() {
                   {adminFreeShipping ? (
                     <div className="mt-3">
                       <label className="text-[11px] font-semibold text-sg-muted" htmlFor="admin-free-shipping-reason">
-                        Internal reason <span className="text-sg-danger">*</span>
+                        Internal reason <span className="font-normal">(optional)</span>
                       </label>
                       <input
                         id="admin-free-shipping-reason"
@@ -2318,7 +2315,6 @@ export function OrderBuilderPage() {
                         placeholder="e.g. Approved customer service recovery"
                         className="mt-1 w-full rounded-[9px] border border-sg-border bg-white px-3 py-2 text-[12px] text-sg-text outline-none focus:border-sg-primary"
                       />
-                      {fieldErrors.adminFreeShipping ? <p className="mt-1 text-[11px] font-semibold text-sg-danger">{fieldErrors.adminFreeShipping}</p> : null}
                     </div>
                   ) : null}
                 </div>
