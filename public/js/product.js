@@ -45,6 +45,35 @@ let purchaseLimitCheckInFlight = false;
 const CUSTOMER_PURCHASE_LIMIT_MESSAGE =
   "Orders are limited to 10 shipping packages. Please reduce the quantity or complete your current order before adding more.";
 
+const PRODUCT_SEO_COPY = {
+  "nitrile-standard": {
+    heading: "LYDUS® 4 Mil Nitrile Examination Gloves",
+    title: "LYDUS® 4 Mil Nitrile Examination Gloves | SAI Goods",
+  },
+  "black-nitrile-general": {
+    heading: "LYDUS® 5 Mil Black Nitrile Gloves – General Purpose",
+    title: "LYDUS® 5 Mil Black Nitrile Gloves | SAI Goods",
+  },
+  "black-nitrile-heavy-duty": {
+    heading: "LYDUS® 8 Mil Black Nitrile Gloves – Heavy Duty",
+    title: "LYDUS® 8 Mil Black Nitrile Gloves | SAI Goods",
+  },
+};
+
+function productSeoCopy(currentProduct) {
+  return PRODUCT_SEO_COPY[currentProduct.slug] || {
+    heading: currentProduct.name,
+    title: `${currentProduct.name} | SAI Goods`,
+  };
+}
+
+function productHeadingHtml(currentProduct) {
+  const heading = productSeoCopy(currentProduct).heading;
+  const brand = "LYDUS®";
+  if (!heading.startsWith(brand)) return escapeHtml(heading);
+  return `<span class="product-brand">LYDUS<sup>®</sup></span>${escapeHtml(heading.slice(brand.length))}`;
+}
+
 function sortBundlesHierarchically(bundles) {
   return [...(bundles || [])].sort((a, b) => {
     const kindDifference = (a.kind === "box" ? 0 : 1) - (b.kind === "box" ? 0 : 1);
@@ -90,7 +119,7 @@ async function init() {
 function applyProductMetadata(currentProduct) {
   const canonicalUrl = `${window.location.origin}/products/${encodeURIComponent(currentProduct.slug)}`;
   const description = String(currentProduct.subtext || currentProduct.description || "").trim();
-  document.title = `${currentProduct.name} | SAI Goods`;
+  document.title = productSeoCopy(currentProduct).title;
 
   const descriptionMeta = document.querySelector('meta[name="description"]');
   if (descriptionMeta && description) descriptionMeta.setAttribute("content", description);
@@ -699,7 +728,7 @@ function renderProduct() {
       </div>
 
       <div class="product-info">
-        <h1>${escapeHtml(product.name)}</h1>
+        <h1>${productHeadingHtml(product)}</h1>
         <div class="product-info__intro">
           <p class="product-info__copy">${escapeHtml(product.description)}</p>
           <p class="product-info__pack-note">${escapeHtml(casePackagingNote(product))}</p>

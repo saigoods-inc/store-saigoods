@@ -1893,6 +1893,18 @@ button {
   letter-spacing: -0.03em;
 }
 
+.product-brand {
+  color: #34558b;
+  white-space: nowrap;
+}
+
+.product-brand sup {
+  margin-left: 0.06em;
+  font-size: 0.42em;
+  line-height: 0;
+  vertical-align: super;
+}
+
 .detail-block h3,
 .summary-card h2 {
   margin: 0 0 0.75rem;
