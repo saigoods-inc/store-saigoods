@@ -17,18 +17,6 @@
       "headers": [
         { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
       ]
-    },
-    {
-      "source": "/admin-v2/(.*)",
-      "headers": [
-        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
-      ]
-    },
-    {
-      "source": "/admin-v2.5/(.*)",
-      "headers": [
-        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
-      ]
     }
   ],
   "redirects": [
@@ -53,6 +41,46 @@
       "source": "/products/lydus™-black-nitrile-general-series",
       "destination": "/products/black-nitrile-general",
       "permanent": true
+    },
+    {
+      "source": "/admin-v2.5",
+      "destination": "/admin/summary",
+      "permanent": true
+    },
+    {
+      "source": "/admin-v2.5/:path*",
+      "destination": "/admin/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/admin-v2",
+      "destination": "/admin/summary",
+      "permanent": true
+    },
+    {
+      "source": "/admin-v2/:path*",
+      "destination": "/admin/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/admin",
+      "destination": "/admin/summary",
+      "permanent": true
+    },
+    {
+      "source": "/admin/manual-order",
+      "destination": "/admin/order-builder",
+      "permanent": true
+    },
+    {
+      "source": "/admin/walk-in-order",
+      "destination": "/admin/order-builder",
+      "permanent": true
+    },
+    {
+      "source": "/admin/:page.html",
+      "destination": "/admin/:page",
+      "permanent": true
     }
   ],
   "rewrites": [
@@ -63,57 +91,16 @@
     { "source": "/privacy", "destination": "/privacy.html" },
     { "source": "/sitemap.xml", "destination": "/api/sitemap" },
     { "source": "/merchant-feed.xml", "destination": "/api/merchant-feed" },
-    { "source": "/admin/orders", "destination": "/admin/orders.html" },
-    { "source": "/admin/tax", "destination": "/admin/tax.html" },
-    { "source": "/admin/nexus", "destination": "/admin/nexus.html" },
-    { "source": "/admin/discount-codes", "destination": "/admin/discount-codes.html" },
-    { "source": "/admin/manual-order", "destination": "/admin/manual-order.html" },
-    { "source": "/admin/walk-in-order", "destination": "/admin/walk-in-order.html" },
-    { "source": "/admin/inventory", "destination": "/admin/inventory.html" },
-    { "source": "/admin-v2", "destination": "/admin-v2/summary.html" },
-    { "source": "/admin-v2/", "destination": "/admin-v2/summary.html" },
-    { "source": "/admin-v2/summary", "destination": "/admin-v2/summary.html" },
-    { "source": "/admin-v2/summary/", "destination": "/admin-v2/summary.html" },
-    { "source": "/admin-v2/tax", "destination": "/admin-v2/tax.html" },
-    { "source": "/admin-v2/tax/", "destination": "/admin-v2/tax.html" },
-    { "source": "/admin-v2/nexus", "destination": "/admin-v2/nexus.html" },
-    { "source": "/admin-v2/nexus/", "destination": "/admin-v2/nexus.html" },
-    { "source": "/admin-v2/discount-codes", "destination": "/admin-v2/discount-codes.html" },
-    { "source": "/admin-v2/discount-codes/", "destination": "/admin-v2/discount-codes.html" },
-    { "source": "/admin-v2/inventory", "destination": "/admin-v2/inventory.html" },
-    { "source": "/admin-v2/inventory/", "destination": "/admin-v2/inventory.html" },
-    { "source": "/admin-v2/orders", "destination": "/admin-v2/orders.html" },
-    { "source": "/admin-v2/orders/", "destination": "/admin-v2/orders.html" },
-    { "source": "/admin-v2/manual-order", "destination": "/admin-v2/manual-order.html" },
-    { "source": "/admin-v2/manual-order/", "destination": "/admin-v2/manual-order.html" },
-    { "source": "/admin-v2/walk-in-order", "destination": "/admin-v2/walk-in-order.html" },
-    { "source": "/admin-v2/walk-in-order/", "destination": "/admin-v2/walk-in-order.html" },
-    { "source": "/admin-v2.5", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/summary", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/summary/", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/reset-password", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/reset-password/", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/orders", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/orders/", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/internal-label", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/internal-label/", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/order-builder", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/order-builder/", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/manual-order", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/manual-order/", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/walk-in-order", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/walk-in-order/", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/inventory", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/inventory/", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/discount-codes", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/discount-codes/", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/tax", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/tax/", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/nexus", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/nexus/", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/advanced", "destination": "/admin-v2.5/index.html" },
-    { "source": "/admin-v2.5/advanced/", "destination": "/admin-v2.5/index.html" }
+    { "source": "/admin/summary", "destination": "/admin/index.html" },
+    { "source": "/admin/reset-password", "destination": "/admin/index.html" },
+    { "source": "/admin/orders", "destination": "/admin/index.html" },
+    { "source": "/admin/internal-label", "destination": "/admin/index.html" },
+    { "source": "/admin/order-builder", "destination": "/admin/index.html" },
+    { "source": "/admin/inventory", "destination": "/admin/index.html" },
+    { "source": "/admin/discount-codes", "destination": "/admin/index.html" },
+    { "source": "/admin/tax", "destination": "/admin/index.html" },
+    { "source": "/admin/nexus", "destination": "/admin/index.html" },
+    { "source": "/admin/advanced", "destination": "/admin/index.html" }
   ],
   "functions": {
     "api/**/*.js": {

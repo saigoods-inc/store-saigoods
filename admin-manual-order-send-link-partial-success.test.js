@@ -309,7 +309,7 @@ test("B2B invoice attachment is forwarded only to the payment email step", async
 });
 
 test("Order Builder exposes invoice upload only inside B2B Square-link flow", () => {
-  const source = read("admin-v2.5/src/pages/OrderBuilderPage.tsx");
+  const source = read("admin-app/src/pages/OrderBuilderPage.tsx");
   assert.match(source, /fulfillmentMethod === "b2b_shipping" && paymentMethod === "square_payment_link"/);
   assert.match(source, /Customer invoice PDF/);
   assert.match(source, /Drop invoice PDF here/);

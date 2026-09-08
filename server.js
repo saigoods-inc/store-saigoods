@@ -699,124 +699,21 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 405, { error: "Method not allowed." });
     }
 
-    if (pathname === "/admin/orders" || pathname === "/admin/orders/" || pathname === "/admin/orders.html") {
-      return serveFile(res, path.join(publicDir, "admin", "orders.html"), req.method);
+    const legacyAdminLocation = canonicalAdminLocation(pathname, requestUrl.search);
+    if (legacyAdminLocation) {
+      return sendRedirect(res, legacyAdminLocation);
     }
 
-    if (pathname === "/admin/summary" || pathname === "/admin/summary/" || pathname === "/admin/summary.html") {
-      return serveFile(res, path.join(publicDir, "admin", "summary.html"), req.method);
+    if (pathname === "/admin" || pathname === "/admin/") {
+      return sendRedirect(res, `/admin/summary${requestUrl.search}`);
     }
 
-    if (pathname === "/admin/tax" || pathname === "/admin/tax/" || pathname === "/admin/tax.html") {
-      return serveFile(res, path.join(publicDir, "admin", "tax.html"), req.method);
-    }
-
-    if (pathname === "/admin/nexus" || pathname === "/admin/nexus/" || pathname === "/admin/nexus.html") {
-      return serveFile(res, path.join(publicDir, "admin", "nexus.html"), req.method);
-    }
-
-    if (
-      pathname === "/admin/discount-codes" ||
-      pathname === "/admin/discount-codes/" ||
-      pathname === "/admin/discount-codes.html"
-    ) {
-      return serveFile(res, path.join(publicDir, "admin", "discount-codes.html"), req.method);
-    }
-
-    if (
-      pathname === "/admin/manual-order" ||
-      pathname === "/admin/manual-order/" ||
-      pathname === "/admin/manual-order.html"
-    ) {
-      return serveFile(res, path.join(publicDir, "admin", "manual-order.html"), req.method);
-    }
-
-    if (
-      pathname === "/admin/walk-in-order" ||
-      pathname === "/admin/walk-in-order/" ||
-      pathname === "/admin/walk-in-order.html"
-    ) {
-      return serveFile(res, path.join(publicDir, "admin", "walk-in-order.html"), req.method);
-    }
-
-    if (
-      pathname === "/admin/inventory" ||
-      pathname === "/admin/inventory/" ||
-      pathname === "/admin/inventory.html"
-    ) {
-      return serveFile(res, path.join(publicDir, "admin", "inventory.html"), req.method);
-    }
-
-    if (pathname === "/admin-v2" || pathname === "/admin-v2/") {
-      return serveFile(res, path.join(publicDir, "admin-v2", "summary.html"), req.method);
-    }
-
-    if (
-      pathname === "/admin-v2/summary" ||
-      pathname === "/admin-v2/summary/" ||
-      pathname === "/admin-v2/summary.html"
-    ) {
-      return serveFile(res, path.join(publicDir, "admin-v2", "summary.html"), req.method);
-    }
-
-    if (pathname === "/admin-v2/tax" || pathname === "/admin-v2/tax/" || pathname === "/admin-v2/tax.html") {
-      return serveFile(res, path.join(publicDir, "admin-v2", "tax.html"), req.method);
-    }
-
-    if (pathname === "/admin-v2/nexus" || pathname === "/admin-v2/nexus/" || pathname === "/admin-v2/nexus.html") {
-      return serveFile(res, path.join(publicDir, "admin-v2", "nexus.html"), req.method);
-    }
-
-    if (
-      pathname === "/admin-v2/discount-codes" ||
-      pathname === "/admin-v2/discount-codes/" ||
-      pathname === "/admin-v2/discount-codes.html"
-    ) {
-      return serveFile(res, path.join(publicDir, "admin-v2", "discount-codes.html"), req.method);
-    }
-
-    if (
-      pathname === "/admin-v2/inventory" ||
-      pathname === "/admin-v2/inventory/" ||
-      pathname === "/admin-v2/inventory.html"
-    ) {
-      return serveFile(res, path.join(publicDir, "admin-v2", "inventory.html"), req.method);
-    }
-
-    if (
-      pathname === "/admin-v2/orders" ||
-      pathname === "/admin-v2/orders/" ||
-      pathname === "/admin-v2/orders.html"
-    ) {
-      return serveFile(res, path.join(publicDir, "admin-v2", "orders.html"), req.method);
-    }
-
-    if (
-      pathname === "/admin-v2/manual-order" ||
-      pathname === "/admin-v2/manual-order/" ||
-      pathname === "/admin-v2/manual-order.html"
-    ) {
-      return serveFile(res, path.join(publicDir, "admin-v2", "manual-order.html"), req.method);
-    }
-
-    if (
-      pathname === "/admin-v2/walk-in-order" ||
-      pathname === "/admin-v2/walk-in-order/" ||
-      pathname === "/admin-v2/walk-in-order.html"
-    ) {
-      return serveFile(res, path.join(publicDir, "admin-v2", "walk-in-order.html"), req.method);
-    }
-
-    if (pathname === "/admin-v2.5" || pathname === "/admin-v2.5/") {
-      return serveFile(res, path.join(publicDir, "admin-v2.5", "index.html"), req.method);
-    }
-
-    if (pathname.startsWith("/admin-v2.5/")) {
+    if (pathname.startsWith("/admin/")) {
       const requestedAsset = safeJoin(publicDir, pathname.replace(/^\//, ""));
       if (requestedAsset && path.extname(pathname)) {
         return serveFile(res, requestedAsset, req.method);
       }
-      return serveFile(res, path.join(publicDir, "admin-v2.5", "index.html"), req.method);
+      return serveFile(res, path.join(publicDir, "admin", "index.html"), req.method);
     }
 
     if (pathname === "/" || pathname === "/index.html") {
@@ -896,6 +793,49 @@ function safeJoin(root, requestPath) {
   }
 
   return filePath;
+}
+
+const ADMIN_ROUTE_ALIASES = new Map([
+  ["", "summary"],
+  ["manual-order", "order-builder"],
+  ["walk-in-order", "order-builder"],
+]);
+
+function canonicalAdminLocation(pathname, search = "") {
+  let route = null;
+
+  for (const prefix of ["/admin-v2.5", "/admin-v2"]) {
+    if (pathname === prefix || pathname === `${prefix}/`) {
+      route = "";
+      break;
+    }
+    if (pathname.startsWith(`${prefix}/`)) {
+      route = pathname.slice(prefix.length + 1);
+      break;
+    }
+  }
+
+  if (route === null && pathname.startsWith("/admin/") && pathname.endsWith(".html")) {
+    route = pathname.slice("/admin/".length);
+  }
+
+  if (route === null && pathname.startsWith("/admin/")) {
+    const candidate = pathname.slice("/admin/".length).replace(/\/+$/, "");
+    if (ADMIN_ROUTE_ALIASES.has(candidate)) route = candidate;
+  }
+
+  if (route === null) return null;
+  route = route.replace(/\/+$/, "").replace(/\.html$/, "");
+  route = ADMIN_ROUTE_ALIASES.get(route) ?? route;
+  return `/admin/${route || "summary"}${search}`;
+}
+
+function sendRedirect(res, location) {
+  res.writeHead(308, {
+    Location: location,
+    "Cache-Control": "no-store",
+  });
+  res.end();
 }
 
 async function serveFile(res, filePath, method) {

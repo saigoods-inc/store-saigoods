@@ -17,5 +17,5 @@
     "jsx": "react-jsx",
     "types": ["vite/client"]
   },
-  "include": ["admin-v2.5/src", "vite.config.ts"]
+  "include": ["admin-app/src", "vite.config.ts"]
 }

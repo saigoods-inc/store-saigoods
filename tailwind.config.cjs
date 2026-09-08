@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: ["./admin-v2.5/index.html", "./admin-v2.5/src/**/*.{ts,tsx}"],
+  content: ["./admin-app/index.html", "./admin-app/src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
