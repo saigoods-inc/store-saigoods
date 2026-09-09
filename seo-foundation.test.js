@@ -19,6 +19,33 @@ test("public pages expose safe crawl directives and canonical URLs", () => {
   assert.match(checkout, /name="robots" content="noindex, follow"/);
 });
 
+test("storefront and admin pages use the dedicated square SAI Goods favicon", () => {
+  const favicon = read("./public/favicon.svg");
+  const pages = [
+    "index",
+    "product",
+    "cart",
+    "checkout",
+    "contact",
+    "shipping",
+    "returns",
+    "privacy",
+  ];
+
+  assert.match(favicon, /viewBox="0 0 664 664"/);
+  assert.match(favicon, /fill="#BF5841"/);
+  for (const page of pages) {
+    assert.match(
+      read(`./public/${page}.html`),
+      /<link rel="icon" href="\/favicon\.svg" type="image\/svg\+xml" \/>/,
+    );
+  }
+  assert.match(
+    read("./admin-app/index.html"),
+    /<link rel="icon" href="\/favicon\.svg" type="image\/svg\+xml" \/>/,
+  );
+});
+
 test("internal storefront links use canonical product paths", () => {
   const homeHtml = read("./public/index.html");
   const homeJs = read("./public/js/home.js");
