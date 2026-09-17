@@ -1,3 +1,4 @@
+import { withStorefrontOffers } from "../lib/storefront-offers.js";
 import { mergeInventoryIntoStore } from "../lib/stock.js";
 import { primeRuntimeStore } from "../lib/runtime-store.js";
 
@@ -17,7 +18,8 @@ export default async function handler(req, res) {
       })),
     };
     res.setHeader("Cache-Control", "no-store");
-    res.status(200).json(await mergeInventoryIntoStore(publicStore));
+    const enriched = await mergeInventoryIntoStore(publicStore);
+    res.status(200).json({ ...enriched, products: enriched.products.map(withStorefrontOffers) });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Failed to load products." });

@@ -1,4 +1,5 @@
 {
+  "git": { "deploymentEnabled": { "codex/storefront-ui-release": false } },
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "outputDirectory": "public",
   "headers": [

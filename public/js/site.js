@@ -1,6 +1,7 @@
 import { getStore } from "./catalog.js";
 import { getCartCount } from "./cart-store.js";
 import { initAnalytics } from "./analytics.js";
+import { initMiniCart } from "./mini-cart.js";
 
 export async function initSite({ page } = {}) {
   void initAnalytics();
@@ -8,6 +9,8 @@ export async function initSite({ page } = {}) {
 
   renderHeader(store.site, page);
   initHeaderNavigation();
+  initScrollHeader();
+  initMiniCart(store, escapeHtml);
   renderFooter(store.site);
   updateCartBadges();
 
@@ -128,7 +131,7 @@ function renderHeader(site, page) {
       <div class="shell navbar">
         <a class="brand-mark" href="${logoHref}" aria-label="${escapeHtml(site.name)} home">
           <img src="/img/nav-logo.svg" alt="${escapeHtml(site.name)} logo" width="30" height="30" decoding="async" />
-          <span class="brand-mark__name">SAI Goods Store</span>
+          <span class="brand-mark__name">${escapeHtml(site.legalName || site.name)}</span>
         </a>
 
         <div class="store-nav-backdrop" aria-hidden="true"></div>
@@ -150,13 +153,51 @@ function renderHeader(site, page) {
           <span aria-hidden="true"></span>
         </button>
 
-        <a class="cart-link" href="/cart.html" aria-label="View cart">
+        ${page === "checkout" ? "" : `<a class="cart-link" ${page === "cart" ? 'aria-current="page" aria-disabled="true"' : 'href="/cart.html"'} aria-label="View cart">
           <img src="/img/cart-icon.svg" alt="" aria-hidden="true" width="22" height="22" decoding="async" />
           <span class="cart-link__count" data-cart-count hidden>0</span>
-        </a>
+        </a>`}
       </div>
     </div>
   `;
+}
+
+// Directional travel filters out touch settling and small scroll reversals.
+function initScrollHeader() {
+  const header = document.querySelector('[data-site-header]');
+  if (!header) return;
+  let lastY = Math.max(0, window.scrollY);
+  let travel = 0;
+  let direction = 0;
+  let pending = false;
+  const show = () => header.classList.remove('is-scroll-hidden');
+  const resize = new ResizeObserver(() => header.style.setProperty('--header-height', `${header.offsetHeight}px`));
+  resize.observe(header);
+  header.addEventListener('focusin', show);
+  window.addEventListener('scroll', () => {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => {
+      pending = false;
+      const y = Math.max(0, Math.min(window.scrollY, document.documentElement.scrollHeight - innerHeight));
+      const delta = y - lastY;
+      lastY = y;
+      if (document.body.style.position === 'fixed' || document.body.classList.contains('nav-drawer-open')) {
+        travel = 0;
+        return;
+      }
+      if (y <= header.offsetHeight) { show(); travel = 0; return; }
+      const nextDirection = Math.sign(delta);
+      if (!nextDirection) return;
+      if (nextDirection !== direction) travel = 0;
+      direction = nextDirection;
+      travel += Math.abs(delta);
+      if (travel >= (direction < 0 ? 24 : 16)) {
+        header.classList.toggle('is-scroll-hidden', direction > 0);
+        travel = 0;
+      }
+    });
+  }, {passive: true});
 }
 
 function initHeaderNavigation() {
@@ -245,7 +286,7 @@ function renderFooter(site) {
             </address>
           </div>
 
-          <div class="widget">
+          <div class="widget footer-policies">
             <h3 class="widget__title">POLICIES</h3>
             <nav class="footer-links" aria-label="Customer policies">
               <a href="/shipping">Shipping policy</a>

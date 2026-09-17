@@ -15,6 +15,7 @@ let store;
 let quote = null;
 let isCheckingOut = false;
 let hasTrackedViewCart = false;
+let quoteRevision = 0;
 
 document.addEventListener("DOMContentLoaded", init);
 
@@ -22,10 +23,15 @@ async function init() {
   store = await initSite({ page: "cart" });
   handleCheckoutReturn();
   cartRoot.addEventListener("click", handleCartClick);
+  window.addEventListener("cart:updated", () => void refreshQuote());
+  window.addEventListener("storage", event => {
+    if (!event.key || event.key === "saigoods-cart-v1") void refreshQuote();
+  });
   await refreshQuote();
 }
 
 async function refreshQuote() {
+  const revision = ++quoteRevision;
   const items = getCart(store.site.sizes);
 
   if (!items.length) {
@@ -41,8 +47,11 @@ async function refreshQuote() {
   }
 
   try {
-    quote = await getCartQuote(items);
+    const nextQuote = await getCartQuote(items);
+    if (revision !== quoteRevision) return;
+    quote = nextQuote;
   } catch (error) {
+    if (revision !== quoteRevision) return;
     quote = null;
     showToast(error.message, "error");
   }
@@ -275,7 +284,7 @@ function renderCartItem(item, sizes) {
               data-action="remove"
               aria-label="Remove ${escapeHtml(item.name)} from cart"
             >
-              <img src="/img/trash-icon.svg" alt="" aria-hidden="true" width="20" height="20" />
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15 M10 10v7 M14 10v7"/></svg>
             </button>
           </div>
         </div>
@@ -299,7 +308,6 @@ async function handleCartClick(event) {
 
   if (action === "clear-cart-global-oos") {
     clearCart(store.site.sizes);
-    await refreshQuote();
     showToast("Cart cleared.", "success");
     return;
   }
@@ -319,7 +327,6 @@ async function handleCartClick(event) {
   if (action === "remove") {
     trackRemoveFromCart(quote?.items?.find((item) => item.slug === slug));
     removeProduct(slug, store.site.sizes);
-    await refreshQuote();
     showToast("Item removed from your cart.", "success");
   }
 }
