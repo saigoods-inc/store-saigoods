@@ -1,4 +1,4 @@
-import { mergeInventoryIntoProduct } from "../lib/stock.js";
+import { mergeInventoryIntoStore } from "../lib/stock.js";
 import { primeRuntimeStore } from "../lib/runtime-store.js";
 import { renderProductNotFoundPage, renderProductPage } from "../lib/seo.js";
 
@@ -32,7 +32,8 @@ export default async function handler(req, res) {
 
     let product = source;
     try {
-      product = await mergeInventoryIntoProduct(source);
+      const merged = await mergeInventoryIntoStore({ ...store, products: [source] });
+      product = merged.products[0];
     } catch (error) {
       console.error("[seo] Inventory enrichment failed; rendering catalog availability.", error);
     }

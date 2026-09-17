@@ -1,3 +1,5 @@
+import { setCheckoutSummaryValue } from './checkout-summary-value.js';
+import { isCheckoutDesignPreview } from './checkout-preview-mode.js';
 import { formatCartUnitLabel, formatSizeLineText, getCartQuote } from "./catalog.js";
 import { clearCart, getCart } from "./cart-store.js";
 import { escapeHtml, initSite, setButtonBusy, showToast } from "./site.js";
@@ -93,7 +95,7 @@ function resetCheckoutAttemptId() {
 document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
-  store = await initSite({ page: "cart" });
+  store = await initSite({ page: "checkout" });
   items = getCart(store.site.sizes);
 
   if (store?.site?.storefrontGlobalOutOfStock && items.length && !isPreviewCheckoutSuccess()) {
@@ -130,6 +132,15 @@ async function init() {
     return;
   }
 
+  if (isCheckoutDesignPreview()) {
+    const miniQuote = await getCartQuote(items);
+    renderCheckoutShell(miniQuote, { skipInitialEstimate: true });
+    initCheckoutStateDropdown();
+    const { initCheckoutDesignPreview } = await import('./checkout-design-preview.js');
+    initCheckoutDesignPreview(root, miniQuote);
+    return;
+  }
+
   let config;
   try {
     const res = await fetch("/api/square-config");
@@ -150,7 +161,7 @@ async function init() {
         <p class="summary-card__note">
           ${setupNote}
         </p>
-        <a class="button button--secondary" href="/cart.html">Back to cart</a>
+        <a class="button button--secondary" href="/cart.html">Edit cart</a>
       </div>
     `;
     return;
@@ -352,13 +363,13 @@ function renderCheckoutShell(miniQuote, options = {}) {
           Pay now
         </button>
 
-        <p class="checkout-footnote">
-          <a href="/cart.html">← Back to cart</a>
-        </p>
       </div>
 
       <aside class="summary-card checkout-summary" aria-live="polite">
-        <h2>Order summary</h2>
+        <div class="checkout-summary__heading">
+          <h2>Order summary</h2>
+          <a class="checkout-summary__edit" href="/cart.html" aria-label="Edit cart" title="Edit cart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5-12 12-6 1 1-6L16 3Z M13 6l5 5"/></svg></a>
+        </div>
         <div id="checkout-lines" class="checkout-lines"></div>
         <div class="summary-card__rows checkout-totals">
           <div class="summary-card__row">
@@ -367,7 +378,7 @@ function renderCheckoutShell(miniQuote, options = {}) {
           </div>
           <div class="summary-card__row">
             <span>Shipping:</span>
-            <strong id="sum-ship">–</strong>
+            <strong id="sum-ship" class="checkout-total-placeholder">–</strong>
           </div>
           <p id="checkout-delivery-estimate" class="checkout-delivery-estimate" hidden></p>
           <div id="checkout-row-residential" class="summary-card__row" hidden>
@@ -380,11 +391,11 @@ function renderCheckoutShell(miniQuote, options = {}) {
           </div>
           <div class="summary-card__row summary-card__row--tax">
             <span>Estimated tax:</span>
-            <strong id="sum-tax">–</strong>
+            <strong id="sum-tax" class="checkout-total-placeholder">–</strong>
           </div>
           <div class="summary-card__row summary-card__row--total">
             <span>Total due:</span>
-            <strong id="sum-total">—</strong>
+            <strong id="sum-total" class="checkout-total-placeholder">—</strong>
           </div>
         </div>
         <div id="checkout-residential-footnote-wrap" class="checkout-residential-footnote-wrap" hidden>
@@ -624,13 +635,13 @@ function markEstimateStale() {
   const resRow = document.getElementById("checkout-row-residential");
   const resFoot = document.getElementById("checkout-residential-footnote-wrap");
   if (sumShip) {
-    sumShip.textContent = "–";
+    setCheckoutSummaryValue(sumShip, "–");
   }
   if (sumTax) {
-    sumTax.textContent = "–";
+    setCheckoutSummaryValue(sumTax, "–");
   }
   if (sumTotal) {
-    sumTotal.textContent = sumSub?.textContent || "—";
+    setCheckoutSummaryValue(sumTotal, sumSub?.textContent || "—");
   }
   if (deliveryEstimate) {
     deliveryEstimate.hidden = true;
@@ -867,8 +878,8 @@ function applyCheckoutOrderSummary(data, opts = {}) {
 
   if (sumShip && sumTax && sumTotal) {
     if (initialSummary) {
-      sumShip.textContent = "–";
-      sumTax.textContent = "–";
+      setCheckoutSummaryValue(sumShip, "–");
+      setCheckoutSummaryValue(sumTax, "–");
       if (deliveryEstimate) deliveryEstimate.hidden = true;
       if (resRow) {
         resRow.hidden = true;
@@ -880,8 +891,8 @@ function applyCheckoutOrderSummary(data, opts = {}) {
         discountRow.hidden = true;
       }
     } else {
-      sumShip.textContent = shippingStatusDisplay(view);
-      sumTax.textContent = view.taxFormatted;
+      setCheckoutSummaryValue(sumShip, shippingStatusDisplay(view));
+      setCheckoutSummaryValue(sumTax, view.taxFormatted);
       if (deliveryEstimate) {
         const deliveryText = estimatedDeliveryDisplay(view);
         deliveryEstimate.textContent = deliveryText || "";
@@ -903,7 +914,7 @@ function applyCheckoutOrderSummary(data, opts = {}) {
         }
       }
     }
-    sumTotal.textContent = view.totalFormatted;
+    setCheckoutSummaryValue(sumTotal, view.totalFormatted);
   }
 }
 
@@ -1333,7 +1344,7 @@ async function runEstimate(options = {}) {
     estimateLoading = true;
     syncConfirmAddressButtonState();
     if (!initialSummary && sumShip) {
-      sumShip.textContent = "Calculating…";
+      setCheckoutSummaryValue(sumShip, "Calculating…");
       const deliveryEstimate = document.getElementById("checkout-delivery-estimate");
       if (deliveryEstimate) deliveryEstimate.hidden = true;
     }
@@ -1459,9 +1470,9 @@ async function runEstimate(options = {}) {
         showShippingSectionError(msg);
       }
     }
-    sumShip.textContent = "–";
-    sumTax.textContent = "–";
-    sumTotal.textContent = "—";
+    setCheckoutSummaryValue(sumShip, "–");
+    setCheckoutSummaryValue(sumTax, "–");
+    setCheckoutSummaryValue(sumTotal, "—");
     const deliveryEstimate = document.getElementById("checkout-delivery-estimate");
     if (deliveryEstimate) deliveryEstimate.hidden = true;
     resetCheckoutSummaryDiscountAmount();

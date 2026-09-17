@@ -1,39 +1,24 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": { "codex/storefront-renovation": false }
+  },
   "outputDirectory": "public",
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        },
-        {
-          "key": "X-Frame-Options",
-          "value": "DENY"
-        },
-        {
-          "key": "Referrer-Policy",
-          "value": "strict-origin-when-cross-origin"
-        },
-        {
-          "key": "Permissions-Policy",
-          "value": "camera=(), microphone=(), geolocation=()"
-        },
-        {
-          "key": "Strict-Transport-Security",
-          "value": "max-age=31536000; includeSubDomains"
-        }
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" },
+        { "key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains" }
       ]
     },
     {
       "source": "/admin/(.*)",
       "headers": [
-        {
-          "key": "X-Robots-Tag",
-          "value": "noindex, nofollow"
-        }
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
       ]
     }
   ],
@@ -56,7 +41,7 @@
       "permanent": true
     },
     {
-      "source": "/products/lydus\u2122-black-nitrile-general-series",
+      "source": "/products/lydus™-black-nitrile-general-series",
       "destination": "/products/black-nitrile-general",
       "permanent": true
     },
@@ -102,74 +87,23 @@
     }
   ],
   "rewrites": [
-    {
-      "source": "/products/:slug",
-      "destination": "/api/product-page?slug=:slug"
-    },
-    {
-      "source": "/contact",
-      "destination": "/contact.html"
-    },
-    {
-      "source": "/shipping",
-      "destination": "/shipping.html"
-    },
-    {
-      "source": "/returns",
-      "destination": "/returns.html"
-    },
-    {
-      "source": "/privacy",
-      "destination": "/privacy.html"
-    },
-    {
-      "source": "/sitemap.xml",
-      "destination": "/api/sitemap"
-    },
-    {
-      "source": "/merchant-feed.xml",
-      "destination": "/api/merchant-feed"
-    },
-    {
-      "source": "/admin/summary",
-      "destination": "/admin/index.html"
-    },
-    {
-      "source": "/admin/reset-password",
-      "destination": "/admin/index.html"
-    },
-    {
-      "source": "/admin/orders",
-      "destination": "/admin/index.html"
-    },
-    {
-      "source": "/admin/internal-label",
-      "destination": "/admin/index.html"
-    },
-    {
-      "source": "/admin/order-builder",
-      "destination": "/admin/index.html"
-    },
-    {
-      "source": "/admin/inventory",
-      "destination": "/admin/index.html"
-    },
-    {
-      "source": "/admin/discount-codes",
-      "destination": "/admin/index.html"
-    },
-    {
-      "source": "/admin/tax",
-      "destination": "/admin/index.html"
-    },
-    {
-      "source": "/admin/nexus",
-      "destination": "/admin/index.html"
-    },
-    {
-      "source": "/admin/advanced",
-      "destination": "/admin/index.html"
-    }
+    { "source": "/products/:slug", "destination": "/api/product-page?slug=:slug" },
+    { "source": "/contact", "destination": "/contact.html" },
+    { "source": "/shipping", "destination": "/shipping.html" },
+    { "source": "/returns", "destination": "/returns.html" },
+    { "source": "/privacy", "destination": "/privacy.html" },
+    { "source": "/sitemap.xml", "destination": "/api/sitemap" },
+    { "source": "/merchant-feed.xml", "destination": "/api/merchant-feed" },
+    { "source": "/admin/summary", "destination": "/admin/index.html" },
+    { "source": "/admin/reset-password", "destination": "/admin/index.html" },
+    { "source": "/admin/orders", "destination": "/admin/index.html" },
+    { "source": "/admin/internal-label", "destination": "/admin/index.html" },
+    { "source": "/admin/order-builder", "destination": "/admin/index.html" },
+    { "source": "/admin/inventory", "destination": "/admin/index.html" },
+    { "source": "/admin/discount-codes", "destination": "/admin/index.html" },
+    { "source": "/admin/tax", "destination": "/admin/index.html" },
+    { "source": "/admin/nexus", "destination": "/admin/index.html" },
+    { "source": "/admin/advanced", "destination": "/admin/index.html" }
   ],
   "functions": {
     "api/**/*.js": {
@@ -177,22 +111,8 @@
     }
   },
   "crons": [
-    {
-      "path": "/api/automatic-label-recovery",
-      "schedule": "*/10 * * * *"
-    },
-    {
-      "path": "/api/automatic-manual-label-recovery",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/expire-manual-payment-links",
-      "schedule": "0 * * * *"
-    }
-  ],
-  "git": {
-    "deploymentEnabled": {
-      "codex/storefront-renovation": false
-    }
-  }
+    { "path": "/api/automatic-label-recovery", "schedule": "*/10 * * * *" },
+    { "path": "/api/automatic-manual-label-recovery", "schedule": "*/5 * * * *" },
+    { "path": "/api/expire-manual-payment-links", "schedule": "0 * * * *" }
+  ]
 }

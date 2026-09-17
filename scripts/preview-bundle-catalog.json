@@ -1,0 +1,103 @@
+{
+  "products": [
+    {
+      "slug": "nitrile-standard",
+      "bundles": [
+        {
+          "id": "box_1",
+          "kind": "box",
+          "label": "1 box",
+          "units": 1,
+          "active": true,
+          "priceCents": 999,
+          "hardinPriceCents": 999
+        },
+        {
+          "id": "case_1",
+          "kind": "case",
+          "label": "1 carton",
+          "units": 1,
+          "active": true,
+          "priceCents": 7999,
+          "hardinPriceCents": 7999,
+          "badge": "popular"
+        },
+        {
+          "id": "5_boxes",
+          "kind": "box",
+          "label": "5 boxes",
+          "units": 5,
+          "active": true,
+          "priceCents": 4495,
+          "hardinPriceCents": 4495
+        }
+      ]
+    },
+    {
+      "slug": "black-nitrile-general",
+      "bundles": [
+        {
+          "id": "box_1",
+          "kind": "box",
+          "label": "1 box",
+          "units": 1,
+          "active": true,
+          "priceCents": 999,
+          "hardinPriceCents": 999
+        },
+        {
+          "id": "case_1",
+          "kind": "case",
+          "label": "1 carton",
+          "units": 1,
+          "active": true,
+          "priceCents": 7999,
+          "hardinPriceCents": 7999,
+          "badge": "popular"
+        },
+        {
+          "id": "5_boxes",
+          "kind": "box",
+          "label": "5 boxes",
+          "units": 5,
+          "active": true,
+          "priceCents": 4495,
+          "hardinPriceCents": 4495
+        }
+      ]
+    },
+    {
+      "slug": "black-nitrile-heavy-duty",
+      "bundles": [
+        {
+          "id": "box_1",
+          "kind": "box",
+          "label": "1 box",
+          "units": 1,
+          "active": true,
+          "priceCents": 1999,
+          "hardinPriceCents": 1999
+        },
+        {
+          "id": "case_1",
+          "kind": "case",
+          "label": "1 carton",
+          "units": 1,
+          "active": true,
+          "priceCents": 16999,
+          "hardinPriceCents": 16999,
+          "badge": "popular"
+        },
+        {
+          "id": "5_boxes",
+          "kind": "box",
+          "label": "5 boxes",
+          "units": 5,
+          "active": true,
+          "priceCents": 9495,
+          "hardinPriceCents": 9495
+        }
+      ]
+    }
+  ]
+}
