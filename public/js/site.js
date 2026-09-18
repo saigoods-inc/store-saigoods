@@ -6,16 +6,24 @@ import { initMiniCart } from "./mini-cart.js";
 
 export async function initSite({ page } = {}) {
   void initAnalytics();
-  const store = await getStore();
+  // Navigation and the local cart badge must not wait for the product API.
+  const hasInitialHeader = !!document.querySelector('[data-site-header] .site-header');
+  if (hasInitialHeader) {
+    initHeaderNavigation();
+    initScrollHeader();
+    updateCartBadges();
+  }
+  window.addEventListener("cart:updated", updateCartBadges);
 
-  renderHeader(store.site, page);
-  initHeaderNavigation();
-  initScrollHeader();
+  const store = await getStore();
+  if (!hasInitialHeader) {
+    renderHeader(store.site, page);
+    initHeaderNavigation();
+    initScrollHeader();
+    updateCartBadges();
+  }
   initMiniCart(store, escapeHtml);
   renderFooter(store.site);
-  updateCartBadges();
-
-  window.addEventListener("cart:updated", updateCartBadges);
 
   return store;
 }

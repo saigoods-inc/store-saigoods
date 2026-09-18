@@ -4558,3 +4558,17 @@ body.nav-drawer-open [data-site-header] { top: 0; }
 @media (hover: hover) { .page--cart .cart-card__icon-btn[data-action="remove"]:hover { background: #fee4e2; } }
 
 .footer .contact__label, .footer .credential__label { font-family: ManropeVariable, Manrope, sans-serif; }
+
+/* Transform-only feedback keeps the icon's layout box and button padding fixed. */
+@keyframes purchase-icon-pulse {
+  0%, 100% { scale: 1; }
+  42% { scale: 1.16; }
+}
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .page--product [data-action="add-to-cart"]:not(:disabled):hover .button__icon,
+  .storefront-home .product-card__actions > a.button:hover > svg {
+    animation: purchase-icon-pulse 440ms cubic-bezier(.22, 1, .36, 1);
+    transform-origin: center;
+  }
+}
+.cart-link__count[hidden] { display: none; }
