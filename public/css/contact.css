@@ -24,7 +24,12 @@
 .inquiry-form .button { justify-self: start; background: var(--accent); }
 .inquiry-form .honeypot { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 @media (max-width: 760px) {
-  .business-hero, .business-contact { padding-inline: 20px; }
+  .business-hero { padding: 40px 20px; }
+  .business-hero h1 { font-size: 23px; }
+  .business-hero p { font-family: ManropeVariable, Manrope, sans-serif; font-size: 14px; font-weight: 500; line-height: 1.5; }
+  .business-contact { padding: 30px 25px; }
+  .contact-copy h2 { font-size: 18px; font-weight: 800; margin-bottom: 12px; }
+  .contact-copy > p { font-size: 14px; margin-top: 0; }
 
   .contact-grid { grid-template-columns: 1fr; gap: 32px; }
   .contact-copy address { margin-top: 24px; }
