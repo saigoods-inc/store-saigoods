@@ -15,15 +15,23 @@
     <link rel="stylesheet" href="/css/styles.css" />
     <link rel="stylesheet" href="/css/contact.css" />
   </head>
-  <body>
+  <body class="page--contact">
     <div class="site-frame">
       <header data-site-header></header>
       <main>
+        <section class="business-hero" aria-labelledby="business-title">
+          <div class="shell">
+            <p class="eyebrow eyebrow--accent">SAI Goods for business</p>
+            <h1 id="business-title">Let’s build the right supply plan for your business.</h1>
+            <p>Discuss bulk glove orders, recurring supply, contract pricing, or distribution opportunities. Tell us what your organization needs so our team can help you explore the next step.</p>
+            <a class="button button--primary" href="#business-contact">Start a business inquiry <span aria-hidden="true">→</span></a>
+          </div>
+        </section>
       <section class="section business-contact" id="business-contact" aria-labelledby="contact-title">
         <div class="shell contact-grid">
           <div class="contact-copy">
             <p class="eyebrow">Contact SAI Goods, Inc.</p>
-            <h1 id="contact-title">Tell us about your organization</h1>
+            <h2 id="contact-title">Tell us about your organization</h2>
             <p>Share a few details and our team will review your inquiry. Submitting this form does not create a commitment or guarantee availability.</p>
             <address>
               <strong>Email</strong><a href="mailto:sales@saigoods.com">sales@saigoods.com</a>
@@ -51,8 +59,8 @@
             </div>
             <label>Estimated quantity or frequency <small>(optional)</small><input name="quantity" type="text" placeholder="e.g. 5,000 units per month" /></label>
             <label>Message <span aria-hidden="true">*</span><textarea name="message" rows="4" placeholder="Tell us about your organization, needs, or questions." required></textarea></label>
-            <p id="inquiry-help">This form opens an email draft. Send it from your email app to submit your inquiry.</p>
-            <button class="button button--primary" type="submit">Prepare inquiry email</button>
+            <p id="inquiry-help">Send your inquiry directly to our team using the form below.</p>
+            <button class="button button--primary" type="submit">Submit inquiry</button>
             <p id="inquiry-status" role="status" hidden></p>
           </form>
         </div>
