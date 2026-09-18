@@ -4514,55 +4514,47 @@ body.nav-drawer-open [data-site-header] { top: 0; }
   .footer .footer__content > .footer__top { row-gap: 20px; }
 }
 
-/* One responsive footer for every page rendered by site.js. */
-.footer { --font-body: Manrope, sans-serif; --font-display: Manrope, sans-serif; --accent: #c25840; font-family: Manrope, sans-serif; }
-.footer .shell.footer__content { width: min(89.5%, 70rem); margin-inline: auto; }
-.footer { background: #fff; }
-.footer .footer__content { padding: 4rem 0 0; gap: 0; }
-.footer .footer__top { display: grid; grid-template-columns: 1.2fr 1fr 1fr 1fr; gap: 2rem; padding-bottom: 16px; }
-.footer .brand__name { font-size: 1.4rem; white-space: nowrap; font-weight: 800; }
-.footer .brand__logo { width: 38px; }
-.footer .brand__address, .footer .contact__value, .footer .credential__value { font-family: Manrope, sans-serif; font-size: .95rem; font-weight: 400; color: #78818e; }
-.footer .widget__title { font-size: 1.1rem; letter-spacing: 0; }
-.footer .credential__label, .footer .contact__label { font-size: 1rem; color: #2b465a; text-transform: none; letter-spacing: 0; font-weight: 800; }
-.footer .footer__bottom { margin-top: 0; padding: 18px 0; }
-@media (min-width: 681px) and (max-width: 1000px) {
-  .footer .footer__top { grid-template-columns: 1fr 1fr; }
+/* Shared footer: desktop columns, tablet pairs, and mobile stack. */
+.footer { --font-body: Manrope, sans-serif; --font-display: Manrope, sans-serif; font-family: Manrope, sans-serif; background: #fff; }
+.footer .shell.footer__content { width: min(calc(100% - 80px), 70rem); margin-inline: auto; padding: 48px 0 0; gap: 0; }
+.footer .footer-brand { padding-bottom: 24px; border-bottom: 1px solid #e3e3e7; }
+.footer .brand__row { gap: 14px; }
+.footer .brand__name { font: 800 24px/1.3 Manrope, sans-serif; color: #bf5540; white-space: nowrap; }
+.footer .brand__logo { width: 36px; height: 36px; }
+.footer .footer__top { display: grid; grid-template-columns: .65fr 1.05fr 1.2fr 1.35fr; gap: 28px; padding: 28px 0; margin: 0; align-items: start; }
+.footer .footer__top > .widget { display: grid; gap: 18px; min-width: 0; align-content: start; }
+.footer .widget__title { margin: 0; font-size: 20px; line-height: 1.25; letter-spacing: 0; font-weight: 800; color: #bf5540; }
+.footer .footer-links, .footer .widget__list { display: grid; gap: 18px; }
+.footer .footer-links { gap: 12px; }
+.footer .footer-links a, .footer .footer-brands > a { font-size: 16px; font-weight: 600; color: #444; }
+.footer .footer-links a { text-decoration: underline; text-underline-offset: 2px; }
+.footer .contact__label, .footer .credential__label { font: 700 14px/1.4 Manrope, sans-serif; color: #1b3747; text-transform: none; letter-spacing: 0; }
+.footer .contact__value, .footer .credential__value { font: 400 16px/1.45 Manrope, sans-serif; color: #6e7b87; overflow-wrap: anywhere; }
+.footer .credential:nth-child(2) { order: initial; width: auto; }
+.footer .footer__bottom { margin: 0; padding: 28px 0; gap: 16px; }
+.footer .rights { font: 400 14px/1.5 Manrope, sans-serif; }
+.footer .social { gap: 24px; }
+@media (min-width: 481px) and (max-width: 760px) {
+  .footer .footer__top { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px 28px; }
 }
-@media (max-width: 680px) {
-  .footer .footer__content { padding: 2rem 0 0; }
-  .footer .footer__top { grid-template-columns: 1fr; gap: 2rem; padding-bottom: 16px; }
-  .footer .brand__name { font-size: 1.25rem; }
-  .footer .brand__logo { width: 30px; }
-  .footer .widget__title { font-size: .95rem; }
-  .footer .brand__address, .footer .contact__value, .footer .credential__value, .footer .credential__label, .footer .contact__label { font-size: .85rem; }
-  .footer .footer-links { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; font-size: .9rem; }
-  .footer .widget__list { display: flex; flex-wrap: wrap; gap: .8rem 1.2rem; }
-  .footer .credential:nth-child(2) { order: 3; width: 100%; }
-  .footer .rights { font-size: .7rem; }
-  .footer .shell.footer__content { width: calc(100% - 40px); }
-  .footer .footer__top { row-gap: 20px; }
+@media (max-width: 480px) {
+  .footer .footer__top { grid-template-columns: 1fr; gap: 28px; }
+  .footer .shell.footer__content { padding-top: 40px; }
+  .footer .brand__name { font-size: 21px; }
+  .footer .brand__logo { width: 30px; height: 30px; }
+  .footer .footer__bottom { flex-wrap: wrap; }
+  .footer .rights { font-size: 12px; }
+  .footer .social { gap: 20px; }
+  .footer .social img { width: 20px; height: 20px; }
 }
+@media (max-width: 360px) { .footer .shell.footer__content { width: calc(100% - 40px); } }
 
-.footer .brand__row .brand__name { font-size: 18px; }
-.footer .brand__row .brand__logo { width: 34px; }
-@media (max-width: 760px) { .footer .brand__row .brand__logo { width: 28px; } }
+/* True variable weights for the cart, including the requested 700 headings. */
+@font-face { font-family: ManropeVariable; font-style: normal; font-weight: 200 800; font-display: swap; src: url('/font/Manrope-Variable.ttf') format('truetype'); }
+.page--cart { --font-body: ManropeVariable, Manrope, sans-serif; --font-display: ManropeVariable, Manrope, sans-serif; font-family: var(--font-body); }
+.page--cart .cart-card__topline h3 { font-weight: 700; }
+.page--cart .summary-card > .button--primary { border-radius: 8px; }
+.page--cart .cart-card__icon-btn[data-action="remove"] { color: #b42318; border: 1px solid #f1c3bf; background: #fff4f3; }
+@media (hover: hover) { .page--cart .cart-card__icon-btn[data-action="remove"]:hover { background: #fee4e2; } }
 
-/* Content-sized footer groups avoid the tall, half-empty tablet grid. */
-.footer .footer__content { padding-top: clamp(28px, 4vw, 48px); }
-.footer .footer__top { gap: 24px; margin-bottom: 12px; padding-bottom: 12px; }
-.footer .footer__top > .widget { min-width: 0; align-content: start; }
-.footer .widget__title { margin-bottom: 0; }
-.footer .brand__address { margin-top: 8px; }
-.footer .contact__value, .footer .credential__label { overflow-wrap: anywhere; }
-@media (min-width: 761px) and (max-width: 1000px) {
-  .footer .footer__top { grid-template-columns: .8fr 1fr 1.3fr; }
-  .footer .brand { grid-column: 1 / -1; display: flex; align-items: center; gap: 32px; }
-  .footer .brand__address { margin: 0; }
-}
-@media (max-width: 760px) {
-  .footer .footer__top { grid-template-columns: 1fr; row-gap: 20px; }
-  .footer .shell.footer__content { width: calc(100% - 40px); }
-  .footer .footer-links, .footer .widget__list { display: flex; flex-wrap: wrap; gap: 8px 20px; }
-  .footer .credential:nth-child(2) { order: 3; width: 100%; }
-}
+.footer .contact__label, .footer .credential__label { font-family: ManropeVariable, Manrope, sans-serif; }

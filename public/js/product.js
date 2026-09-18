@@ -960,6 +960,18 @@ async function handleProductClick(event) {
     };
     setProductQuantities(product.slug, cartPayload, store.site.sizes);
     saveBundleSizes();
+    const cartIcon = productRoot.querySelector('[data-action="add-to-cart"] .button__icon');
+    if (cartIcon && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      cartIcon.getAnimations().forEach(animation => animation.cancel());
+      cartIcon.animate([
+        { transform: 'translateX(0) rotate(0deg)', offset: 0 },
+        { transform: 'translateX(-3px) rotate(-14deg)', offset: .18 },
+        { transform: 'translateX(3px) rotate(11deg)', offset: .38 },
+        { transform: 'translateX(-2px) rotate(-7deg)', offset: .58 },
+        { transform: 'translateX(1px) rotate(4deg)', offset: .78 },
+        { transform: 'translateX(0) rotate(0deg)', offset: 1 }
+      ], { duration: 480, easing: 'ease-out' });
+    }
     void getCartQuote([{ slug: product.slug, ...cartPayload }])
       .then(trackAddToCart)
       .catch(() => {});
