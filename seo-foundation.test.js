@@ -48,7 +48,7 @@ test("storefront and admin pages use the dedicated square SAI Goods favicon", ()
 
 test("internal storefront links use canonical product paths", () => {
   const homeHtml = read("./public/index.html");
-  const homeJs = read("./public/js/home.js");
+  const homeJs = read("./public/js/home.js") + read("./public/js/home-cards.js");
   const cartJs = read("./public/js/cart.js");
 
   for (const source of [homeHtml, homeJs, cartJs]) {
@@ -60,7 +60,7 @@ test("internal storefront links use canonical product paths", () => {
 
 test("storefront leads from products to decision support and bulk ordering", () => {
   const home = read("./public/index.html");
-  const homeJs = read("./public/js/home.js");
+  const homeJs = read("./public/js/home.js") + read("./public/js/home-cards.js");
   const products = home.indexOf('id="products"');
   const chooser = home.indexOf('id="choose-your-glove"');
   const bulk = home.indexOf('id="b2b"');

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "npm run verify:shipping && npm run test:seo",
+    "test": "npm run verify:shipping && npm run test:seo && npm run test:storefront",
     "verify:shipping": "node --test lib/square-cancellation.test.js lib/order-cancellation.test.js api/admin-payment-health.test.js api/admin-manual-order-create.test.js api/admin-manual-order-estimate.test.js lib/payment-health.test.js lib/shipping-package-limit.test.js lib/automatic-label-worker.test.js lib/checkout-shipping-options.test.js lib/square-payment-verification.test.js lib/checkout-payment-idempotency.test.js lib/online-payment-inventory-atomic.test.js lib/public-api-guard.test.js lib/checkout-quote-token.test.js lib/internal-shipping-rate.test.js lib/shippo-package-rate-set.test.js lib/shippo-rate-provider.test.js lib/shippo-shipment-sync.test.js api/admin-order-shippo-buy-all-labels.test.js api/admin-order-shippo-purchase-label.test.js api/admin-order-shippo-sync.test.js api/checkout-estimate-public.test.js lib/live-shipping-quote.test.js lib/order-shippo-labels-handoff.test.js lib/shippo-label-purchase-claim.test.js lib/shipping-health.test.js lib/warehouse-settings.test.js shipping-phase6-matrix.test.js",
     "verify:launch": "npm run check:shipping-config && npm run verify:shipping && npm run test:admin:unit && npm run test:admin:integration && npm run build:admin",
     "check:shipping-config": "node scripts/check-shipping-readiness.mjs",
@@ -21,7 +21,9 @@
     "test:quote-physical": "node --test lib/quote-physical-allocation.test.js",
     "optimize:images": "node scripts/optimize-images.mjs",
     "bootstrap:inventory": "node scripts/bootstrap-inventory-from-json.mjs",
-    "preview:renovation": "node scripts/renovation-preview.mjs"
+    "preview:renovation": "node scripts/renovation-preview.mjs",
+    "build:storefront": "node scripts/build-home-catalog.mjs",
+    "test:storefront": "node scripts/build-home-catalog.mjs --check && node --test public/js/home-cards.test.js"
   },
   "devDependencies": {
     "@types/react": "^19.2.18",
