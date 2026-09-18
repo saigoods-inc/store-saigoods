@@ -13,7 +13,7 @@
     <meta property="og:description" content="Talk with SAI Goods about nitrile gloves, bulk orders, and product questions." />
     <meta property="og:url" content="https://store.saigoods.com/contact" />
     <link rel="stylesheet" href="/css/styles.css" />
-    <link rel="stylesheet" href="/css/contact.css" />
+    <link rel="stylesheet" href="/css/contact.css?v=20260918-compact" />
   </head>
   <body class="page--contact">
     <div class="site-frame">
@@ -47,17 +47,17 @@
               <label>Phone <small>(optional)</small><input name="phone" type="tel" autocomplete="tel" placeholder="+1 (615) 000-0000" /></label>
             </div>
             <div class="form-row">
-              <label>Organization type <span aria-hidden="true">*</span>
-                <select name="org_type" required>
+              <div class="inquiry-org"><label id="org-label" for="org-type">Organization type <span aria-hidden="true">*</span></label>
+                <select id="org-type" name="org_type" required>
                   <option value="">Select type…</option><option>Healthcare</option><option>Food Service</option><option>Industrial / Manufacturing</option><option>Government / Institutional</option><option>Retail / Local Business</option><option>International Brand / Manufacturer</option><option>Other</option>
                 </select>
-              </label>
+              </div>
               <label>Area of interest <span aria-hidden="true">*</span><input name="products" type="text" placeholder="e.g. Nitrile gloves" required /></label>
             </div>
             <label>Estimated quantity or frequency <small>(optional)</small><input name="quantity" type="text" placeholder="e.g. 5,000 units per month" /></label>
             <label>Message <span aria-hidden="true">*</span><textarea name="message" rows="4" placeholder="Tell us about your organization, needs, or questions." required></textarea></label>
             <p id="inquiry-help">Send your inquiry directly to our team using the form below.</p>
-            <button class="button button--primary" type="submit">Submit inquiry</button>
+            <button class="button button--primary" type="submit"><svg width="19" height="22" viewBox="0 0 19 22" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M13.6235 7.93604L10.9444 15.0864C10.9136 15.1687 10.905 15.2575 10.9194 15.3441C10.9339 15.4307 10.9709 15.512 11.0267 15.5797L15.7541 21.3078C16.1843 21.8426 17.0471 21.5682 17.0873 20.8825L18.2931 0.794009C18.3013 0.655088 18.2707 0.516625 18.2047 0.394107C18.1387 0.271589 18.0399 0.169849 17.9194 0.100268C17.7989 0.0306864 17.6614 -0.00399164 17.5223 0.00011284C17.3832 0.00421732 17.248 0.0469427 17.1318 0.123509L0.337552 11.212C-0.235318 11.5902 -0.0415421 12.4746 0.635848 12.5793L7.96065 13.8084C8.04724 13.8228 8.13612 13.8143 8.21834 13.7835C8.30056 13.7527 8.37324 13.7008 8.42905 13.6331L13.2819 7.73768C13.3119 7.70074 13.3541 7.6757 13.4009 7.66706C13.4476 7.65841 13.496 7.66673 13.5372 7.69052C13.5784 7.71431 13.6098 7.75201 13.6257 7.79685C13.6416 7.8417 13.641 7.89074 13.624 7.93518" fill="black"/></svg><span data-submit-label>Submit inquiry</span></button>
             <p id="inquiry-status" role="status" hidden></p>
           </form>
         </div>
@@ -65,6 +65,6 @@
       </main>
       <footer data-site-footer></footer>
     </div>
-    <script type="module" src="/js/contact.js"></script>
+    <script type="module" src="/js/contact.js?v=20260918-compact"></script>
   </body>
 </html>
