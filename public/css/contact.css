@@ -7,7 +7,7 @@
 .contact-copy p, .contact-copy address { font-size: var(--fs-body); }
 .inquiry-form #inquiry-status { margin: 0; line-height: 1.5; }
 .inquiry-form #inquiry-status[data-error="true"] { color: #a33123; }
-.business-contact { background: #ffffff; color: #1b3747; padding: 50px 20px; }
+.business-contact { background: #ffffff; color: #1b3747; padding: 50px 40px; }
 .contact-grid { display: grid; grid-template-columns: 1fr 2fr; gap: 48px; }
 .contact-copy h2 { color: #333333; font-weight: 700; font-size: 23px; line-height: 1.2; margin: 0 0 16px; }
 .contact-copy p { color: #777777; line-height: 1.65; }
@@ -24,7 +24,7 @@
 .inquiry-form .button { justify-self: start; background: var(--accent); }
 .inquiry-form .honeypot { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 @media (max-width: 760px) {
-  .business-hero { padding-inline: 20px; }
+  .business-hero, .business-contact { padding-inline: 20px; }
 
   .contact-grid { grid-template-columns: 1fr; gap: 32px; }
   .contact-copy address { margin-top: 24px; }
