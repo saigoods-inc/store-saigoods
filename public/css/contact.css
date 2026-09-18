@@ -9,7 +9,7 @@
 .inquiry-form #inquiry-status[data-error="true"] { color: #a33123; }
 .business-contact { background: #ffffff; color: #1b3747; padding: 50px 20px; }
 .contact-grid { display: grid; grid-template-columns: 1fr 2fr; gap: 48px; }
-.contact-copy h2 { font-weight: 800; font-size: 23px; line-height: 1.2; margin: 0 0 16px; }
+.contact-copy h2 { color: var(--accent); font-weight: 800; font-size: 23px; line-height: 1.2; margin: 0 0 16px; }
 .contact-copy p { color: #777777; line-height: 1.65; }
 .contact-copy address { display: grid; gap: 3px; margin-top: 48px; font-style: normal; }
 .contact-copy address strong:not(:first-child) { margin-top: 16px; }
@@ -38,8 +38,8 @@
 
 .contact-copy address strong { font-size: 14px; }
 .inquiry-form input { padding: 8px 14px; border-radius: 6px; height: 42px; }
-.inquiry-form .button { font-size: 14px; border-radius: 8px; padding: 11.8px 22.2px; gap: 8px; }
-.inquiry-form .button svg { flex-shrink: 0; width: 16px; height: 19px; }
+.inquiry-form .button { font-size: 14px; border-radius: 8px; padding: 10.8px 18.2px; gap: 8px; }
+.inquiry-form .button svg { flex-shrink: 0; width: 14px; height: 17px; }
 .inquiry-form .button svg path { fill: #ffffff; }
 .inquiry-org { position: relative; min-width: 0; }
 .inquiry-org > label { margin-bottom: 3px; }
@@ -48,3 +48,12 @@
 .inquiry-org .checkout-state-select__menu { font-size: 14px; }
 
 .inquiry-org #org-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .contact-copy address { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 16px; }
+  .contact-copy address strong:first-of-type { grid-column: 1; grid-row: 1; }
+  .contact-copy address strong:nth-of-type(2) { grid-column: 2; grid-row: 1; margin-top: 0; }
+  .contact-copy address a:first-of-type { grid-column: 1; grid-row: 2; }
+  .contact-copy address a:nth-of-type(2) { grid-column: 2; grid-row: 2; }
+  .contact-copy address a { overflow-wrap: anywhere; }
+}

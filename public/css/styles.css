@@ -4513,3 +4513,10 @@ body.nav-drawer-open [data-site-header] { top: 0; }
   .footer__top .widget__title { margin-bottom: 0; }
   .footer .footer__content > .footer__top { row-gap: 20px; }
 }
+
+/* Keep the shared footer brand compact across storefront pages. */
+.footer .brand__row .brand__logo { width: 34px; }
+.footer .brand__row .brand__name { font-size: 18px; }
+@media (max-width: 760px) {
+  .footer .brand__row .brand__logo { width: 28px; }
+}
