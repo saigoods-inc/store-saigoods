@@ -34,8 +34,10 @@ export function renderHeaderHtml(site, page) {
         </button>
 
         ${page === "checkout" ? "" : `<a class="cart-link" ${page === "cart" ? 'aria-current="page" aria-disabled="true"' : 'href="/cart.html"'} aria-label="View cart">
+          <span class="cart-link__icon">
           <img src="/img/cart-icon.svg" alt="" aria-hidden="true" width="22" height="22" decoding="async" />
           <span class="cart-link__count" data-cart-count hidden>0</span>
+          </span>
         </a>`}
       </div>
     </div>
