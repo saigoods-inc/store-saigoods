@@ -2822,7 +2822,7 @@ button {
 .checkout-address-suggestion {
   margin: 0.75rem 0 0;
   padding: 0.75rem 1rem;
-  border-radius: 0.65rem;
+  border-radius: 8px;
   border: 1px solid #f0dfa3;
   background: #fff8dc;
 }
@@ -2842,9 +2842,11 @@ button {
 }
 
 .checkout-address-suggestion__apply {
+  background: #ffffff;
+  border-radius: 5px;
   padding: 0.4rem 0.85rem;
   font-size: var(--fs-caption);
-  font-weight: var(--font-weight-normal);
+  font-weight: 700;
 }
 
 .checkout-field-required {
@@ -2968,6 +2970,7 @@ button {
 }
 
 .checkout-totals .summary-card__row--total {
+  font-weight: 700;
   margin-top: 0.7rem;
   padding-top: 0.7rem;
   border-top: 1px solid var(--line);
