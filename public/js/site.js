@@ -238,19 +238,17 @@ function renderFooter(site) {
   footerRoot.innerHTML = `
     <div class="footer" id="contact" role="contentinfo">
       <div class="shell footer__content">
+        <div class="footer-brand">
+          <a class="brand__row" href="/" aria-label="${escapeHtml(site.legalName)} home">
+            <img src="/img/nav-logo.svg" alt="" class="brand__logo" width="36" height="36" decoding="async" />
+            <span class="brand__name">${escapeHtml(site.legalName.replace(',', ''))}</span>
+          </a>
+        </div>
         <div class="footer__top">
-          <div class="brand widget">
-            <a class="brand__row" href="/" aria-label="${escapeHtml(site.legalName)} home">
-              <img src="/img/nav-logo.svg" alt="${escapeHtml(site.legalName)} logo" class="brand__logo" width="44" height="44" decoding="async" />
-              <span class="brand__name">${escapeHtml(site.legalName)}</span>
-            </a>
-            <address class="brand__address">
-              ${site.addressLines.map((line) => escapeHtml(line)).join("<br>")}
-            </address>
-          </div>
+          <div class="widget footer-brands"><h3 class="widget__title">Brand</h3><a href="/#products">LYDUS®</a></div>
 
           <div class="widget footer-policies">
-            <h3 class="widget__title">POLICIES</h3>
+            <h3 class="widget__title">Policies</h3>
             <nav class="footer-links" aria-label="Customer policies">
               <a href="/shipping">Shipping policy</a>
               <a href="/returns">Returns &amp; refunds</a>
@@ -259,10 +257,10 @@ function renderFooter(site) {
           </div>
 
           <div class="widget">
-            <h3 class="widget__title">CONTACT</h3>
+            <h3 class="widget__title">Contact</h3>
             <div class="widget__list">
               <address class="contact">
-                <div class="contact__label">Sales inquiry</div>
+                <div class="contact__label">Email</div>
                 <a href="mailto:${escapeHtml(site.email)}" class="contact__value">${escapeHtml(
                   site.email,
                 )}</a>
@@ -270,13 +268,13 @@ function renderFooter(site) {
 
               <address class="contact">
                 <div class="contact__label">Phone</div>
-                <a href="tel:+16152437512" class="contact__value">${escapeHtml(site.phone)}</a>
+                <a href="tel:+16152437512" class="contact__value">(615) 243-7512</a>
               </address>
             </div>
           </div>
 
           <div class="widget">
-            <h3 class="widget__title">CREDENTIALS</h3>
+            <h3 class="widget__title">Credentials</h3>
             <div class="widget__list">
               <div class="credential">
                 <div class="credential__label">D-U-N-S®</div>
@@ -284,7 +282,7 @@ function renderFooter(site) {
               </div>
 
               <div class="credential">
-                <div class="credential__label">SAM.gov UNIQUE ENTITY ID (UEI)</div>
+                <div class="credential__label">SAM.gov<br>UNIQUE ENTITY ID (UEI)</div>
                 <div class="credential__value">${escapeHtml(site.uei)}</div>
               </div>
 
