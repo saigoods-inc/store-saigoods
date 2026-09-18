@@ -4514,9 +4514,36 @@ body.nav-drawer-open [data-site-header] { top: 0; }
   .footer .footer__content > .footer__top { row-gap: 20px; }
 }
 
-/* Keep the shared footer brand compact across storefront pages. */
-.footer .brand__row .brand__logo { width: 34px; }
-.footer .brand__row .brand__name { font-size: 18px; }
-@media (max-width: 760px) {
-  .footer .brand__row .brand__logo { width: 28px; }
+/* One responsive footer for every page rendered by site.js. */
+.footer { --font-body: Manrope, sans-serif; --font-display: Manrope, sans-serif; --accent: #c25840; font-family: Manrope, sans-serif; }
+.footer .shell.footer__content { width: min(89.5%, 70rem); margin-inline: auto; }
+.footer { background: #fff; }
+.footer .footer__content { padding: 4rem 0 0; gap: 0; }
+.footer .footer__top { display: grid; grid-template-columns: 1.2fr 1fr 1fr 1fr; gap: 2rem; padding-bottom: 16px; }
+.footer .brand__name { font-size: 1.4rem; white-space: nowrap; font-weight: 800; }
+.footer .brand__logo { width: 38px; }
+.footer .brand__address, .footer .contact__value, .footer .credential__value { font-family: Manrope, sans-serif; font-size: .95rem; font-weight: 400; color: #78818e; }
+.footer .widget__title { font-size: 1.1rem; letter-spacing: 0; }
+.footer .credential__label, .footer .contact__label { font-size: 1rem; color: #2b465a; text-transform: none; letter-spacing: 0; font-weight: 800; }
+.footer .footer__bottom { margin-top: 0; padding: 18px 0; }
+@media (min-width: 681px) and (max-width: 1000px) {
+  .footer .footer__top { grid-template-columns: 1fr 1fr; }
 }
+@media (max-width: 680px) {
+  .footer .footer__content { padding: 2rem 0 0; }
+  .footer .footer__top { grid-template-columns: 1fr; gap: 2rem; padding-bottom: 16px; }
+  .footer .brand__name { font-size: 1.25rem; }
+  .footer .brand__logo { width: 30px; }
+  .footer .widget__title { font-size: .95rem; }
+  .footer .brand__address, .footer .contact__value, .footer .credential__value, .footer .credential__label, .footer .contact__label { font-size: .85rem; }
+  .footer .footer-links { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; font-size: .9rem; }
+  .footer .widget__list { display: flex; flex-wrap: wrap; gap: .8rem 1.2rem; }
+  .footer .credential:nth-child(2) { order: 3; width: 100%; }
+  .footer .rights { font-size: .7rem; }
+  .footer .shell.footer__content { width: calc(100% - 40px); }
+  .footer .footer__top { row-gap: 20px; }
+}
+
+.footer .brand__row .brand__name { font-size: 18px; }
+.footer .brand__row .brand__logo { width: 34px; }
+@media (max-width: 760px) { .footer .brand__row .brand__logo { width: 28px; } }
