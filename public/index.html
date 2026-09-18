@@ -118,47 +118,61 @@
       }
       .announcement-bar { width: 100%; background: #25242a; min-height: 2.75rem; }
     </style>
-    <!-- Perf: non-render-blocking full stylesheet (see also public/js/image-utils.js) -->
-    <link rel="stylesheet" href="/css/styles.css" media="print" onload="this.media='all'" />
-    <noscript><link rel="stylesheet" href="/css/styles.css" /></noscript>
+    <!-- Header layout is required for the first paint. -->
+    <link rel="stylesheet" href="/css/styles.css" />
+    <link rel="preload" href="/font/Manrope-Regular.ttf" as="font" type="font/ttf" crossorigin />
+    <link rel="stylesheet" href="/css/home.css" />
   </head>
-  <body>
+  <body class="storefront-home">
+    <a class="home-skip-link" href="#main-content">Skip to content</a>
     <div class="site-frame">
-      <header data-site-header></header>
+      <header data-site-header>
+    <div class="site-header">
+      <div class="shell navbar">
+        <a class="brand-mark" href="#hero" aria-label="SAI Goods Store home">
+          <img src="/img/nav-logo.svg" alt="SAI Goods Store logo" width="30" height="30" decoding="async" />
+          <span class="brand-mark__name">SAI Goods, Inc.</span>
+        </a>
 
-      <div class="announcement-bar" role="region" aria-label="Store announcement" data-announcement-bar>
-        <p class="announcement-bar__message">
-          <strong>Free shipping on qualifying orders.</strong>
-          <a href="#products">Shop the collection</a>
-        </p>
-        <button
-          type="button"
-          class="announcement-bar__close"
-          aria-label="Close announcement"
-          data-announcement-close
-        >
-          ×
+        <div class="store-nav-backdrop" aria-hidden="true"></div>
+
+        <nav class="store-nav" id="store-navigation" aria-label="Store navigation">
+          <div class="store-nav__drawer-head">
+            <button class="store-nav__close" type="button" aria-label="Close menu">
+              <span aria-hidden="true"></span>
+            </button>
+          </div>
+          <a href="#products">Shop</a>
+          <a href="/contact">For business</a>
+          <a href="#contact">Contact</a>
+        </nav>
+
+        <button class="store-nav-toggle" type="button" aria-controls="store-navigation" aria-expanded="false" aria-label="Open menu">
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
         </button>
-      </div>
 
-      <main>
+        <a class="cart-link" href="/cart.html" aria-label="View cart">
+          <span class="cart-link__icon">
+          <img src="/img/cart-icon.svg" alt="" aria-hidden="true" width="22" height="22" decoding="async" />
+          <span class="cart-link__count" data-cart-count hidden>0</span>
+          </span>
+        </a>
+      </div>
+    </div>
+</header>
+
+      <main id="main-content">
         <section id="hero" class="hero">
           <div class="shell hero__grid">
             <div class="hero__content fade-up">
               <h1 class="hero__title">Nitrile gloves you can count on.</h1>
               <p class="hero__copy">
-                Shop dependable nitrile gloves for everyday tasks, demanding jobs, and bulk
-                operations—all backed by responsive, US-based support.
+                Powder-free nitrile gloves in 4, 5, and 8 mil options for examination, everyday, and industrial work.
               </p>
-              <div class="hero__actions">
-                <a class="button button--primary" href="#products">Shop gloves</a>
-                <a class="button button--secondary" href="#b2b">For Business</a>
-              </div>
-              <ul class="hero__proof" aria-label="Glove options">
-                <li>Powder-free comfort</li>
-                <li>Secure, confident grip</li>
-                <li>Everyday to heavy-duty protection</li>
-              </ul>
+
+
             </div>
 
             <div class="hero__media fade-up">
@@ -182,59 +196,101 @@
         <section id="products" class="section section--tight section--catalog">
           <div class="shell">
             <div class="section-heading section-heading--catalog">
-              <h2>Choose your protection.</h2>
-              <p class="section-heading__copy">Select a glove to choose your size and bundle. Need help deciding? Use the comparison below.</p>
+              <h2>Find the right <span class="lydus-word">LYDUS®</span> gloves</h2>
+              <p class="section-heading__copy">Check out our powder-free, blue examination, black general-purpose, and black heavy-duty nitrile gloves.</p>
             </div>
 
-            <div class="catalog-grid" data-product-grid></div>
+            <!-- catalog:start --><div class="catalog-grid" data-product-grid>
+        <article class="product-card product-card--blue" data-product-slug="nitrile-standard">
+          <a class="product-card__mobile-link" href="/products/nitrile-standard" aria-label="View Nitrile Examination – Standard"></a>
+          <div class="product-card__media">
+            <img src="/img/catalog-nitrile-exam.webp" srcset="/img/catalog-nitrile-exam-400.webp 400w, /img/catalog-nitrile-exam-800.webp 800w" sizes="(max-width: 800px) 36vw, 33vw" alt="Nitrile Examination – Standard" width="800" height="800" loading="lazy" decoding="async" fetchpriority="auto" onerror="this.onerror=null;this.removeAttribute('srcset');this.removeAttribute('sizes');this.src='/img/catalog-nitrile-exam.png';" />
+          </div>
+
+          <div class="product-card__body">
+            <p class="product-card__brand">LYDUS®</p>
+            <p class="product-card__price"><span>See available options</span></p>
+            <div class="product-card__heading">
+            <h3>4 mil Nitrile Examination – Standard</h3></div>
+            <p class="product-card__copy">Powder-free blue examination gloves built for consistent, everyday protection in clinical, janitorial, and hygiene workflows.</p>
+
+            <div class="product-card__actions">
+              <a class="button button--primary" href="/products/nitrile-standard" aria-label="Choose sizes and bundles for Nitrile Examination – Standard">
+                <svg width="20" height="18" viewBox="0 0 17 15" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M8.5 0C8.70625 0 8.90312 0.084375 9.04375 0.234375L13.5437 4.98438L13.5594 5H16C16.5531 5 17 5.44687 17 6C17 6.45312 16.7 6.83438 16.2875 6.95938L14.8469 13.4344C14.6437 14.35 13.8313 15 12.8938 15H4.10313C3.16563 15 2.35313 14.35 2.15 13.4344L0.7125 6.95938C0.3 6.8375 0 6.45312 0 6C0 5.44687 0.446875 5 1 5H3.44063L3.45625 4.98438L7.95625 0.234375C8.09688 0.084375 8.29375 0 8.5 0ZM8.5 1.84063L5.50625 5H11.4937L8.5 1.84063ZM6 8.25C6 7.83437 5.66563 7.5 5.25 7.5C4.83437 7.5 4.5 7.83437 4.5 8.25V11.75C4.5 12.1656 4.83437 12.5 5.25 12.5C5.66563 12.5 6 12.1656 6 11.75V8.25ZM8.5 7.5C8.08437 7.5 7.75 7.83437 7.75 8.25V11.75C7.75 12.1656 8.08437 12.5 8.5 12.5C8.91563 12.5 9.25 12.1656 9.25 11.75V8.25C9.25 7.83437 8.91563 7.5 8.5 7.5ZM12.5 8.25C12.5 7.83437 12.1656 7.5 11.75 7.5C11.3344 7.5 11 7.83437 11 8.25V11.75C11 12.1656 11.3344 12.5 11.75 12.5C12.1656 12.5 12.5 12.1656 12.5 11.75V8.25Z" fill="currentColor"/></svg>
+                <span class="product-card__buy-label">Buy this product</span>
+              </a>
+            </div>
+          </div>
+        </article>
+
+        <article class="product-card product-card--stone" data-product-slug="black-nitrile-general">
+          <a class="product-card__mobile-link" href="/products/black-nitrile-general" aria-label="View Black Nitrile – General"></a>
+          <div class="product-card__media">
+            <img src="/img/catalog-black-general.webp" srcset="/img/catalog-black-general-400.webp 400w, /img/catalog-black-general-800.webp 800w" sizes="(max-width: 800px) 36vw, 33vw" alt="Black Nitrile – General" width="800" height="800" loading="lazy" decoding="async" fetchpriority="auto" onerror="this.onerror=null;this.removeAttribute('srcset');this.removeAttribute('sizes');this.src='/img/catalog-black-general.png';" />
+          </div>
+
+          <div class="product-card__body">
+            <p class="product-card__brand">LYDUS®</p>
+            <p class="product-card__price"><span>See available options</span></p>
+            <div class="product-card__heading">
+            <h3>5 mil Black Nitrile – General</h3></div>
+            <p class="product-card__copy">A 5 mil black nitrile glove for shop floors, industrial handling, food prep, sanitation, and front-of-house presentation.</p>
+
+            <div class="product-card__actions">
+              <a class="button button--primary" href="/products/black-nitrile-general" aria-label="Choose sizes and bundles for Black Nitrile – General">
+                <svg width="20" height="18" viewBox="0 0 17 15" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M8.5 0C8.70625 0 8.90312 0.084375 9.04375 0.234375L13.5437 4.98438L13.5594 5H16C16.5531 5 17 5.44687 17 6C17 6.45312 16.7 6.83438 16.2875 6.95938L14.8469 13.4344C14.6437 14.35 13.8313 15 12.8938 15H4.10313C3.16563 15 2.35313 14.35 2.15 13.4344L0.7125 6.95938C0.3 6.8375 0 6.45312 0 6C0 5.44687 0.446875 5 1 5H3.44063L3.45625 4.98438L7.95625 0.234375C8.09688 0.084375 8.29375 0 8.5 0ZM8.5 1.84063L5.50625 5H11.4937L8.5 1.84063ZM6 8.25C6 7.83437 5.66563 7.5 5.25 7.5C4.83437 7.5 4.5 7.83437 4.5 8.25V11.75C4.5 12.1656 4.83437 12.5 5.25 12.5C5.66563 12.5 6 12.1656 6 11.75V8.25ZM8.5 7.5C8.08437 7.5 7.75 7.83437 7.75 8.25V11.75C7.75 12.1656 8.08437 12.5 8.5 12.5C8.91563 12.5 9.25 12.1656 9.25 11.75V8.25C9.25 7.83437 8.91563 7.5 8.5 7.5ZM12.5 8.25C12.5 7.83437 12.1656 7.5 11.75 7.5C11.3344 7.5 11 7.83437 11 8.25V11.75C11 12.1656 11.3344 12.5 11.75 12.5C12.1656 12.5 12.5 12.1656 12.5 11.75V8.25Z" fill="currentColor"/></svg>
+                <span class="product-card__buy-label">Buy this product</span>
+              </a>
+            </div>
+          </div>
+        </article>
+
+        <article class="product-card product-card--sand" data-product-slug="black-nitrile-heavy-duty">
+          <a class="product-card__mobile-link" href="/products/black-nitrile-heavy-duty" aria-label="View Black Nitrile – Heavy Duty"></a>
+          <div class="product-card__media">
+            <img src="/img/catalog-heavy-duty.webp" srcset="/img/catalog-heavy-duty-400.webp 400w, /img/catalog-heavy-duty-800.webp 800w" sizes="(max-width: 800px) 36vw, 33vw" alt="Black Nitrile – Heavy Duty" width="800" height="800" loading="lazy" decoding="async" fetchpriority="auto" onerror="this.onerror=null;this.removeAttribute('srcset');this.removeAttribute('sizes');this.src='/img/catalog-heavy-duty.png';" />
+          </div>
+
+          <div class="product-card__body">
+            <p class="product-card__brand">LYDUS®</p>
+            <p class="product-card__price"><span>See available options</span></p>
+            <div class="product-card__heading">
+            <h3>8 mil Black Nitrile – Heavy Duty</h3></div>
+            <p class="product-card__copy">An 8 mil heavy-duty glove for mechanics, industrial teams, manufacturing, and demanding handling conditions.</p>
+
+            <div class="product-card__actions">
+              <a class="button button--primary" href="/products/black-nitrile-heavy-duty" aria-label="Choose sizes and bundles for Black Nitrile – Heavy Duty">
+                <svg width="20" height="18" viewBox="0 0 17 15" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M8.5 0C8.70625 0 8.90312 0.084375 9.04375 0.234375L13.5437 4.98438L13.5594 5H16C16.5531 5 17 5.44687 17 6C17 6.45312 16.7 6.83438 16.2875 6.95938L14.8469 13.4344C14.6437 14.35 13.8313 15 12.8938 15H4.10313C3.16563 15 2.35313 14.35 2.15 13.4344L0.7125 6.95938C0.3 6.8375 0 6.45312 0 6C0 5.44687 0.446875 5 1 5H3.44063L3.45625 4.98438L7.95625 0.234375C8.09688 0.084375 8.29375 0 8.5 0ZM8.5 1.84063L5.50625 5H11.4937L8.5 1.84063ZM6 8.25C6 7.83437 5.66563 7.5 5.25 7.5C4.83437 7.5 4.5 7.83437 4.5 8.25V11.75C4.5 12.1656 4.83437 12.5 5.25 12.5C5.66563 12.5 6 12.1656 6 11.75V8.25ZM8.5 7.5C8.08437 7.5 7.75 7.83437 7.75 8.25V11.75C7.75 12.1656 8.08437 12.5 8.5 12.5C8.91563 12.5 9.25 12.1656 9.25 11.75V8.25C9.25 7.83437 8.91563 7.5 8.5 7.5ZM12.5 8.25C12.5 7.83437 12.1656 7.5 11.75 7.5C11.3344 7.5 11 7.83437 11 8.25V11.75C11 12.1656 11.3344 12.5 11.75 12.5C12.1656 12.5 12.5 12.1656 12.5 11.75V8.25Z" fill="currentColor"/></svg>
+                <span class="product-card__buy-label">Buy this product</span>
+              </a>
+            </div>
+          </div>
+        </article>
+</div><!-- catalog:end -->
+            <noscript><p>Browse <a href="/products/nitrile-standard">4 mil examination gloves</a>, <a href="/products/black-nitrile-general">5 mil general-purpose gloves</a> or <a href="/products/black-nitrile-heavy-duty">8 mil heavy-duty gloves</a>. Enable JavaScript to select sizes and order.</p></noscript>
           </div>
         </section>
 
         <section id="choose-your-glove" class="section home-needs">
           <div class="shell">
-            <div class="section-heading section-heading--needs">
-              <div>
-                <h2>Still deciding? Start with the work.</h2>
-                <p>Start with the task, then compare thickness and grip before choosing your glove.</p>
-              </div>
-            </div>
-            <div class="home-needs__grid">
-              <a class="need-card need-card--blue" href="/products/nitrile-standard">
-                <span class="need-card__visual" aria-hidden="true"><img src="/img/examination-clinical-use-v1.png" alt="" loading="lazy" decoding="async" /></span>
-                <span class="need-card__number">01</span>
-                <span class="need-card__content"><span class="need-card__use">Everyday protection</span><strong>Nitrile Examination</strong><span class="need-card__link">Choose options <span aria-hidden="true">→</span></span></span>
-              </a>
-              <a class="need-card need-card--stone" href="/products/black-nitrile-general">
-                <span class="need-card__visual" aria-hidden="true"><img src="/img/product-listing/black-nitrile-general/amazon-listing-img-7-400.webp" srcset="/img/product-listing/black-nitrile-general/amazon-listing-img-7-400.webp 400w, /img/product-listing/black-nitrile-general/amazon-listing-img-7-800.webp 800w" sizes="(max-width: 760px) calc(100vw - 2.5rem), 33vw" alt="" loading="lazy" decoding="async" /></span>
-                <span class="need-card__number">02</span>
-                <span class="need-card__content"><span class="need-card__use">General-purpose work</span><strong>Black Nitrile General</strong><span class="need-card__link">Choose options <span aria-hidden="true">→</span></span></span>
-              </a>
-              <a class="need-card need-card--dark" href="/products/black-nitrile-heavy-duty">
-                <span class="need-card__visual" aria-hidden="true"><img src="/img/product-listing/black-nitrile-heavy-duty/amazon-listing-img-7-400.webp" srcset="/img/product-listing/black-nitrile-heavy-duty/amazon-listing-img-7-400.webp 400w, /img/product-listing/black-nitrile-heavy-duty/amazon-listing-img-7-800.webp 800w" sizes="(max-width: 760px) calc(100vw - 2.5rem), 33vw" alt="" loading="lazy" decoding="async" /></span>
-                <span class="need-card__number">03</span>
-                <span class="need-card__content"><span class="need-card__use">Demanding jobs</span><strong>Black Nitrile Heavy Duty</strong><span class="need-card__link">Choose options <span aria-hidden="true">→</span></span></span>
-              </a>
-            </div>
-
             <div class="home-comparison" aria-labelledby="comparison-heading">
               <div class="guide-heading">
                 <div>
-                  <h3 id="comparison-heading">Compare the <span class="lydus-word">LYDUS<sup>®</sup></span> range.</h3>
+                  <h2 id="comparison-heading">Compare the <span class="lydus-word">range</span></h2>
                   <p>See thickness, texture, and recommended uses side by side.</p>
                 </div>
               </div>
-              <div class="guide-table-wrap" tabindex="0" aria-label="Scrollable LYDUS glove comparison table">
+              <div class="guide-table-wrap" role="region" tabindex="0" aria-label="LYDUS glove comparison">
                 <table class="guide-table">
+                  <caption class="home-visually-hidden">Compare examination, general-purpose and heavy-duty nitrile gloves.</caption>
                   <thead>
-                    <tr><th scope="col">Specification</th><th scope="col">Standard</th><th scope="col">General</th><th scope="col">Heavy Duty</th></tr>
+                    <tr><th scope="col">Specification</th><th scope="col"><a href="/products/nitrile-standard">Standard</a></th><th scope="col"><a href="/products/black-nitrile-general">General</a></th><th scope="col"><a href="/products/black-nitrile-heavy-duty">Heavy duty</a></th></tr>
                   </thead>
                   <tbody>
                     <tr><th scope="row">Best for</th><td>Examination and everyday tasks</td><td>General-purpose work</td><td>Industrial and demanding work</td></tr>
                     <tr><th scope="row">Color</th><td><span class="guide-swatch guide-swatch--blue"></span>Blue</td><td><span class="guide-swatch guide-swatch--black"></span>Black</td><td><span class="guide-swatch guide-swatch--black"></span>Black</td></tr>
                     <tr><th scope="row">Nominal thickness</th><td><strong>4 mil</strong></td><td><strong>5 mil</strong></td><td><strong>8 mil</strong></td></tr>
                     <tr><th scope="row">Surface texture</th><td>Fingertips</td><td>Fingertips</td><td>Diamond grip</td></tr>
-                    <tr><th scope="row">Palm / fingertip</th><td>Min. 0.06 / 0.09 mm</td><td>Min. 0.08 / 0.11 mm</td><td>Min. 0.18 / 0.20 mm</td></tr>
-                    <tr><th scope="row">Water tightness (AQL)</th><td>1.5</td><td>1.5</td><td>2.5</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -248,7 +304,7 @@
               <h2>Need contract quantities or negotiated pricing?</h2>
               <p>Our team supports custom B2B pricing, freight planning, and invoice-backed payment links for larger orders.</p>
             </div>
-            <a class="button button--light" href="mailto:sales@saigoods.com?subject=B2B%20glove%20order%20inquiry">Talk to our sales team <span class="button__icon" aria-hidden="true">→</span></a>
+            <a class="button button--light" href="/contact">Talk to our sales team <span class="button__icon" aria-hidden="true">→</span></a>
           </div>
         </section>
 

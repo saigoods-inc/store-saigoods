@@ -131,7 +131,7 @@
       "cardImage": "/img/catalog-black-general.png",
       "heroBadge": "Versatile Pick",
       "subtext": "A 5 mil black nitrile glove for shop floors, industrial handling, food prep, sanitation, and front-of-house presentation.",
-      "description": "A versatile black nitrile glove made for light industrial work, maintenance, food handling, and cleaning teams that need a professional look with dependable grip.",
+      "description": "Flexible, powder-free black nitrile gloves for everyday work in food handling, cleaning, salons, and light industrial settings. Textured fingertips support control during routine tasks, while the ambidextrous fit makes glove changes simple.",
       "keywords": [
         "black",
         "nitrile",
@@ -154,14 +154,19 @@
         "/img/product-listing/black-nitrile-general/amazon-listing-img-8.jpg"
       ],
       "specs": [
-        { "label": "Intended Use", "value": "General purpose, sanitation, and service work." },
-        { "label": "Material", "value": "Nitrile" },
-        { "label": "Powdered", "value": "Powder-free" },
-        { "label": "Sterility", "value": "Non-sterile" },
-        { "label": "Color", "value": "Black" },
-        { "label": "Cuff", "value": "Beaded" },
-        { "label": "Texture", "value": "Textured fingertips" },
-        { "label": "Weight (M size)", "value": "~ 4.3g (5 mil)" }
+        {"label":"Intended use","value":"Food handling, salon services, cleaning, and light industrial use"},
+        {"label":"Material","value":"Nitrile"},
+        {"label":"Powder status","value":"Powder-free"},
+        {"label":"Sterility","value":"Non-sterile"},
+        {"label":"Color","value":"Black"},
+        {"label":"Cuff","value":"Beaded"},
+        {"label":"Surface texture","value":"Textured fingertips"},
+        {"label":"Approximate glove weight","value":"4.5 g, medium size"},
+        {"label":"Length","value":"240 mm, median"},
+        {"label":"Palm thickness","value":"Minimum 0.08 mm"},
+        {"label":"Fingertip thickness","value":"Minimum 0.11 mm"},
+        {"label":"Cuff thickness","value":"Minimum 0.05 mm"},
+        {"label":"Water-tightness AQL","value":"1.5"}
       ],
       "intro": {
         "headline": "Black Nitrile Gloves",
@@ -211,9 +216,9 @@
         }
       ],
       "cardImage": "/img/catalog-heavy-duty.png",
-      "heroBadge": "Max Protection",
+      "heroBadge": "Diamond Grip",
       "subtext": "An 8 mil heavy-duty glove for mechanics, industrial teams, manufacturing, and demanding handling conditions.",
-      "description": "Built for tougher environments, LYDUS Heavy Duty black nitrile gloves deliver added thickness, durability, and puncture resistance when standard exam gloves are not enough.",
+      "description": "A thicker black nitrile glove for automotive, mechanical, and industrial work. Its diamond-textured surface helps users maintain control when handling tools and parts in wet or oily conditions.",
       "keywords": [
         "black",
         "nitrile",
@@ -239,14 +244,19 @@
         "/img/product-listing/black-nitrile-heavy-duty/amazon-listing-img-7.jpg"
       ],
       "specs": [
-        { "label": "Intended Use", "value": "Industrial, mechanical, and heavy handling tasks." },
-        { "label": "Material", "value": "Nitrile" },
-        { "label": "Powdered", "value": "Powder-free" },
-        { "label": "Sterility", "value": "Non-sterile" },
-        { "label": "Color", "value": "Black" },
-        { "label": "Cuff", "value": "Beaded" },
-        { "label": "Texture", "value": "Diamond-textured fingertips" },
-        { "label": "Weight (M size)", "value": "~ 7.1g (8 mil)" }
+        {"label":"Intended use","value":"Automotive, mechanical, and industrial work"},
+        {"label":"Material","value":"Nitrile"},
+        {"label":"Powder status","value":"Powder-free"},
+        {"label":"Sterility","value":"Non-sterile"},
+        {"label":"Color","value":"Black"},
+        {"label":"Cuff","value":"Beaded"},
+        {"label":"Surface texture","value":"Diamond grip"},
+        {"label":"Approximate glove weight","value":"7.5 g, medium size"},
+        {"label":"Length","value":"240 mm, median"},
+        {"label":"Palm thickness","value":"Minimum 0.18 mm"},
+        {"label":"Fingertip thickness","value":"Minimum 0.20 mm"},
+        {"label":"Cuff thickness","value":"Minimum 0.08 mm"},
+        {"label":"Water-tightness AQL","value":"2.5"}
       ],
       "intro": {
         "headline": "Black Nitrile Gloves",
@@ -255,7 +265,7 @@
         "eyebrow": "Heavy-duty protection",
         "body": "Extra thickness and toughness for mechanics, industrial handling, and high-contact environments.",
         "features": [
-          "Added puncture resistance for tougher tasks",
+          "Diamond grip texture for wet or oily handling",
           "Durable feel without sacrificing fit and control",
           "Made for grease, grime, and demanding industrial use"
         ],

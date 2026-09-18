@@ -48,7 +48,7 @@ test("storefront and admin pages use the dedicated square SAI Goods favicon", ()
 
 test("internal storefront links use canonical product paths", () => {
   const homeHtml = read("./public/index.html");
-  const homeJs = read("./public/js/home.js");
+  const homeJs = read("./public/js/home.js") + read("./public/js/home-cards.js");
   const cartJs = read("./public/js/cart.js");
 
   for (const source of [homeHtml, homeJs, cartJs]) {
@@ -60,7 +60,7 @@ test("internal storefront links use canonical product paths", () => {
 
 test("storefront leads from products to decision support and bulk ordering", () => {
   const home = read("./public/index.html");
-  const homeJs = read("./public/js/home.js");
+  const homeJs = read("./public/js/home.js") + read("./public/js/home-cards.js");
   const products = home.indexOf('id="products"');
   const chooser = home.indexOf('id="choose-your-glove"');
   const bulk = home.indexOf('id="b2b"');
@@ -115,7 +115,7 @@ test("LYDUS comparison guidance is consolidated into the storefront", () => {
   assert.match(home, /id="choose-your-glove"/);
   assert.match(
     home,
-    /Compare the <span class="lydus-word">LYDUS<sup>®<\/sup><\/span> range\./,
+    /<h2 id="comparison-heading">Compare the <span class="lydus-word">range<\/span><\/h2>/,
   );
   assert.match(home, /"@type": "ItemList"/);
   assert.match(home, /4 mil/);
@@ -208,4 +208,26 @@ test("cart count badge remains a compact circle", () => {
   assert.match(badgeRule, /border-radius:\s*50%/);
   assert.match(badgeRule, /font-size:\s*0\.625rem/);
   assert.match(badgeRule, /line-height:\s*1/);
+});
+
+test("browser metadata keeps the public canonical on preview hosts and matches server descriptions", async () => {
+  const { runInNewContext } = await import('node:vm');
+  const { renderProductPage } = await import('./lib/seo.js');
+  const { products, site } = JSON.parse(read('./data/store.json'));
+  const source = read('./public/js/product.js');
+  const metadataFunction = source.slice(source.indexOf('function applyProductMetadata('), source.indexOf('\n/**', source.indexOf('function applyProductMetadata(')));
+  for (const product of products) {
+    const attributes = {};
+    const document = {
+      querySelector: selector => ({ setAttribute: (name, value) => { attributes[selector + ':' + name] = value; } }),
+    };
+    runInNewContext(metadataFunction + '\napplyProductMetadata(product);', {
+      document, product, productSeoCopy: () => ({ title: product.name }),
+      window: { location: { origin: 'http://127.0.0.1:4317' } },
+    });
+    assert.equal(attributes['link[rel="canonical"]:href'], `https://store.saigoods.com/products/${product.slug}`);
+    const description = attributes['meta[name="description"]:content'];
+    assert.ok(description.length <= 160);
+    assert.ok(renderProductPage(product, site).includes(`content="${description}"`));
+  }
 });

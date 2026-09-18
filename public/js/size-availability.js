@@ -1,7 +1,7 @@
 /**
  * Storefront availability from `product.inventory.lines` (merged by `/api/products`).
  * When there are no lines for a product, all sizes/channels are treated as purchasable (legacy).
- * When a product has at least one inventory line, a missing line for a size/channel is not purchasable.
+ * Variants with neither channel tracked retain the existing untracked-stock policy.
  * When `site.storefrontGlobalOutOfStock` is true, merged products include `inventory.globalOutOfStock`
  * and all channels read as unavailable for purchase.
  */
@@ -32,25 +32,20 @@ function tracked(line) {
   return Boolean(line && line.active !== false && line.track === true);
 }
 
-function sellableBoxesForSize(product, sizeLabel) {
-  const slug = product?.slug;
-  if (!slug) return Number.POSITIVE_INFINITY;
+export function getSizePurchaseCapacity(product, sizeLabel) {
+  if (isStorefrontGlobalOutOfStock(product)) return { cases: 0, boxes: 0 };
   const lines = getProductInventoryLines(product);
-  if (!lines.length) return Number.POSITIVE_INFINITY;
-  const caseLine = findLine(lines, slug, sizeLabel, "case");
-  const boxLine = findLine(lines, slug, sizeLabel, "box");
-  const bpc = boxesPerCaseForProduct(product);
-  let foundTracked = false;
-  let total = 0;
-  if (tracked(caseLine)) {
-    foundTracked = true;
-    total += availableUnitsForLine(caseLine) * bpc;
-  }
-  if (tracked(boxLine)) {
-    foundTracked = true;
-    total += availableUnitsForLine(boxLine);
-  }
-  return foundTracked ? total : Number.POSITIVE_INFINITY;
+  const caseLine = findLine(lines, product?.slug, sizeLabel, "case");
+  const boxLine = findLine(lines, product?.slug, sizeLabel, "box");
+  if (!tracked(caseLine) && !tracked(boxLine)) return { cases: Infinity, boxes: Infinity };
+  // Match checkout: loose boxes cannot become intact cases; cases can be opened for boxes.
+  const cases = caseLine ? availableUnitsForLine(caseLine) : 0;
+  const boxes = boxLine ? availableUnitsForLine(boxLine) : 0;
+  return { cases, boxes: cases * boxesPerCaseForProduct(product) + boxes };
+}
+
+function sellableBoxesForSize(product, sizeLabel) {
+  return getSizePurchaseCapacity(product, sizeLabel).boxes;
 }
 
 /**
@@ -74,7 +69,8 @@ export function isSizeChannelPurchasable(product, sizeLabel, channel) {
   if (isStorefrontGlobalOutOfStock(product)) return false;
   const bpc = boxesPerCaseForProduct(product);
   const needBoxes = String(channel || "").toLowerCase() === "case" ? bpc : 1;
-  return sellableBoxesForSize(product, sizeLabel) >= needBoxes;
+  const stock = getSizePurchaseCapacity(product, sizeLabel);
+  return String(channel).toLowerCase() === "case" ? stock.cases >= 1 : stock.boxes >= needBoxes;
 }
 
 /**
@@ -108,7 +104,8 @@ export function inventoryAllowsAllocations(product, caseBySize, boxBySize, allSi
     const b = Math.max(0, Math.floor(Number(boxBySize?.[size]) || 0));
     const needBoxes = c * bpc + b;
     if (needBoxes < 1) continue;
-    if (sellableBoxesForSize(product, size) < needBoxes) return false;
+    const stock = getSizePurchaseCapacity(product, size);
+    if (stock.cases < c || stock.boxes < needBoxes) return false;
   }
   return true;
 }
