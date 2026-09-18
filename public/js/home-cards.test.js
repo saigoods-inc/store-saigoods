@@ -24,3 +24,12 @@ test('catalog text is escaped in both initial and refreshed cards', () => {
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;/);
 });
+
+test('storefront navigation is present before scripts or API responses', () => {
+  for (const page of ['index','contact','cart','checkout','product','shipping','returns','privacy']) {
+    const html = readFileSync(new URL(`../${page}.html`, import.meta.url), 'utf8');
+    assert.match(html, /<header data-site-header>\s*<div class="site-header">/, page);
+    assert.match(html, /id="store-navigation"/, page);
+    assert.doesNotMatch(html, /href="\/css\/styles.css" media="print"/, page);
+  }
+});

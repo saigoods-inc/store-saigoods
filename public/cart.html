@@ -10,7 +10,7 @@
       content="Review your SAI Goods cart order summary and proceed to secure checkout. Edit items on the product page."
     />
     <meta name="robots" content="noindex, follow" />
-    <!-- Perf: critical shell until async styles.css -->
+    <!-- Critical shell and render-blocking navigation styles. -->
     <style>
       :root {
         --bg: #f7f4ee;
@@ -48,12 +48,44 @@
         padding: 0 1rem;
       }
     </style>
-    <link rel="stylesheet" href="/css/styles.css" media="print" onload="this.media='all'" />
-    <noscript><link rel="stylesheet" href="/css/styles.css" /></noscript>
+    <link rel="stylesheet" href="/css/styles.css" />
   </head>
   <body class="page--cart">
     <div class="site-frame">
-      <header data-site-header></header>
+      <header data-site-header>
+    <div class="site-header">
+      <div class="shell navbar">
+        <a class="brand-mark" href="/index.html#hero" aria-label="SAI Goods Store home">
+          <img src="/img/nav-logo.svg" alt="SAI Goods Store logo" width="30" height="30" decoding="async" />
+          <span class="brand-mark__name">SAI Goods, Inc.</span>
+        </a>
+
+        <div class="store-nav-backdrop" aria-hidden="true"></div>
+
+        <nav class="store-nav" id="store-navigation" aria-label="Store navigation">
+          <div class="store-nav__drawer-head">
+            <button class="store-nav__close" type="button" aria-label="Close menu">
+              <span aria-hidden="true"></span>
+            </button>
+          </div>
+          <a href="/index.html#products">Shop</a>
+          <a href="/contact">For business</a>
+          <a href="#contact">Contact</a>
+        </nav>
+
+        <button class="store-nav-toggle" type="button" aria-controls="store-navigation" aria-expanded="false" aria-label="Open menu">
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+        </button>
+
+        <a class="cart-link" aria-current="page" aria-disabled="true" aria-label="View cart">
+          <img src="/img/cart-icon.svg" alt="" aria-hidden="true" width="22" height="22" decoding="async" />
+          <span class="cart-link__count" data-cart-count hidden>0</span>
+        </a>
+      </div>
+    </div>
+</header>
 
       <main class="section section--tight">
         <div class="shell">
