@@ -277,10 +277,10 @@ function renderFooter(site) {
       <div class="shell footer__content">
         <div class="footer__top">
           <div class="brand widget">
-            <div class="brand__row">
+            <a class="brand__row" href="/" aria-label="${escapeHtml(site.legalName)} home">
               <img src="/img/nav-logo.svg" alt="${escapeHtml(site.legalName)} logo" class="brand__logo" width="44" height="44" decoding="async" />
               <span class="brand__name">${escapeHtml(site.legalName)}</span>
-            </div>
+            </a>
             <address class="brand__address">
               ${site.addressLines.map((line) => escapeHtml(line)).join("<br>")}
             </address>
