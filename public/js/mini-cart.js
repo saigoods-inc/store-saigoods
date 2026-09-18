@@ -1,3 +1,4 @@
+import {startSheetDrag, updateSheetDrag, shouldDismissSheet} from './sheet-drag.js';
 import { continueToCheckout } from './checkout-entry.js';
 import { getCart, removeProduct } from './cart-store.js';
 import { getCartQuote, formatSizeLineText } from './catalog.js';
@@ -55,20 +56,21 @@ export function initMiniCart(store, escapeHtml) {
   grip.addEventListener('pointerdown', event => {
     if (!matchMedia('(max-width: 760px)').matches || !event.isPrimary || event.button !== 0 || closing || event.target.closest('button')) return;
     snapBack?.cancel();
-    drag = {id: event.pointerId, y: event.clientY, distance: 0};
+    drag = startSheetDrag(event);
     grip.setPointerCapture(event.pointerId);
   });
   grip.addEventListener('pointermove', event => {
     if (!drag || drag.id !== event.pointerId) return;
-    drag.distance = Math.max(0, event.clientY - drag.y);
+    updateSheetDrag(drag, event);
     dialog.style.transform = `translateY(${drag.distance}px)`;
   });
   const finishDrag = (event, cancelled = false) => {
     if (!drag || drag.id !== event.pointerId) return;
+    const dismiss = !cancelled && shouldDismissSheet(drag, event);
     const distance = drag.distance;
     drag = null;
     if (grip.hasPointerCapture(event.pointerId)) grip.releasePointerCapture(event.pointerId);
-    if (!cancelled && distance >= 80) {
+    if (dismiss) {
       void close();
       return;
     }

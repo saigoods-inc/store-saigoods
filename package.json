@@ -22,7 +22,7 @@
     "optimize:images": "node scripts/optimize-images.mjs",
     "bootstrap:inventory": "node scripts/bootstrap-inventory-from-json.mjs",
     "build:storefront": "node scripts/build-home-catalog.mjs",
-    "test:storefront": "node scripts/build-home-catalog.mjs --check && node --test public/js/home-cards.test.js"
+    "test:storefront": "node scripts/build-home-catalog.mjs --check && node --test public/js/home-cards.test.js public/js/sheet-drag.test.js"
   },
   "devDependencies": {
     "@types/react": "^19.2.18",

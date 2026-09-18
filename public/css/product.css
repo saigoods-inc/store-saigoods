@@ -370,3 +370,6 @@
   .product-details-dialog[open] { animation: details-slide-in 220ms ease-out; }
   @keyframes details-slide-in { from { transform: translateY(100vh); } to { transform: translateY(0); } }
 }
+
+.page--product .product-back { transition: background-color 160ms ease-out; }
+.page--product .product-back:hover, .page--product .product-back:focus-visible { background: #e5e5e5; }
