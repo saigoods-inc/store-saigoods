@@ -1,3 +1,4 @@
+import {startSheetDrag, updateSheetDrag, shouldDismissSheet} from './sheet-drag.js';
 import { continueToCheckout } from './checkout-entry.js';
 import { aggregateAllocations, restoreAllocations } from "./bundle-allocations.js";
 import { renderProductIntro, currentDetails as detailsForProduct, detailRows } from "./product-presentation.js";
@@ -655,20 +656,20 @@ function openProductDetails() {
   grip.onpointerdown = event => {
     if (!matchMedia('(max-width: 760px)').matches || !event.isPrimary || event.button !== 0) return;
     motion?.cancel();
-    drag = {id: event.pointerId, y: event.clientY, distance: 0};
+    drag = startSheetDrag(event);
     grip.setPointerCapture(event.pointerId);
   };
   grip.onpointermove = event => {
     if (!drag || drag.id !== event.pointerId) return;
-    drag.distance = Math.max(0, event.clientY - drag.y);
+    updateSheetDrag(drag, event);
     dialog.style.transform = `translateY(${drag.distance}px)`;
   };
   const finishDrag = (event, cancelled = false) => {
     if (!drag || drag.id !== event.pointerId) return;
+    const dismiss = !cancelled && shouldDismissSheet(drag, event);
     const distance = drag.distance;
     drag = null;
     if (grip.hasPointerCapture(event.pointerId)) grip.releasePointerCapture(event.pointerId);
-    const dismiss = !cancelled && distance >= 80;
     const destination = dismiss ? dialog.offsetHeight : 0;
     motion = dialog.animate([{transform: `translateY(${distance}px)`}, {transform: `translateY(${destination}px)`}], {
       duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180,
@@ -681,6 +682,7 @@ function openProductDetails() {
   };
   grip.onpointerup = event => finishDrag(event);
   grip.onpointercancel = event => finishDrag(event, true);
+  grip.onlostpointercapture = event => finishDrag(event, true);
   dialog.oncancel = event => { event.preventDefault(); void closeProductDetails(); };
   dialog.showModal();
 }
