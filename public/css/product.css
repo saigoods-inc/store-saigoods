@@ -203,9 +203,6 @@
 .page--product .product-related__link { color: inherit; text-decoration: none; }
 .page--product .product-related__link::after { content: ''; position: absolute; inset: 0; z-index: 2; }
 .page--product .product-related__card:focus-within { outline: 2px solid #777; outline-offset: 3px; }
-@media (max-width: 760px) {
-  .page--product .cart-link__count { top: 3px; right: 3px; }
-}
 
 /* Mobile details use a bottom sheet while retaining the desktop dialog layout. */
 @media (max-width: 760px) {
