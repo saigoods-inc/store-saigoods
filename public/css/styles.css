@@ -4531,12 +4531,13 @@ body.nav-drawer-open [data-site-header] { top: 0; }
 .footer .footer__bottom { margin: 0; padding: 28px 0; gap: 16px; }
 .footer .rights { font: 400 14px/1.5 Manrope, sans-serif; }
 .footer .social { gap: 24px; }
-@media (min-width: 420px) and (max-width: 760px) {
+@media (min-width: 360px) and (max-width: 760px) {
   .footer .footer__top { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px 28px; }
 }
 @media (max-width: 480px) {
   .footer .footer__top { gap: 28px 20px; }
   .footer .shell.footer__content { width: calc(100% - 40px); padding-top: 20px; }
+  .footer .contact__value, .footer .credential__value { font-size: 14px; }
   .footer .brand__name { font-size: 21px; }
   .footer .brand__logo { width: 30px; height: 30px; }
   .footer .footer__bottom { flex-wrap: wrap; padding-block: 20px; }
@@ -4544,8 +4545,8 @@ body.nav-drawer-open [data-site-header] { top: 0; }
   .footer .social { gap: 20px; }
   .footer .social img { width: 20px; height: 20px; }
 }
-/* Below 420px, preserve readable contact details without cramped columns. */
-@media (max-width: 419px) { .footer .footer__top { grid-template-columns: 1fr; } }
+/* Keep two columns on standard phones; stack only on very narrow screens. */
+@media (max-width: 359px) { .footer .footer__top { grid-template-columns: 1fr; } }
 
 /* True variable weights for the cart, including the requested 700 headings. */
 @font-face { font-family: ManropeVariable; font-style: normal; font-weight: 200 800; font-display: swap; src: url('/font/Manrope-Variable.ttf') format('truetype'); }
