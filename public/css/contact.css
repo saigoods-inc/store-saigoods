@@ -9,7 +9,7 @@
 .inquiry-form #inquiry-status[data-error="true"] { color: #a33123; }
 .business-contact { background: #ffffff; color: #1b3747; padding: 50px 20px; }
 .contact-grid { display: grid; grid-template-columns: 1fr 2fr; gap: 48px; }
-.contact-copy h2 { color: var(--accent); font-weight: 800; font-size: 23px; line-height: 1.2; margin: 0 0 16px; }
+.contact-copy h2 { color: #333333; font-weight: 700; font-size: 23px; line-height: 1.2; margin: 0 0 16px; }
 .contact-copy p { color: #777777; line-height: 1.65; }
 .contact-copy address { display: grid; gap: 3px; margin-top: 48px; font-style: normal; }
 .contact-copy address strong:not(:first-child) { margin-top: 16px; }
