@@ -346,3 +346,6 @@
   .storefront-home .home-b2b { padding-inline: 20px; }
   .storefront-home .home-b2b .button--light { width: 100%; box-sizing: border-box; }
 }
+
+/* Reserve the price line while live prices refresh the initial static cards. */
+.storefront-home .product-card__price { min-height: 24px; }
