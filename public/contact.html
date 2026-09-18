@@ -13,25 +13,50 @@
     <meta property="og:description" content="Talk with SAI Goods about nitrile gloves, bulk orders, and product questions." />
     <meta property="og:url" content="https://store.saigoods.com/contact" />
     <link rel="stylesheet" href="/css/styles.css" />
+    <link rel="stylesheet" href="/css/contact.css" />
   </head>
   <body>
     <div class="site-frame">
       <header data-site-header></header>
-      <main class="section">
-        <div class="shell">
-          <div class="page-heading">
-            <p class="eyebrow eyebrow--accent">Contact</p>
-            <h1>Talk with the SAI Goods team.</h1>
-            <p>Questions about products, carton quantities, or a larger order? Our sales team is ready to help.</p>
+      <main>
+      <section class="section business-contact" id="business-contact" aria-labelledby="contact-title">
+        <div class="shell contact-grid">
+          <div class="contact-copy">
+            <p class="eyebrow">Contact SAI Goods, Inc.</p>
+            <h1 id="contact-title">Tell us about your organization</h1>
+            <p>Share a few details and our team will review your inquiry. Submitting this form does not create a commitment or guarantee availability.</p>
+            <address>
+              <strong>Email</strong><a href="mailto:sales@saigoods.com">sales@saigoods.com</a>
+              <strong>Phone</strong><a href="tel:+16152437512">(615) 243-7512</a>
+            </address>
           </div>
-          <div class="summary-card">
-            <h2>Sales and product support</h2>
-            <p><strong>Email:</strong> <a href="mailto:sales@saigoods.com">sales@saigoods.com</a></p>
-            <p><strong>Phone:</strong> <a href="tel:+16152437512">+1 (615) 243-7512</a></p>
-            <p><strong>Mailing address:</strong><br />901 Broadway Unit 24210<br />Nashville, TN 37202 USA</p>
-            <p><a class="button button--primary" href="mailto:sales@saigoods.com?subject=SAI%20Goods%20product%20inquiry">Email our sales team</a></p>
-          </div>
+
+          <form class="inquiry-form" id="business-inquiry-form" aria-describedby="inquiry-help">
+            <label class="honeypot" aria-hidden="true">Website<input name="website" type="text" tabindex="-1" autocomplete="off" /></label>
+            <div class="form-row">
+              <label>Full name <span aria-hidden="true">*</span><input name="name" type="text" autocomplete="name" placeholder="Jane Smith" required /></label>
+              <label>Company or organization <span aria-hidden="true">*</span><input name="company" type="text" autocomplete="organization" placeholder="Acme Health Systems" required /></label>
+            </div>
+            <div class="form-row">
+              <label>Work email <span aria-hidden="true">*</span><input name="email" type="email" autocomplete="email" placeholder="jane@organization.com" required /></label>
+              <label>Phone <small>(optional)</small><input name="phone" type="tel" autocomplete="tel" placeholder="+1 (615) 000-0000" /></label>
+            </div>
+            <div class="form-row">
+              <label>Organization type <span aria-hidden="true">*</span>
+                <select name="org_type" required>
+                  <option value="">Select type…</option><option>Healthcare</option><option>Food Service</option><option>Industrial / Manufacturing</option><option>Government / Institutional</option><option>Retail / Local Business</option><option>International Brand / Manufacturer</option><option>Other</option>
+                </select>
+              </label>
+              <label>Area of interest <span aria-hidden="true">*</span><input name="products" type="text" placeholder="e.g. Nitrile gloves" required /></label>
+            </div>
+            <label>Estimated quantity or frequency <small>(optional)</small><input name="quantity" type="text" placeholder="e.g. 5,000 units per month" /></label>
+            <label>Message <span aria-hidden="true">*</span><textarea name="message" rows="4" placeholder="Tell us about your organization, needs, or questions." required></textarea></label>
+            <p id="inquiry-help">This form opens an email draft. Send it from your email app to submit your inquiry.</p>
+            <button class="button button--primary" type="submit">Prepare inquiry email</button>
+            <p id="inquiry-status" role="status" hidden></p>
+          </form>
         </div>
+      </section>
       </main>
       <footer data-site-footer></footer>
     </div>

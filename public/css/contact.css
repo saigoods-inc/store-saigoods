@@ -1,0 +1,24 @@
+.business-contact { background: #f7f8fa; color: #1b3747; padding-block: 64px; }
+.contact-grid { display: grid; grid-template-columns: 1fr 2fr; gap: 48px; }
+.contact-copy h1 { font-size: clamp(28px, 3vw, 40px); line-height: 1.2; margin: 16px 0; }
+.contact-copy p { color: #71808c; line-height: 1.65; }
+.contact-copy address { display: grid; gap: 8px; margin-top: 48px; font-style: normal; }
+.contact-copy address strong:not(:first-child) { margin-top: 16px; }
+.contact-copy address a { color: #71808c; }
+.inquiry-form { display: grid; gap: 20px; min-width: 0; }
+.inquiry-form .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.inquiry-form label { display: flex; flex-wrap: wrap; gap: 6px; font-weight: 700; min-width: 0; }
+.inquiry-form label > span { color: #b6533b; }
+.inquiry-form small { font-weight: 400; color: #71808c; }
+.inquiry-form input, .inquiry-form select, .inquiry-form textarea { width: 100%; min-width: 0; box-sizing: border-box; padding: 14px 16px; border: 1px solid #dde1e5; border-radius: 8px; background: white; color: #1b3747; font: inherit; font-weight: 400; }
+.inquiry-form textarea { resize: vertical; }
+.inquiry-form .button { justify-self: start; }
+.inquiry-form .honeypot { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@media (max-width: 760px) {
+  .business-contact { padding-block: 32px; }
+  .contact-grid { grid-template-columns: 1fr; gap: 32px; }
+  .contact-copy address { margin-top: 24px; }
+}
+@media (max-width: 480px) {
+  .inquiry-form .form-row { grid-template-columns: 1fr; }
+}

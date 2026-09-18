@@ -123,8 +123,8 @@ function renderHeader(site, page) {
 
   const logoHref = page === "home" ? "#hero" : "/index.html#hero";
   const shopHref = page === "home" ? "#products" : "/index.html#products";
-  const b2bHref = page === "home" ? "#b2b" : "/index.html#b2b";
-  const contactHref = page === "home" ? "#contact" : "/contact";
+  const b2bHref = "/contact";
+  const contactHref = "#contact";
 
   headerRoot.innerHTML = `
     <div class="site-header">
