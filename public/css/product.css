@@ -137,6 +137,7 @@
 .page--product .product-details-dialog__header { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; padding-bottom: 1.75rem; border-bottom: 1px solid var(--line); margin-bottom: 1.75rem; }
 .page--product .product-details-tabs { display: flex; flex-wrap: wrap; gap: .6rem; }
 .page--product .product-details-tabs button { border: 1px solid #555; border-radius: 8px; background: #fff; color: #555; padding: .4rem 1.2rem; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.page--product .product-details-dialog[data-pointer-focus] .product-details-tabs button:focus-visible { outline: none; }
 .page--product .product-details-tabs button[aria-selected="true"] { color: white; background: #bf563e; border-color: #bf563e; }
 .page--product .product-details-close { border: 0; background: #f1f1f1; border-radius: 50%; width: 32px; height: 32px; flex: 0 0 32px; color: #777; font-size: 24px; cursor: pointer; }
 .page--product .product-details-dialog h2 { color: #203746; font-size: 23px; font-weight: 800; margin: 1.5rem 0 1rem; }
