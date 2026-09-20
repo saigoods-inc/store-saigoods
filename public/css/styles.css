@@ -4582,3 +4582,8 @@ body.nav-drawer-open [data-site-header] { top: 0; }
 .cart-link__icon { position: relative; display: inline-flex; line-height: 0; }
 .checkout-back { transition: background-color 160ms ease-out; }
 .checkout-back:hover, .checkout-back:focus-visible { background: #e5e5e5; }
+
+/* Empty cart presentation, shared across desktop and mobile. */
+.page--cart .empty-state--wide { border-radius: 8px; }
+.page--cart .empty-state--wide > .button--primary { border-radius: 8px; background: #c25840; }
+.page--cart .empty-state--wide > .button--primary:hover { background: #a74935; }
