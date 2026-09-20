@@ -628,7 +628,7 @@ async function closeProductDetails() {
   animation.cancel();
   delete dialog.dataset.closing;
 }
-function openProductDetails() {
+function openProductDetails(event) {
   const dialog = productRoot.querySelector('dialog');
   const scrollY = window.scrollY;
   // Keep the page in normal flow: fixing the body can blank Safari's
@@ -642,7 +642,12 @@ function openProductDetails() {
     else rootStyle.removeProperty('overflow');
     window.scrollTo({top: scrollY, behavior: 'instant'});
   }, {once: true});
+  // Safari can retain keyboard-style focus when showModal() follows a click.
+  // Suppress the tab ring only until keyboard interaction resumes.
+  dialog.toggleAttribute('data-pointer-focus', event.detail > 0);
+  dialog.onkeydown = () => dialog.removeAttribute('data-pointer-focus');
   dialog.onpointerdown = event => {
+    dialog.setAttribute('data-pointer-focus', '');
     const r = dialog.getBoundingClientRect();
     dialog.dataset.backdropPress = String(event.target === dialog && (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom));
   };
@@ -895,7 +900,7 @@ async function handleProductClick(event) {
   }
 
   const action = target.dataset.action;
-  if (action === "full-details") { openProductDetails(); return; }
+  if (action === "full-details") { openProductDetails(event); return; }
   if (action === "close-details") { void closeProductDetails(); return; }
   if (action === "details-tab") { activateDetailsTab(target.dataset.tab); return; }
 
