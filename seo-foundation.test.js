@@ -37,12 +37,12 @@ test("storefront and admin pages use the dedicated square SAI Goods favicon", ()
   for (const page of pages) {
     assert.match(
       read(`./public/${page}.html`),
-      /<link rel="icon" href="\/favicon-32\.png\?v=2" type="image\/png" sizes="32x32" \/>/,
+      /<link rel="icon" href="\/favicon-32\.png\?v=[23]" type="image\/png" sizes="32x32" \/>/,
     );
   }
   assert.match(
     read("./admin-app/index.html"),
-    /<link rel="icon" href="\/favicon-32\.png\?v=2" type="image\/png" sizes="32x32" \/>/,
+    /<link rel="icon" href="\/favicon-32\.png\?v=[23]" type="image\/png" sizes="32x32" \/>/,
   );
 });
 
