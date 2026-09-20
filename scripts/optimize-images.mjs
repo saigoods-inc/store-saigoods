@@ -64,6 +64,8 @@ async function processFile(absPath) {
 
   await writeWebp("", 1600);
   await writeWebp("400", 400);
+  // The homepage hero displays at 250 CSS px on mobile; retain a sharp 2x option.
+  if (stem === "boxes-stack") await writeWebp("500", 500);
   await writeWebp("800", 800);
 }
 
