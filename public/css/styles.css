@@ -3511,6 +3511,12 @@ button {
     opacity 0.22s ease;
 }
 
+.toast--success {
+  border-color: #86c99b;
+  background: #eaf7ee;
+  color: #1b5e35;
+}
+
 .toast--error {
   border-color: #e39a90;
   background: #fde9e6;
