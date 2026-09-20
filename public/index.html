@@ -69,7 +69,7 @@
       }
     </script>
     <!-- Perf (Lighthouse): discover LCP candidate early; WebP generated via npm run optimize:images -->
-    <link rel="preload" as="image" href="/img/boxes-stack.webp" type="image/webp" fetchpriority="high" />
+    <link rel="preload" as="image" href="/img/boxes-stack-800.webp" imagesrcset="/img/boxes-stack-400.webp 400w, /img/boxes-stack-500.webp 500w, /img/boxes-stack-800.webp 800w" imagesizes="(max-width: 680px) 250px, min(30rem, calc(43vw - 1.5rem))" type="image/webp" fetchpriority="high" />
     <!-- Perf: minimal above-the-fold + CLS reserve until async styles.css paints -->
     <style>
       :root {
@@ -181,11 +181,11 @@
             <div class="hero__media fade-up">
               <!-- Perf: WebP + srcset + intrinsic size (CLS); onerror matches image-utils.js fallback -->
               <img
-                src="/img/boxes-stack.webp"
-                srcset="/img/boxes-stack-400.webp 400w, /img/boxes-stack-800.webp 800w"
-                sizes="(max-width: 768px) 92vw, min(88vw, 32rem)"
+                src="/img/boxes-stack-800.webp"
+                srcset="/img/boxes-stack-400.webp 400w, /img/boxes-stack-500.webp 500w, /img/boxes-stack-800.webp 800w"
+                sizes="(max-width: 680px) 250px, min(30rem, calc(43vw - 1.5rem))"
                 width="800"
-                height="600"
+                height="800"
                 alt="Stacked LYDUS glove boxes featured in the SAI Goods Store."
                 loading="eager"
                 fetchpriority="high"
