@@ -631,13 +631,15 @@ async function closeProductDetails() {
 function openProductDetails() {
   const dialog = productRoot.querySelector('dialog');
   const scrollY = window.scrollY;
-  const previousStyle = document.body.getAttribute('style');
-  document.body.style.position = 'fixed';
-  document.body.style.top = `-${scrollY}px`;
-  document.body.style.width = '100%';
+  // Keep the page in normal flow: fixing the body can blank Safari's
+  // background layer when a descendant dialog enters the top layer.
+  const rootStyle = document.documentElement.style;
+  const previousOverflow = rootStyle.getPropertyValue('overflow');
+  const previousPriority = rootStyle.getPropertyPriority('overflow');
+  rootStyle.setProperty('overflow', 'hidden');
   dialog.addEventListener('close', () => {
-    if (previousStyle === null) document.body.removeAttribute('style');
-    else document.body.setAttribute('style', previousStyle);
+    if (previousOverflow) rootStyle.setProperty('overflow', previousOverflow, previousPriority);
+    else rootStyle.removeProperty('overflow');
     window.scrollTo({top: scrollY, behavior: 'instant'});
   }, {once: true});
   dialog.onpointerdown = event => {
