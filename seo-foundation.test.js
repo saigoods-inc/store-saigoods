@@ -12,7 +12,7 @@ test("public pages expose safe crawl directives and canonical URLs", () => {
 
   assert.match(home, /rel="canonical" href="https:\/\/store\.saigoods\.com\/"/);
   assert.match(home, /name="google-site-verification" content="[A-Za-z0-9_-]+"/);
-  assert.match(home, /<h1 class="hero__title">Nitrile gloves you can count on\.<\/h1>/);
+  assert.match(home, /<h1 class="hero__title">LYDUS nitrile gloves from SAI Goods\.<\/h1>/);
   assert.match(home, /application\/ld\+json/);
   assert.match(productFallback, /name="robots" content="noindex, follow"/);
   assert.match(cart, /name="robots" content="noindex, follow"/);
