@@ -1,8 +1,9 @@
 import { validateShippingAddressForCheckout } from "../lib/address-validation.js";
 import { buildFullCheckoutQuote, formatShippingAddressForOrder } from "../lib/checkout-totals.js";
 import { parseCheckoutPayBody } from "../lib/checkout-validation.js";
+import { isCheckoutPreviewOnly } from "../lib/checkout-preview.js";
+import { assertDiscountCodeEligibleForItems } from "../lib/discount-carton-condition.js";
 import {
-  assertDiscountCodeAvailable,
   claimDiscountCodeForOrder,
   normalizeDiscountCode,
 } from "../lib/discount-codes.js";
@@ -105,6 +106,10 @@ export default async function handler(req, res) {
   }
 
   try {
+    if (isCheckoutPreviewOnly()) {
+      res.status(503).json({ error: "This preview is for reviewing discounts. Payments and order creation are disabled." });
+      return;
+    }
     if (process.env.NODE_ENV !== "test") {
       assertPublicApiRequestAllowed(req, {
         name: "checkout-pay",
@@ -186,17 +191,19 @@ export default async function handler(req, res) {
     let pricingTier = "standard";
     let hardinDiscount = null;
     let codeDiscount = null;
+    let discountCodeDetails = null;
+
+    await primeRuntimeStoreForItems(parsed.items);
+    assertCartItemsHaveValidSupportedSizeAllocation(parsed.items);
 
     if (normalizedCode) {
-      const codeDetails = await assertDiscountCodeAvailable(normalizedCode);
-      const percentOff = Number(codeDetails?.percentOff) || 7;
+      discountCodeDetails = await assertDiscountCodeEligibleForItems(normalizedCode, parsed.items);
+      const percentOff = discountCodeDetails.percentOff;
       codeDiscount = { type: "percent", value: percentOff };
       pricingTier = "standard";
       hardinDiscount = { code: normalizedCode, applied: true, percentOff };
     }
 
-    await primeRuntimeStoreForItems(parsed.items);
-    assertCartItemsHaveValidSupportedSizeAllocation(parsed.items);
     await assertStockAvailableForItems(parsed.items);
     const selectedShipping = checkoutSelectedShippingRateFields(req.body || {});
     const selectedQuote = verifiedQuotePayload
@@ -217,6 +224,7 @@ export default async function handler(req, res) {
           requestFingerprint: verifiedQuotePayload.requestFingerprint,
         }
       : selectedQuote;
+    if (discountCodeDetails) quote.discountCodeDetails = discountCodeDetails;
 
     const packageLimitBody = buildCheckoutPayPackageLimitBody(quote);
     if (packageLimitBody) {

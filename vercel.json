@@ -1,5 +1,5 @@
 {
-  "git": { "deploymentEnabled": { "codex/storefront-ui-release": false } },
+  "git": { "deploymentEnabled": { "codex/storefront-ui-release": false, "codex/discount-carton-minimum": false } },
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "outputDirectory": "public",
   "headers": [

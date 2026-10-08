@@ -2614,14 +2614,40 @@ button {
   margin-top: 0;
 }
 
-.checkout-discount-warning {
-  margin: 0 0 0.65rem;
+.checkout-discount-warning,
+.checkout-discount-success {
+  margin: 0.65rem 0 0;
   font-size: var(--fs-small);
   line-height: var(--leading-normal);
   color: #b42318;
 }
 
-.checkout-discount-warning[hidden] {
+.checkout-discount-success {
+  color: #187347;
+}
+
+.checkout-discount-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 0.65rem;
+}
+
+.checkout-discount-action {
+  padding: 0.25rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-primary, #1d5b48);
+  font: inherit;
+  font-size: var(--fs-small);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.checkout-discount-warning[hidden],
+.checkout-discount-success[hidden],
+.checkout-discount-actions[hidden] {
   display: none !important;
 }
 

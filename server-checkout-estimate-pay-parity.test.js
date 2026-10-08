@@ -90,9 +90,9 @@ test("checkout estimate/pay parity fixture passes in isolated child with module 
     false,
     `nested node --test was skipped (clear NODE_TEST_CONTEXT):\n${combined}`,
   );
-  assert.match(combined, /tests 12/);
-  assert.match(combined, /pass 12/);
+  assert.match(combined, /tests 16/);
+  assert.match(combined, /pass 16/);
   assert.match(combined, /fail 0/);
-  assert.equal(/skipped 12/.test(combined), false);
-  assert.equal(/todo 12/.test(combined), false);
+  assert.equal(/skipped 16/.test(combined), false);
+  assert.equal(/todo 16/.test(combined), false);
 });

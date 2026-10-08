@@ -9,6 +9,7 @@ import {
 } from "../lib/manual-order-fulfillment.js";
 import { createManualOrderDraft } from "../lib/orders.js";
 import { normalizeDiscountCode } from "../lib/discount-codes.js";
+import { assertDiscountCodeEligibleForItems } from "../lib/discount-carton-condition.js";
 import { assertReportsAuthorized, getReportsActor } from "../lib/reports-auth.js";
 import {
   selectManualOrderRateFromToken,
@@ -220,6 +221,9 @@ export default async function handler(req, res) {
           allowManualB2bShipping: true,
         });
     if (isCarrier) {
+      if (discountCode) {
+        quote.discountCodeDetails = await assertDiscountCodeEligibleForItems(discountCode, parsed.items);
+      }
       const carrierQuoteError = invalidCarrierQuoteMessage(quote);
       if (carrierQuoteError) {
         res.status(400).json({ error: carrierQuoteError });

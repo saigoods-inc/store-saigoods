@@ -70,6 +70,7 @@ export function DiscountCodesPage() {
   const [createMode, setCreateMode] = useState<"random" | "manual">("random");
   const [createCode, setCreateCode] = useState("");
   const [createPercent, setCreatePercent] = useState("7");
+  const [createMinCartons, setCreateMinCartons] = useState("0");
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState("");
 
@@ -129,6 +130,11 @@ export function DiscountCodesPage() {
       setCreateError("Enter a percentage between 1 and 100.");
       return;
     }
+    const minCartons = Number(createMinCartons);
+    if (!Number.isSafeInteger(minCartons) || minCartons < 0 || minCartons > 2147483647) {
+      setCreateError("Enter a minimum carton quantity of 0 or a positive whole number.");
+      return;
+    }
     if (createMode === "manual" && !createCode.trim()) {
       setCreateError("Enter the code text.");
       return;
@@ -137,11 +143,12 @@ export function DiscountCodesPage() {
     setCreateError("");
     try {
       const token = await auth.getAccessToken();
-      await createDiscountCode({ mode: createMode, code: createCode, percentOff }, token);
+      await createDiscountCode({ mode: createMode, code: createCode, percentOff, minCartons }, token);
       await codesQuery.refetch();
       setPage(0);
       setCreateOpen(false);
       setCreateCode("");
+      setCreateMinCartons("0");
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : "Could not create discount code.");
     } finally {
@@ -227,6 +234,7 @@ export function DiscountCodesPage() {
                   <td className="py-4 pl-2.5 pr-5 align-middle">
                     <span className="block font-mono text-[13px] font-bold">{row.code || "-"}</span>
                     <span className="mt-1 block text-[10px] font-semibold text-sg-muted">{Number(row.percent_off) || 7}% off</span>
+                    <span className="mt-1 block text-[10px] text-sg-muted">{Number(row.min_cartons) > 0 ? `${row.min_cartons} carton${Number(row.min_cartons) === 1 ? "" : "s"} or more` : "No minimum"}</span>
                   </td>
                   <td className="px-0 py-4 pr-5 align-middle">{statusChip(Boolean(row.is_used))}</td>
                   <td className="px-0 py-4 pr-5 align-middle text-[13px] text-sg-muted">{codeDate(row.used_at)}</td>
@@ -246,7 +254,7 @@ export function DiscountCodesPage() {
         {filteredCodes.length ? <div className="flex items-center justify-end gap-3 px-4 pt-4"><p className="text-[11px] text-sg-muted">Page {effectivePage + 1} of {pageCount} · {formatNumber(filteredCodes.length)} codes</p><div className="flex gap-2"><button type="button" className="sg25-btn sg25-btn-ghost h-8 w-8 p-0" aria-label="Previous discount codes page" disabled={effectivePage === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>←</button><button type="button" className="sg25-btn sg25-btn-ghost h-8 w-8 p-0" aria-label="Next discount codes page" disabled={effectivePage + 1 >= pageCount} onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}>→</button></div></div> : null}
       </section>
 
-      {createOpen ? createPortal(<div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true" aria-labelledby="create-discount-title" onClick={() => !createBusy && setCreateOpen(false)}><section className="w-full max-w-lg rounded-[14px] bg-white p-5 shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-start justify-between gap-4"><div><h2 id="create-discount-title" className="text-xl font-bold">Add discount code</h2><p className="mt-1 text-sm text-sg-muted">Create a one-time code that checkout and manual orders can verify.</p></div><button type="button" className="sg25-btn sg25-btn-ghost h-8 w-8 p-0" aria-label="Close create code" disabled={createBusy} onClick={() => setCreateOpen(false)}><Icon name="x" className="h-4 w-4" /></button></div><div className="mt-5 grid grid-cols-2 gap-3"><button type="button" className={`rounded-[10px] border p-3 text-left ${createMode === "random" ? "border-sg-primary bg-sg-primary-soft" : "border-sg-border"}`} onClick={() => setCreateMode("random")}><span className="block text-[13px] font-bold">Random code</span><span className="mt-1 block text-[11px] text-sg-muted">Generate PROMO-XXXXX</span></button><button type="button" className={`rounded-[10px] border p-3 text-left ${createMode === "manual" ? "border-sg-primary bg-sg-primary-soft" : "border-sg-border"}`} onClick={() => setCreateMode("manual")}><span className="block text-[13px] font-bold">Enter text</span><span className="mt-1 block text-[11px] text-sg-muted">Use a campaign code</span></button></div>{createMode === "manual" ? <label className="mt-4 block"><span className="text-[12px] font-semibold text-sg-muted">Code text</span><input className="sg25-input mt-1 bg-sg-input-bg" value={createCode} onChange={(event) => setCreateCode(event.target.value)} placeholder="SUMMER-2026" /><span className="mt-1 block text-[10px] text-sg-muted">Use 3–32 letters, numbers, or hyphens.</span></label> : null}<label className="mt-4 block"><span className="text-[12px] font-semibold text-sg-muted">Percent off</span><div className="relative mt-1"><input className="sg25-input bg-sg-input-bg pr-10" type="number" min="1" max="100" value={createPercent} onChange={(event) => setCreatePercent(event.target.value)} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-bold text-sg-muted">%</span></div></label>{createError ? <p className="mt-3 rounded-[8px] bg-sg-danger-soft p-3 text-[12px] text-sg-danger">{createError}</p> : null}<div className="mt-5 flex justify-end gap-2"><button type="button" className="sg25-btn sg25-btn-ghost" disabled={createBusy} onClick={() => setCreateOpen(false)}>Cancel</button><button type="button" className="sg25-btn sg25-btn-primary" disabled={createBusy} onClick={() => void handleCreateCode()}>{createBusy ? "Creating..." : "Create code"}</button></div></section></div>, document.body) : null}
+      {createOpen ? createPortal(<div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true" aria-labelledby="create-discount-title" onClick={() => !createBusy && setCreateOpen(false)}><section className="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-[14px] bg-white p-5 shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-start justify-between gap-4"><div><h2 id="create-discount-title" className="text-xl font-bold">Add discount code</h2><p className="mt-1 text-sm text-sg-muted">Create a one-time code that checkout and manual orders can verify.</p></div><button type="button" className="sg25-btn sg25-btn-ghost h-8 w-8 p-0" aria-label="Close create code" disabled={createBusy} onClick={() => setCreateOpen(false)}><Icon name="x" className="h-4 w-4" /></button></div><div className="mt-5 grid grid-cols-2 gap-3"><button type="button" className={`rounded-[10px] border p-3 text-left ${createMode === "random" ? "border-sg-primary bg-sg-primary-soft" : "border-sg-border"}`} onClick={() => setCreateMode("random")}><span className="block text-[13px] font-bold">Random code</span><span className="mt-1 block text-[11px] text-sg-muted">Generate PROMO-XXXXX</span></button><button type="button" className={`rounded-[10px] border p-3 text-left ${createMode === "manual" ? "border-sg-primary bg-sg-primary-soft" : "border-sg-border"}`} onClick={() => setCreateMode("manual")}><span className="block text-[13px] font-bold">Enter text</span><span className="mt-1 block text-[11px] text-sg-muted">Use a campaign code</span></button></div>{createMode === "manual" ? <label className="mt-4 block"><span className="text-[12px] font-semibold text-sg-muted">Code text</span><input className="sg25-input mt-1 bg-sg-input-bg" value={createCode} onChange={(event) => setCreateCode(event.target.value)} placeholder="SUMMER-2026" /><span className="mt-1 block text-[10px] text-sg-muted">Use 3–32 letters, numbers, or hyphens.</span></label> : null}<label className="mt-4 block"><span className="text-[12px] font-semibold text-sg-muted">Percent off</span><div className="relative mt-1"><input className="sg25-input bg-sg-input-bg pr-10" type="number" min="1" max="100" value={createPercent} onChange={(event) => setCreatePercent(event.target.value)} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-bold text-sg-muted">%</span></div></label><label className="mt-4 block" htmlFor="discount-min-cartons"><span className="text-[12px] font-semibold text-sg-muted">Minimum cartons</span><input id="discount-min-cartons" className="sg25-input mt-1 bg-sg-input-bg" type="number" min="0" max="2147483647" step="1" inputMode="numeric" aria-describedby="discount-min-cartons-help" value={createMinCartons} onChange={(event) => setCreateMinCartons(event.target.value)} /><span id="discount-min-cartons-help" className="mt-1 block text-[11px] text-sg-muted">0 means no minimum. Counts carton bundles across all products and sizes; loose boxes do not count. The discount applies to all merchandise.</span></label>{createError ? <p className="mt-3 rounded-[8px] bg-sg-danger-soft p-3 text-[12px] text-sg-danger">{createError}</p> : null}<div className="mt-5 flex justify-end gap-2"><button type="button" className="sg25-btn sg25-btn-ghost" disabled={createBusy} onClick={() => setCreateOpen(false)}>Cancel</button><button type="button" className="sg25-btn sg25-btn-primary" disabled={createBusy} onClick={() => void handleCreateCode()}>{createBusy ? "Creating..." : "Create code"}</button></div></section></div>, document.body) : null}
     </div>
   );
 }

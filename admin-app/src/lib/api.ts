@@ -118,6 +118,7 @@ export interface NexusSummaryResponse {
 export interface DiscountCodeRow {
   code?: string;
   percent_off?: number | null;
+  min_cartons?: number | null;
   is_used?: boolean;
   used_at?: string | null;
   used_by_order_id?: string | null;
@@ -711,7 +712,7 @@ export function fetchDiscountCodes(token?: string) {
   return fetchJson<DiscountCodesResponse>("/api/admin-discount-codes", token);
 }
 
-export function createDiscountCode(body: { mode: "random" | "manual"; code?: string; percentOff: number }, token?: string) {
+export function createDiscountCode(body: { mode: "random" | "manual"; code?: string; percentOff: number; minCartons: number }, token?: string) {
   return postJson<CreateDiscountCodeResponse>("/api/admin-discount-codes", body, token);
 }
 

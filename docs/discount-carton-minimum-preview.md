@@ -1,0 +1,34 @@
+# Minimum-carton discount codes
+
+Admin can set an optional minimum carton quantity alongside a code's existing percentage. Zero keeps the existing no-minimum behavior. Only actual cartons count, across products and sizes; loose boxes and shipping parcel counts do not qualify. Once eligible, the existing merchandise percentage calculation, single-use claim, and non-stacking rules still apply.
+
+Checkout shows the code, percentage, and confirmed requirement when accepted. A rejected code states the minimum, current cartons, and quantity still needed. Removing a code or changing a cart clears the old quote and savings, and requires confirmation again. Contact/address inputs survive the Edit cart round trip within the same browser session; payment data is never saved.
+
+## Review scenarios
+
+Use disposable codes in the isolated preview database:
+
+| Code | Discount | Minimum | Expected result |
+| --- | --- | --- | --- |
+| PSD398O | 5% | 1 | One carton qualifies; boxes alone do not |
+| FRIYAY999 | 10% | 5 | Four cartons rejects; five mixed cartons qualifies |
+| A fresh legacy-style code | Any valid % | 0 | Existing box-only behavior is preserved |
+
+Also check four cartons plus ten loose boxes, removing the code, editing the cart after confirmation, and a product with a non-stacking automatic volume price. The final payment endpoint independently checks eligibility, including requests using a signed quote.
+
+## Release sequence
+
+1. Apply `sql/patch-discount-code-min-cartons.sql` to the isolated preview database.
+2. Publish this feature branch as a Vercel Preview with sandbox-only settings.
+3. Review admin creation/listing and shopper success/rejection.
+4. After user approval, apply the same additive migration to production before deploying the application change. Existing rows receive zero automatically.
+
+Do not merge or deploy to production before approval. Code rollback can retain the new column; the previous version ignores it.
+
+For this review, `CHECKOUT_PREVIEW_ONLY=true` works only together with `VERCEL_ENV=preview` and `SQUARE_ENVIRONMENT=sandbox`. It enables browsing checkout without Square credentials and rejects payment before order creation. Shipping uses a test token, and address verification and email credentials are disabled. Automatic deployment of this branch is disabled so it cannot deploy before its isolated environment is prepared; publish it explicitly with the Vercel CLI.
+
+## Validation
+
+`npm test` includes the new discount tests. Admin unit/integration suites cover the surrounding existing behavior. The admin production build passes. The standalone TypeScript check has eight pre-existing errors in unchanged admin pages, reproduced from the main baseline; this feature introduces no additional type errors.
+
+After release, the release owner should check admin code creation, a qualifying estimate, a below-minimum rejection, and an existing zero-minimum code immediately and again after initial customer usage. Unexpected missing-column errors, incorrect savings, or lost shipping/payment functionality require rollback of the application deployment and investigation. A below-minimum rejection is expected behavior. No production release has been approved by this document.
