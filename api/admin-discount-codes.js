@@ -1,6 +1,7 @@
 import { assertReportsAuthorized } from "../lib/reports-auth.js";
 import { createClient } from "@supabase/supabase-js";
 import { normalizeDiscountCode, normalizeDiscountPercent } from "../lib/discount-codes.js";
+import { normalizeMinimumCartons } from "../lib/discount-carton-condition.js";
 
 function getServiceClient() {
   const url = process.env.SUPABASE_URL?.trim();
@@ -24,6 +25,7 @@ export default async function handler(req, res) {
     const client = getServiceClient();
     if (req.method === "POST") {
       const mode = String(req.body?.mode || "manual").trim().toLowerCase();
+      const minCartons = normalizeMinimumCartons(req.body?.minCartons);
       const percentOff = normalizeDiscountPercent(req.body?.percentOff, 0);
       if (!percentOff) {
         res.status(400).json({ error: "Discount percentage must be between 1 and 100." });
@@ -40,7 +42,7 @@ export default async function handler(req, res) {
       let lastError = null;
       for (let attempt = 0; attempt < (mode === "random" ? 5 : 1); attempt += 1) {
         const code = attempt === 0 ? requestedCode : randomCode();
-        const result = await client.from("discount_codes").insert({ code, percent_off: percentOff }).select("code,is_used,used_at,used_by_order_id,created_at,percent_off").single();
+        const result = await client.from("discount_codes").insert({ code, percent_off: percentOff, min_cartons: minCartons }).select("code,is_used,used_at,used_by_order_id,created_at,percent_off,min_cartons").single();
         if (!result.error) { created = result.data; break; }
         lastError = result.error;
         if (String(result.error.code || "") !== "23505") break;
@@ -58,7 +60,7 @@ export default async function handler(req, res) {
 
     const { data, error } = await client
       .from("discount_codes")
-      .select("code,is_used,used_at,used_by_order_id,created_at,percent_off")
+      .select("code,is_used,used_at,used_by_order_id,created_at,percent_off,min_cartons")
       .order("created_at", { ascending: false });
 
     if (error) {
