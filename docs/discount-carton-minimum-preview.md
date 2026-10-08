@@ -25,7 +25,7 @@ Also check four cartons plus ten loose boxes, removing the code, editing the car
 
 Do not merge or deploy to production before approval. Code rollback can retain the new column; the previous version ignores it.
 
-For this review, `CHECKOUT_PREVIEW_ONLY=true` works only together with `VERCEL_ENV=preview` and `SQUARE_ENVIRONMENT=sandbox`. It enables browsing checkout without Square credentials and rejects payment before order creation. Shipping uses a test token, and address verification and email credentials are disabled. Automatic deployment of this branch is disabled so it cannot deploy before its isolated environment is prepared; publish it explicitly with the Vercel CLI.
+For this review, `CHECKOUT_PREVIEW_ONLY=true` works only together with `VERCEL_ENV=preview` and `SQUARE_ENVIRONMENT=sandbox`. It enables browsing checkout without Square credentials and rejects payment before order creation. Shipping uses a test token, and address verification and email credentials are disabled. The preview uses branch-specific environment settings. Automatic feature-branch deployments were enabled only after those sandbox settings were verified; production settings are unchanged.
 
 ## Validation
 
