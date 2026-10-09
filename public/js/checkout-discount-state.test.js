@@ -4,13 +4,13 @@ import fs from "node:fs";
 import vm from "node:vm";
 import { CHECKOUT_DRAFT_FIELDS, checkoutDiscountSuccess, clearCheckoutDraft, isCheckoutDiscountApiError, readCheckoutDraft, saveCheckoutDraft } from "./checkout-discount-state.js";
 
-test("qualifying code confirms the backend carton count and identifies its savings", () => {
+test("qualifying code identifies savings without repeating the carton condition", () => {
   assert.deepEqual(checkoutDiscountSuccess({ code: "FRIYAY999", percentOff: 10, minCartons: 5, cartonCount: 5 }), {
-    message: "FRIYAY999 applied — 10% off. Minimum met: 5 of 5 cartons.",
-    summaryLabel: "FRIYAY999 · 10% off:",
+    message: "FRIYAY999 applied — 10% off.",
+    summaryLabel: "FRIYAY999 • 10% Off",
   });
   assert.equal(checkoutDiscountSuccess({ code: "PSD398O", percentOff: 5, minCartons: 1, cartonCount: 2 }).message,
-    "PSD398O applied — 5% off. Minimum met: 2 of 1 cartons.");
+    "PSD398O applied — 5% off.");
 });
 
 test("existing codes with no minimum retain a simple confirmation", () => {
@@ -112,8 +112,10 @@ test("checkout displays a confirmed code and remove clears savings without losin
   const ui = checkoutHarness({ ok: true, json: async () => successfulQuote() });
   await ui.runEstimate({ requireAddress: true });
   assert.equal(ui.element("checkout-discount-success").hidden, false);
-  assert.equal(ui.element("checkout-discount-success").textContent, "FRIYAY999 applied — 10% off. Minimum met: 5 of 5 cartons.");
-  assert.equal(ui.element("checkout-discount-label").textContent, "FRIYAY999 · 10% off:");
+  assert.equal(ui.element("checkout-discount-success").textContent, "FRIYAY999 applied — 10% off.");
+  assert.equal(ui.element("checkout-discount-label").textContent, "Discount Applied");
+  assert.equal(ui.element("checkout-discount-details").textContent, "FRIYAY999 • 10% Off");
+  assert.equal(ui.element("checkout-discount-details").hidden, false);
   assert.equal(ui.element("checkout-pay").disabled, false);
   ui.wireEvents();
   ui.element("checkout-remove-discount").listeners.get("click")();

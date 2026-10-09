@@ -25,12 +25,9 @@ export function checkoutDiscountSuccess(details) {
   if (!code || !Number.isFinite(percentOff) || percentOff < 1 || percentOff > 100 ||
       !Number.isSafeInteger(minCartons) || minCartons < 0 ||
       !Number.isSafeInteger(cartonCount) || cartonCount < minCartons) return null;
-  const condition = minCartons > 0
-    ? ` Minimum met: ${cartonCount} of ${minCartons} carton${cartonCount === 1 && minCartons === 1 ? "" : "s"}.`
-    : "";
   return {
-    message: `${code} applied — ${percentOff}% off.${condition}`,
-    summaryLabel: `${code} · ${percentOff}% off:`,
+    message: `${code} applied — ${percentOff}% off.`,
+    summaryLabel: `${code} • ${percentOff}% Off`,
   };
 }
 

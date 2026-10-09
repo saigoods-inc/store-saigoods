@@ -2626,14 +2626,39 @@ button {
   color: #187347;
 }
 
+.checkout-discount-feedback {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 1rem;
+}
+
+.checkout-discount-feedback > p {
+  grid-column: 1;
+}
+
+.checkout-discount-details {
+  display: block;
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+
+.checkout-discount-details[hidden] {
+  display: none;
+}
+
 .checkout-discount-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
+  grid-column: 2;
+  grid-row: 1;
   margin-top: 0.65rem;
 }
 
 .checkout-discount-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
   padding: 0.25rem 0;
   border: 0;
   background: transparent;

@@ -350,11 +350,12 @@ function renderCheckoutShell(miniQuote, options = {}) {
               spellcheck="false"
             />
           </label>
-          <p id="checkout-discount-warning" class="checkout-discount-warning" role="alert" hidden></p>
-          <p id="checkout-discount-success" class="checkout-discount-success" role="status" hidden></p>
-          <div id="checkout-discount-actions" class="checkout-discount-actions" hidden>
-            <a class="checkout-discount-action" href="/cart.html">Edit cart</a>
-            <button type="button" class="checkout-discount-action" id="checkout-remove-discount">Remove code</button>
+          <div class="checkout-discount-feedback">
+            <p id="checkout-discount-warning" class="checkout-discount-warning" role="alert" hidden></p>
+            <p id="checkout-discount-success" class="checkout-discount-success" role="status" hidden></p>
+            <div id="checkout-discount-actions" class="checkout-discount-actions" hidden>
+              <button type="button" class="checkout-discount-action" id="checkout-remove-discount"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg><span>Remove code</span></button>
+            </div>
           </div>
           <button type="button" class="button button--secondary button--full checkout-confirm-address" id="checkout-update-totals">
             Confirm address & discount
@@ -403,7 +404,7 @@ function renderCheckoutShell(miniQuote, options = {}) {
             <strong id="sum-residential">—</strong>
           </div>
           <div id="checkout-row-discount" class="summary-card__row summary-card__row--discount" hidden>
-            <span id="checkout-discount-label">Discount:</span>
+            <span><span id="checkout-discount-label">Discount:</span><small id="checkout-discount-details" class="checkout-discount-details" hidden></small></span>
             <strong id="sum-discount">—</strong>
           </div>
           <div class="summary-card__row summary-card__row--tax">
@@ -870,6 +871,8 @@ function resetCheckoutSummaryDiscountAmount() {
   const discountRow = document.getElementById("checkout-row-discount");
   const discountLabel = document.getElementById("checkout-discount-label");
   if (discountLabel) discountLabel.textContent = "Discount:";
+  const discountDetails = document.getElementById("checkout-discount-details");
+  if (discountDetails) { discountDetails.textContent = ""; discountDetails.hidden = true; }
   if (sumDiscount) {
     sumDiscount.textContent = "—";
   }
@@ -893,8 +896,14 @@ function applyCheckoutOrderSummary(data, opts = {}) {
   const view = quoteView(data);
   const showDiscountBreakdown = Boolean(view.discountFormatted);
   const discountLabel = document.getElementById("checkout-discount-label");
+  const discountFeedback = checkoutDiscountSuccess(data?.discountCodeDetails);
   if (discountLabel) {
-    discountLabel.textContent = checkoutDiscountSuccess(data?.discountCodeDetails)?.summaryLabel || "Discount:";
+    discountLabel.textContent = discountFeedback ? "Discount Applied" : "Discount:";
+  }
+  const discountDetails = document.getElementById("checkout-discount-details");
+  if (discountDetails) {
+    discountDetails.textContent = discountFeedback?.summaryLabel || "";
+    discountDetails.hidden = !discountFeedback;
   }
 
   const discountRow = document.getElementById("checkout-row-discount");
