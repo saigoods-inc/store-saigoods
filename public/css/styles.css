@@ -2657,17 +2657,40 @@ button {
 .checkout-discount-action {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  white-space: nowrap;
-  padding: 0.25rem 0;
+  justify-content: center;
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: 0.35rem;
   border: 0;
+  border-radius: 999px;
   background: transparent;
-  color: var(--color-primary, #1d5b48);
+  color: #b42318;
   font: inherit;
   font-size: var(--fs-small);
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  text-decoration: none;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.checkout-discount-action span {
+  display: none;
+}
+
+.checkout-discount-action:hover,
+.checkout-discount-action:focus-visible {
+  gap: 0.35rem;
+  padding-inline: 0.6rem;
+  background: #fef3f2;
+}
+
+.checkout-discount-action:hover span,
+.checkout-discount-action:focus-visible span {
+  display: inline;
+}
+
+.checkout-discount-action:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 .checkout-discount-warning[hidden],

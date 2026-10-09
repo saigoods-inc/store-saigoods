@@ -354,7 +354,7 @@ function renderCheckoutShell(miniQuote, options = {}) {
             <p id="checkout-discount-warning" class="checkout-discount-warning" role="alert" hidden></p>
             <p id="checkout-discount-success" class="checkout-discount-success" role="status" hidden></p>
             <div id="checkout-discount-actions" class="checkout-discount-actions" hidden>
-              <button type="button" class="checkout-discount-action" id="checkout-remove-discount"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg><span>Remove code</span></button>
+              <button type="button" class="checkout-discount-action" id="checkout-remove-discount" aria-label="Remove code"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6" /></svg><span>Remove code</span></button>
             </div>
           </div>
           <button type="button" class="button button--secondary button--full checkout-confirm-address" id="checkout-update-totals">
