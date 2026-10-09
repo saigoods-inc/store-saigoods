@@ -277,14 +277,16 @@ export function DiscountCodesPage() {
                   <td className="px-0 py-4 pr-5 align-middle text-[13px] text-sg-muted">{codeDate(row.used_at)}</td>
                   <td className="px-0 py-4 pr-5 align-middle font-mono text-[12px]">{row.used_by_order_id || "-"}</td>
                   <td className="py-4 pr-0 text-right align-middle">
-                    <button type="button" className="sg25-btn sg25-btn-ghost h-[32px] px-3 text-[11px]" disabled={Boolean(row.is_used)} onClick={() => void copyCode(row.code)}>
-                      {copiedCode === row.code ? "Copied" : "Copy"}
-                    </button>
-                    {row.code && row.is_used === false && !row.used_at && !row.used_by_order_id ? (
-                      <button type="button" className="sg25-btn sg25-btn-ghost h-[32px] px-3 text-[11px] text-sg-danger" aria-label={`Delete ${row.code}`} onClick={() => { setNotice(""); setDeleteError(""); setDeleteCode(row.code!); }}>
-                        Delete
+                    <div className="flex items-center justify-end gap-2">
+                      <button type="button" className="sg25-btn sg25-btn-ghost h-8 w-8 p-0" aria-label={`${copiedCode === row.code ? "Copied" : "Copy"} ${row.code || "code"}`} title={copiedCode === row.code ? "Copied" : "Copy code"} disabled={Boolean(row.is_used)} onClick={() => void copyCode(row.code)}>
+                        <Icon name={copiedCode === row.code ? "check" : "clipboard"} className="h-4 w-4" />
                       </button>
-                    ) : null}
+                      {row.code && row.is_used === false && !row.used_at && !row.used_by_order_id ? (
+                        <button type="button" className="sg25-btn sg25-btn-ghost h-8 w-8 p-0 text-sg-danger" aria-label={`Delete ${row.code}`} title="Delete unused code" onClick={() => { setNotice(""); setDeleteError(""); setDeleteCode(row.code!); }}>
+                          <Icon name="trash" className="h-4 w-4" />
+                        </button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}
