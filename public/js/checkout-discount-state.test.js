@@ -134,13 +134,15 @@ test("checkout keeps carton rejection below the code, clears previous savings, a
   let rejected = false;
   const rejection = "This code requires at least 5 cartons. You have 3 cartons. Add 2 more to receive 10% off.";
   const response = { get ok() { return !rejected; }, json: async () => rejected
-    ? { errorCode: "DISCOUNT_MIN_CARTONS", error: rejection, discount: { minCartons: 5, cartonCount: 3 } }
+    ? { errorCode: "DISCOUNT_MIN_CARTONS", error: rejection, discount: { code: "FRIYAY999", minCartons: 5, cartonCount: 3 } }
     : successfulQuote() };
   const ui = checkoutHarness(response);
   await ui.runEstimate({ requireAddress: true });
   rejected = true;
   await ui.runEstimate({ requireAddress: true });
-  assert.equal(ui.element("checkout-discount-warning").textContent, rejection);
+  assert.equal(ui.element("checkout-discount-warning").textContent, "FRIYAY999 requires at least 5 cartons.");
+  assert.equal(ui.element("checkout-discount-actions").hidden, true);
+  assert.equal(ui.element("sum-discount").textContent, "—");
   assert.equal(ui.element("checkout-discount-warning").hidden, false);
   assert.equal(ui.element("checkout-shipping-error").hidden, true);
   assert.equal(ui.element("checkout-discount-success").hidden, true);

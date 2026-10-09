@@ -1286,17 +1286,18 @@ function clearDiscountSectionWarning() {
 /**
  * @param {string} message From API (eligible-address errors use the canonical backend string).
  */
-function showDiscountSectionWarning(message) {
+function showDiscountSectionWarning(message, response) {
   clearDiscountSectionWarning();
   const el = document.getElementById("checkout-discount-warning");
   const input = root.querySelector('[name="discountCode"]');
   if (!el) {
     return;
   }
-  el.textContent = message;
+  const minimum = response?.discount?.minCartons;
+  el.textContent = response?.errorCode === "DISCOUNT_MIN_CARTONS" && Number.isSafeInteger(minimum) && minimum > 0
+    ? `${response.discount.code || "This code"} requires at least ${minimum} ${minimum === 1 ? "carton" : "cartons"}.`
+    : message;
   el.hidden = false;
-  const actions = document.getElementById("checkout-discount-actions");
-  if (actions) actions.hidden = false;
   if (input) {
     input.setAttribute("aria-describedby", "checkout-discount-warning");
     input.setAttribute("aria-invalid", "true");
@@ -1539,7 +1540,7 @@ async function runEstimate(options = {}) {
     }
     const msg = e.message || "Could not verify shipping address.";
     if (requireAddress && isCheckoutDiscountApiError(msg, e.checkoutResponse)) {
-      showDiscountSectionWarning(msg);
+      showDiscountSectionWarning(msg, e.checkoutResponse);
     } else if (!checkoutEstimateApiErrorHandled) {
       if (pendingAddressSuggestionFromResponse) {
         showShippingSectionError(CHECKOUT_ADDRESS_NOTICE_COPY, { tone: "notice" });
@@ -1957,7 +1958,7 @@ function wireEvents() {
       const msg = e.message || "Payment failed.";
       if (isCheckoutDiscountApiError(msg, e.checkoutResponse)) {
         markEstimateStale();
-        showDiscountSectionWarning(msg);
+        showDiscountSectionWarning(msg, e.checkoutResponse);
       } else {
         showToast(msg, "error");
       }

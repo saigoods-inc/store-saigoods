@@ -2622,6 +2622,10 @@ button {
   color: #b42318;
 }
 
+.checkout-discount-warning {
+  color: #80634d;
+}
+
 .checkout-discount-success {
   color: #187347;
 }
