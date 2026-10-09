@@ -2,7 +2,7 @@ import { validateShippingAddressForCheckout } from "../lib/address-validation.js
 import { buildFullCheckoutQuote, formatShippingAddressForOrder } from "../lib/checkout-totals.js";
 import { parseCheckoutPayBody } from "../lib/checkout-validation.js";
 import { isCheckoutPreviewOnly } from "../lib/checkout-preview.js";
-import { assertDiscountCodeEligibleForItems } from "../lib/discount-carton-condition.js";
+import { assertDiscountCodeEligibleForItems, assertQuotedDiscountIsCurrent } from "../lib/discount-carton-condition.js";
 import {
   claimDiscountCodeForOrder,
   normalizeDiscountCode,
@@ -198,6 +198,7 @@ export default async function handler(req, res) {
 
     if (normalizedCode) {
       discountCodeDetails = await assertDiscountCodeEligibleForItems(normalizedCode, parsed.items);
+      if (verifiedQuotePayload) assertQuotedDiscountIsCurrent(verifiedQuotePayload.quote, discountCodeDetails);
       const percentOff = discountCodeDetails.percentOff;
       codeDiscount = { type: "percent", value: percentOff };
       pricingTier = "standard";
@@ -224,7 +225,9 @@ export default async function handler(req, res) {
           requestFingerprint: verifiedQuotePayload.requestFingerprint,
         }
       : selectedQuote;
-    if (discountCodeDetails) quote.discountCodeDetails = discountCodeDetails;
+    if (discountCodeDetails) {
+      quote.discountCodeDetails = discountCodeDetails;
+    }
 
     const packageLimitBody = buildCheckoutPayPackageLimitBody(quote);
     if (packageLimitBody) {
@@ -288,11 +291,11 @@ export default async function handler(req, res) {
     }
 
     if (normalizedCode) {
-      const claimed = await claimDiscountCodeForOrder(normalizedCode, pending.id);
+      const claimed = await claimDiscountCodeForOrder(normalizedCode, pending.id, discountCodeDetails.id);
       if (!claimed) {
         await cancelPendingOrderAfterPaymentFailure(pending.id);
         const err = new Error(
-          "This discount code was just used by another order. Refresh and try again without the code, or use a different code.",
+          "This discount code was used, removed, or replaced. Refresh and try again without the code, or use a different code.",
         );
         err.statusCode = 409;
         throw err;

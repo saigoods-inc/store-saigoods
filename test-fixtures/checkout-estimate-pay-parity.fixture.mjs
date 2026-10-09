@@ -249,7 +249,7 @@ function normalizeDiscountCode(raw) {
 }
 
 let discountDetails = {};
-const assertDiscountCodeAvailable = mock.fn(async (code) => ({ code, ...discountDetails }));
+const assertDiscountCodeAvailable = mock.fn(async (code) => ({ id: "discount-original", code, ...discountDetails }));
 const claimDiscountCodeForOrder = mock.fn(async () => true);
 mock.module(u("lib/discount-codes.js"), {
   namedExports: {
@@ -798,5 +798,22 @@ test("16. preview-only mode rejects payment before creating orders or contacting
     assertNoPaySideEffects();
     assert.equal(getLiveShippingQuote.mock.callCount(), 0);
     assert.equal(assertStockAvailableForItems.mock.callCount(), 0);
+  });
+});
+
+
+test("17. recreated code cannot reuse an older signed checkout price", async () => {
+  await withEnv({ ...PARITY_ENV, CHECKOUT_QUOTE_SIGNING_SECRET: "test-carton-signing-secret" }, async () => {
+    liveQuoteMode = "ok";
+    discountDetails = { id: "original-code", percentOff: 10, min_cartons: 1 };
+    const body = { ...VALID_PAY_BODY, items: cartonItems(5), discountCode: "RECREATED" };
+    const estimate = await invokeEstimate(body);
+    assert.equal(estimate.statusCode, 200);
+    discountDetails = { id: "replacement-code", percentOff: 5, min_cartons: 1 };
+    resetSideEffectMocks();
+    const pay = await invokePay({ ...body, checkoutQuoteToken: estimate.body.checkoutQuoteToken });
+    assert.equal(pay.statusCode, 409);
+    assert.match(pay.body.error, /changed|replaced/i);
+    assertNoPaySideEffects();
   });
 });

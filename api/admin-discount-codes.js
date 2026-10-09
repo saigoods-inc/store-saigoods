@@ -15,7 +15,7 @@ function getServiceClient() {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "GET" && req.method !== "POST") {
+  if (req.method !== "GET" && req.method !== "POST" && req.method !== "DELETE") {
     res.status(405).json({ error: "Method not allowed." });
     return;
   }
@@ -23,6 +23,29 @@ export default async function handler(req, res) {
   try {
     await assertReportsAuthorized(req);
     const client = getServiceClient();
+    if (req.method === "DELETE") {
+      const code = normalizeDiscountCode(req.body?.code);
+      if (!code) {
+        res.status(400).json({ error: "Enter a valid discount code to delete." });
+        return;
+      }
+      // Keep eligibility in the DELETE itself so a concurrent checkout claim wins safely.
+      const { data, error } = await client.from("discount_codes")
+        .delete()
+        .eq("code", code)
+        .eq("is_used", false)
+        .is("used_at", null)
+        .is("used_by_order_id", null)
+        .select("code")
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        res.status(409).json({ error: "This code cannot be deleted. It has already been used or removed. Refresh the list to see its current status." });
+        return;
+      }
+      res.status(200).json({ deleted: true, code: data.code });
+      return;
+    }
     if (req.method === "POST") {
       const mode = String(req.body?.mode || "manual").trim().toLowerCase();
       const minCartons = normalizeMinimumCartons(req.body?.minCartons);

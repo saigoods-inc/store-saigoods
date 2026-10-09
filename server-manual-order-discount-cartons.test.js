@@ -21,8 +21,8 @@ test("manual carrier create/update enforce live discount conditions on signed qu
   const output = `${result.stdout}\n${result.stderr}`;
   assert.ifError(result.error);
   assert.equal(result.status, 0, output);
-  assert.match(output, /tests 8/);
-  assert.match(output, /pass 8/);
+  assert.match(output, /tests 10/);
+  assert.match(output, /pass 10/);
   assert.match(output, /fail 0/);
   assert.match(output, /skipped 0/);
 });

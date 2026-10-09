@@ -592,11 +592,12 @@ export default async function handler(req, res) {
     let claimed = false;
 
     if (!renewingExpiredLink && String(order.order_status || "") === "draft" && order.is_hardin_discount && normalizedCode) {
-      claimed = await claimDiscountCodeForOrder(normalizedCode, order.id);
+      const expectedCodeId = order.quoted_address_snapshot_json?.discountCodeDetails?.id;
+      claimed = await claimDiscountCodeForOrder(normalizedCode, order.id, expectedCodeId);
       if (!claimed) {
         res.status(409).json({
           error:
-            "Could not reserve the discount code (it may have been used elsewhere). Update the order or remove the code.",
+            "Could not reserve the discount code (it may have been used, removed, or replaced). Refresh the quote and save the order again, or remove the code.",
         });
         return;
       }

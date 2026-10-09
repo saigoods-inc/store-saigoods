@@ -664,11 +664,12 @@ interface AdminOrderShippoPreviewResponse {
   error?: string;
 }
 
-async function fetchJson<T>(path: string, token?: string) {
+async function fetchJson<T>(path: string, token?: string, options: { method?: string; body?: string } = {}) {
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(path, { headers });
+  if (options.body) headers["Content-Type"] = "application/json";
+  const response = await fetch(path, { ...options, headers });
   const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (!response.ok) {
     const message =
@@ -714,6 +715,13 @@ export function fetchDiscountCodes(token?: string) {
 
 export function createDiscountCode(body: { mode: "random" | "manual"; code?: string; percentOff: number; minCartons: number }, token?: string) {
   return postJson<CreateDiscountCodeResponse>("/api/admin-discount-codes", body, token);
+}
+
+export function deleteDiscountCode(code: string, token?: string) {
+  return fetchJson<{ deleted: true; code: string }>("/api/admin-discount-codes", token, {
+    method: "DELETE",
+    body: JSON.stringify({ code }),
+  });
 }
 
 export function fetchShippingHealth(token?: string) {

@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAuth } from "../auth/AuthProvider";
 import { useAdminShellHeaderMeta } from "../components/layout/AdminShell";
 import { CustomSelect } from "../components/ui/CustomSelect";
-import { createDiscountCode, fetchDiscountCodes, type DiscountCodeRow } from "../lib/api";
+import { createDiscountCode, deleteDiscountCode, fetchDiscountCodes, type DiscountCodeRow, type DiscountCodesResponse } from "../lib/api";
 import { formatDateTime, formatNumber } from "../lib/format";
 import { Icon } from "../lib/icons";
 
@@ -61,6 +61,7 @@ function sortTime(value: string | null | undefined) {
 
 export function DiscountCodesPage() {
   const auth = useAuth();
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortFilter>("newest");
@@ -73,6 +74,18 @@ export function DiscountCodesPage() {
   const [createMinCartons, setCreateMinCartons] = useState("0");
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState("");
+  const [deleteCode, setDeleteCode] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [notice, setNotice] = useState("");
+  const deleteDialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    if (!deleteCode) return;
+    const dialog = deleteDialogRef.current;
+    dialog?.showModal();
+    return () => dialog?.close();
+  }, [deleteCode]);
 
   const codesQuery = useQuery({
     queryKey: ["admin-discount-codes"],
@@ -124,6 +137,27 @@ export function DiscountCodesPage() {
     }
   }
 
+  async function handleDeleteCode() {
+    if (!deleteCode || deleteBusy) return;
+    setDeleteBusy(true);
+    setDeleteError("");
+    try {
+      await deleteDiscountCode(deleteCode, await auth.getAccessToken());
+      // Remove the confirmed deletion immediately even if the following refresh fails.
+      queryClient.setQueryData<DiscountCodesResponse>(["admin-discount-codes"], (current) => current ? {
+        ...current,
+        codes: current.codes?.filter((row) => row.code !== deleteCode),
+      } : current);
+      setNotice(`Discount code ${deleteCode} deleted.`);
+      setDeleteCode(null);
+      void codesQuery.refetch();
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Could not delete discount code.");
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
   async function handleCreateCode() {
     const percentOff = Math.round(Number(createPercent));
     if (!Number.isFinite(percentOff) || percentOff < 1 || percentOff > 100) {
@@ -165,7 +199,7 @@ export function DiscountCodesPage() {
     );
   }
 
-  if (codesQuery.error) {
+  if (codesQuery.error && !codesQuery.data) {
     return (
       <section className="sg25-card p-6">
         <h1 className="text-3xl font-bold">Discount Codes</h1>
@@ -182,6 +216,9 @@ export function DiscountCodesPage() {
         <h1 className="text-4xl font-bold">Discount Codes</h1>
         <p className="mt-1 text-[15px] text-sg-muted">Create and manage one-time discount codes for your campaigns.</p>
       </section>
+
+      {codesQuery.error ? <p role="alert" className="rounded-[8px] bg-sg-danger-soft p-3 text-sm text-sg-danger">Could not refresh the list. Showing the last available codes. <button type="button" className="underline" onClick={() => void codesQuery.refetch()}>Retry</button></p> : null}
+      {notice ? <p role="status" className="rounded-[8px] bg-sg-green-soft p-3 text-sm text-sg-green">{notice}</p> : null}
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="Total Codes" value={formatNumber(codes.length)} description="All generated codes" icon="tag" />
@@ -217,7 +254,7 @@ export function DiscountCodesPage() {
               <col className="w-[140px]" />
               <col className="w-[220px]" />
               <col className="w-[180px]" />
-              <col className="w-[120px]" />
+              <col className="w-[160px]" />
             </colgroup>
             <thead className="text-[10px] font-bold uppercase tracking-normal text-sg-muted">
               <tr>
@@ -243,6 +280,11 @@ export function DiscountCodesPage() {
                     <button type="button" className="sg25-btn sg25-btn-ghost h-[32px] px-3 text-[11px]" disabled={Boolean(row.is_used)} onClick={() => void copyCode(row.code)}>
                       {copiedCode === row.code ? "Copied" : "Copy"}
                     </button>
+                    {row.code && row.is_used === false && !row.used_at && !row.used_by_order_id ? (
+                      <button type="button" className="sg25-btn sg25-btn-ghost h-[32px] px-3 text-[11px] text-sg-danger" aria-label={`Delete ${row.code}`} onClick={() => { setNotice(""); setDeleteError(""); setDeleteCode(row.code!); }}>
+                        Delete
+                      </button>
+                    ) : null}
                   </td>
                 </tr>
               ))}
@@ -253,6 +295,18 @@ export function DiscountCodesPage() {
         {!filteredCodes.length ? <div className="px-4 py-10 text-center text-sm text-sg-muted">No discount codes match the current filters.</div> : null}
         {filteredCodes.length ? <div className="flex items-center justify-end gap-3 px-4 pt-4"><p className="text-[11px] text-sg-muted">Page {effectivePage + 1} of {pageCount} · {formatNumber(filteredCodes.length)} codes</p><div className="flex gap-2"><button type="button" className="sg25-btn sg25-btn-ghost h-8 w-8 p-0" aria-label="Previous discount codes page" disabled={effectivePage === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>←</button><button type="button" className="sg25-btn sg25-btn-ghost h-8 w-8 p-0" aria-label="Next discount codes page" disabled={effectivePage + 1 >= pageCount} onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}>→</button></div></div> : null}
       </section>
+
+      {deleteCode ? createPortal(
+        <dialog ref={deleteDialogRef} aria-labelledby="delete-discount-title" aria-describedby="delete-discount-description" className="w-[calc(100%-2rem)] max-w-md rounded-[14px] border-0 bg-white p-5 shadow-xl backdrop:bg-black/45" onCancel={(event) => { event.preventDefault(); if (!deleteBusy) setDeleteCode(null); }}>
+            <h2 id="delete-discount-title" className="text-xl font-bold">Delete unused code?</h2>
+            <p id="delete-discount-description" className="mt-3 text-sm text-sg-muted">Delete <strong className="break-all font-mono text-sg-text">{deleteCode}</strong>? Customers will no longer be able to use it. This cannot be undone.</p>
+            {deleteError ? <p role="alert" className="mt-3 rounded-[8px] bg-sg-danger-soft p-3 text-sm text-sg-danger">{deleteError}</p> : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" autoFocus className="sg25-btn sg25-btn-ghost" disabled={deleteBusy} onClick={() => setDeleteCode(null)}>Cancel</button>
+              <button type="button" className="sg25-btn bg-sg-danger text-white" disabled={deleteBusy} onClick={() => void handleDeleteCode()}>{deleteBusy ? "Deleting..." : "Delete code"}</button>
+            </div>
+        </dialog>, document.body,
+      ) : null}
 
       {createOpen ? createPortal(<div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true" aria-labelledby="create-discount-title" onClick={() => !createBusy && setCreateOpen(false)}><section className="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-[14px] bg-white p-5 shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-start justify-between gap-4"><div><h2 id="create-discount-title" className="text-xl font-bold">Add discount code</h2><p className="mt-1 text-sm text-sg-muted">Create a one-time code that checkout and manual orders can verify.</p></div><button type="button" className="sg25-btn sg25-btn-ghost h-8 w-8 p-0" aria-label="Close create code" disabled={createBusy} onClick={() => setCreateOpen(false)}><Icon name="x" className="h-4 w-4" /></button></div><div className="mt-5 grid grid-cols-2 gap-3"><button type="button" className={`rounded-[10px] border p-3 text-left ${createMode === "random" ? "border-sg-primary bg-sg-primary-soft" : "border-sg-border"}`} onClick={() => setCreateMode("random")}><span className="block text-[13px] font-bold">Random code</span><span className="mt-1 block text-[11px] text-sg-muted">Generate PROMO-XXXXX</span></button><button type="button" className={`rounded-[10px] border p-3 text-left ${createMode === "manual" ? "border-sg-primary bg-sg-primary-soft" : "border-sg-border"}`} onClick={() => setCreateMode("manual")}><span className="block text-[13px] font-bold">Enter text</span><span className="mt-1 block text-[11px] text-sg-muted">Use a campaign code</span></button></div>{createMode === "manual" ? <label className="mt-4 block"><span className="text-[12px] font-semibold text-sg-muted">Code text</span><input className="sg25-input mt-1 bg-sg-input-bg" value={createCode} onChange={(event) => setCreateCode(event.target.value)} placeholder="SUMMER-2026" /><span className="mt-1 block text-[10px] text-sg-muted">Use 3–32 letters, numbers, or hyphens.</span></label> : null}<label className="mt-4 block"><span className="text-[12px] font-semibold text-sg-muted">Percent off</span><div className="relative mt-1"><input className="sg25-input bg-sg-input-bg pr-10" type="number" min="1" max="100" value={createPercent} onChange={(event) => setCreatePercent(event.target.value)} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-bold text-sg-muted">%</span></div></label><label className="mt-4 block" htmlFor="discount-min-cartons"><span className="text-[12px] font-semibold text-sg-muted">Minimum cartons</span><input id="discount-min-cartons" className="sg25-input mt-1 bg-sg-input-bg" type="number" min="0" max="2147483647" step="1" inputMode="numeric" aria-describedby="discount-min-cartons-help" value={createMinCartons} onChange={(event) => setCreateMinCartons(event.target.value)} /><span id="discount-min-cartons-help" className="mt-1 block text-[11px] text-sg-muted">0 means no minimum. Counts carton bundles across all products and sizes; loose boxes do not count. The discount applies to all merchandise.</span></label>{createError ? <p className="mt-3 rounded-[8px] bg-sg-danger-soft p-3 text-[12px] text-sg-danger">{createError}</p> : null}<div className="mt-5 flex justify-end gap-2"><button type="button" className="sg25-btn sg25-btn-ghost" disabled={createBusy} onClick={() => setCreateOpen(false)}>Cancel</button><button type="button" className="sg25-btn sg25-btn-primary" disabled={createBusy} onClick={() => void handleCreateCode()}>{createBusy ? "Creating..." : "Create code"}</button></div></section></div>, document.body) : null}
     </div>

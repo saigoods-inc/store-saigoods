@@ -9,9 +9,10 @@ import { issueManualOrderQuoteToken } from "../lib/manual-order-quote-token.js";
 // Keep the production catalog, authentication, eligibility and signed-token path.
 // The only replaced boundaries are the database lookup and draft persistence.
 let codeUsed = false;
+let codeId = "original-code";
 const assertDiscountCodeAvailable = mock.fn(async (code) => {
   if (codeUsed) throw Object.assign(new Error("This discount code has already been used."), { statusCode: 400 });
-  return { code, percentOff: 10, min_cartons: 5 };
+  return { id: codeId, code, percentOff: 10, min_cartons: 5 };
 });
 const draft = { id: "draft-test", order_ref: "TEST-001", order_status: "draft" };
 const createManualOrderDraft = mock.fn(async () => draft);
@@ -48,7 +49,7 @@ function signedRequest(items, discountCode = "FRIYAY999") {
   if (discountCode) {
     quote = applyManualOrderDiscountToQuote(quote, { type: "percent", value: 10 }).quote;
     // This previously issued quote must not override today's database condition.
-    quote.discountCodeDetails = { code: discountCode, percentOff: 10, minCartons: 0, cartonCount: 0, missingCartons: 0 };
+    quote.discountCodeDetails = { id: "original-code", code: discountCode, percentOff: 10, minCartons: 0, cartonCount: 0, missingCartons: 0 };
   }
   quote = {
     ...quote, destinationState: "TN", canCheckout: true, userFacingError: null,
@@ -77,6 +78,7 @@ function assertNoDraftSaved() {
 
 beforeEach(() => {
   codeUsed = false;
+  codeId = "original-code";
   for (const fn of [assertDiscountCodeAvailable, createManualOrderDraft, updateManualOrderDraft]) fn.mock.resetCalls();
 });
 
@@ -109,12 +111,21 @@ for (const [name, handler, persistence, payloadIndex] of [
     assert.equal(result.json.orderId, draft.id);
     assert.equal(persistence.mock.callCount(), 1);
     const saved = persistence.mock.calls[0].arguments[payloadIndex];
-    assert.deepEqual(saved.quote.discountCodeDetails, { code: "FRIYAY999", percentOff: 10, minCartons: 5, cartonCount: 5, missingCartons: 0 });
+    assert.deepEqual(saved.quote.discountCodeDetails, { id: "original-code", code: "FRIYAY999", percentOff: 10, minCartons: 5, cartonCount: 5, missingCartons: 0 });
     assert.deepEqual(saved.hardinDiscount, { code: "FRIYAY999", applied: true });
     assert.equal(saved.quote.manualDiscount.percent, 10);
     assert.equal(saved.quote.shipping.providerQuoteId, "test-rate");
     assert.equal(saved.quote.shippingCents, 1000);
     assert.equal(assertDiscountCodeAvailable.mock.calls[0].arguments[0], "FRIYAY999");
+  });
+
+  test(`${name}: recreated code rejects an old carrier quote before saving`, async () => {
+    const body = signedRequest(eligibleItems);
+    codeId = "replacement-code";
+    const result = await invoke(handler, body);
+    assert.equal(result.status, 409);
+    assert.match(result.json.error, /changed|replaced/i);
+    assertNoDraftSaved();
   });
 
   test(`${name}: carrier draft without a code preserves loose-box checkout and skips discount lookup`, async () => {

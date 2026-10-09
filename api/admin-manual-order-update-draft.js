@@ -9,7 +9,7 @@ import {
 } from "../lib/manual-order-fulfillment.js";
 import { updateManualOrderDraft } from "../lib/orders.js";
 import { normalizeDiscountCode } from "../lib/discount-codes.js";
-import { assertDiscountCodeEligibleForItems } from "../lib/discount-carton-condition.js";
+import { assertDiscountCodeEligibleForItems, assertQuotedDiscountIsCurrent } from "../lib/discount-carton-condition.js";
 import { primeRuntimeStoreForItems } from "../lib/runtime-store.js";
 import { assertReportsAuthorized, getReportsActor } from "../lib/reports-auth.js";
 import {
@@ -212,7 +212,9 @@ export default async function handler(req, res) {
     if (isCarrier) {
       if (discountCode) {
         await primeRuntimeStoreForItems(parsed.items);
-        quote.discountCodeDetails = await assertDiscountCodeEligibleForItems(discountCode, parsed.items);
+        const currentDiscount = await assertDiscountCodeEligibleForItems(discountCode, parsed.items);
+        assertQuotedDiscountIsCurrent(quote, currentDiscount);
+        quote.discountCodeDetails = currentDiscount;
       }
       const carrierQuoteError = invalidCarrierQuoteMessage(quote);
       if (carrierQuoteError) {

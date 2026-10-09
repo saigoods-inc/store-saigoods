@@ -4,6 +4,10 @@ Admin can set an optional minimum carton quantity alongside a code's existing pe
 
 Checkout shows the code, percentage, and confirmed requirement when accepted. A rejected code states the minimum, current cartons, and quantity still needed. Removing a code or changing a cart clears the old quote and savings, and requires confirmation again. Contact/address inputs survive the Edit cart round trip within the same browser session; payment data is never saved.
 
+## Deleting unused codes
+
+Admins can select Delete beside an unused code and confirm the exact code in a dialog. Cancel leaves it unchanged. A successful deletion removes the row and updates the counts; failures show an error without claiming success. Used codes, codes with redemption timestamps, and codes linked to orders cannot be deleted. The server checks these conditions atomically in the delete statement so a concurrent checkout claim is protected. A deleted code is no longer valid for checkout. This addition requires no database migration. Quotes and claims retain the discount row identity, so deleting and recreating the same code text cannot reuse an old discount amount. Quotes created before identity tracking must be refreshed; existing manual drafts with a code must be re-quoted and saved before sending a payment link.
+
 ## Review scenarios
 
 Use disposable codes in the isolated preview database:
@@ -20,7 +24,7 @@ Also check four cartons plus ten loose boxes, removing the code, editing the car
 
 1. Apply `sql/patch-discount-code-min-cartons.sql` to the isolated preview database.
 2. Publish this feature branch as a Vercel Preview with sandbox-only settings.
-3. Review admin creation/listing and shopper success/rejection.
+3. Review admin creation/listing, unused-code deletion and cancellation, and shopper success/rejection.
 4. After user approval, apply the same additive migration to production before deploying the application change. Existing rows receive zero automatically.
 
 Do not merge or deploy to production before approval. Code rollback can retain the new column; the previous version ignores it.
