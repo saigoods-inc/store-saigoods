@@ -248,7 +248,8 @@ function normalizeDiscountCode(raw) {
   return s;
 }
 
-const assertDiscountCodeAvailable = mock.fn(async () => {});
+let discountDetails = {};
+const assertDiscountCodeAvailable = mock.fn(async (code) => ({ id: "discount-original", code, ...discountDetails }));
 const claimDiscountCodeForOrder = mock.fn(async () => true);
 mock.module(u("lib/discount-codes.js"), {
   namedExports: {
@@ -337,6 +338,7 @@ function withEnv(overrides, fn) {
     .then(fn)
     .finally(() => {
       stockAvailable = true;
+      discountDetails = {};
       for (const key of keys) {
         if (previous[key] === undefined) {
           delete process.env[key];
@@ -719,6 +721,110 @@ test("12. direct pay when quote not ready: no order, discount claim, Square, pai
     });
     assert.equal(pay.statusCode, 503);
     assert.equal(pay.body?.error, CHECKOUT_PAY_NOT_READY_BODY.error);
+    assertNoPaySideEffects();
+  });
+});
+
+const cartonItems = (count) => [{
+  slug: "black-nitrile-general",
+  quantities: { M: count },
+  boxQuantities: { M: 10 },
+  bundleLines: [{ id: "case_1", qty: count }, { id: "box_1", qty: 10 }],
+}];
+
+test("13. minimum cartons rejects estimate and direct payment before any payment side effects", async () => {
+  await withEnv(PARITY_ENV, async () => {
+    liveQuoteMode = "ok";
+    discountDetails = { percentOff: 10, min_cartons: 5 };
+    resetSideEffectMocks();
+    const body = { ...VALID_PAY_BODY, items: cartonItems(4), discountCode: "FRIYAY999" };
+    const estimate = await invokeEstimate(body);
+    const pay = await invokePay(body);
+    for (const result of [estimate, pay]) {
+      assert.equal(result.statusCode, 400);
+      assert.equal(result.body.errorCode, "DISCOUNT_MIN_CARTONS");
+      assert.deepEqual(result.body.discount, {
+        code: "FRIYAY999", percentOff: 10, minCartons: 5, cartonCount: 4, missingCartons: 1,
+      });
+    }
+    assertNoPaySideEffects();
+  });
+});
+
+test("14. eligible cartons return the requirement and matching estimate/payment savings", async () => {
+  await withEnv(PARITY_ENV, async () => {
+    liveQuoteMode = "ok";
+    discountDetails = { percentOff: 10, min_cartons: 5 };
+    resetSideEffectMocks();
+    const body = { ...VALID_PAY_BODY, items: cartonItems(5), discountCode: "FRIYAY999" };
+    const original = await invokeEstimate({ ...body, discountCode: "" });
+    assert.equal(original.statusCode, 200);
+    const estimate = await invokeEstimate(body);
+    assert.equal(estimate.statusCode, 200);
+    assert.equal(estimate.body.discountCodeDetails.cartonCount, 5);
+    assert.equal(estimate.body.discountCodeDetails.missingCartons, 0);
+    const discountCents = Math.round(original.body.subtotalCents * 0.10);
+    assert.equal(estimate.body.merchandiseDiscountCents, discountCents);
+    assert.equal(estimate.body.subtotalCents, original.body.subtotalCents - discountCents);
+    const taxableBase = original.body.subtotalCents - discountCents + original.body.shipping.taxableShippingCents;
+    assert.equal(estimate.body.taxableBaseCents, taxableBase);
+    assert.equal(estimate.body.taxCents, Math.round(taxableBase * 0.0975));
+    assert.ok(estimate.body.taxCents < original.body.taxCents);
+    const pay = await invokePay(body);
+    assert.equal(pay.statusCode, 200);
+    const quote = globalThis.__parityLastPendingQuote;
+    assert.equal(quote.taxCents, estimate.body.taxCents);
+    assert.equal(quote.taxableBaseCents, taxableBase);
+    assert.equal(quote.totalCents, estimate.body.totalCents);
+    assert.equal(quote.merchandiseDiscountCents, estimate.body.merchandiseDiscountCents);
+    assert.deepEqual(quote.discountCodeDetails, estimate.body.discountCodeDetails);
+    assert.equal(claimDiscountCodeForOrder.mock.callCount(), 1);
+  });
+});
+
+test("15. signed checkout quotes still recheck the current carton requirement at payment", async () => {
+  await withEnv({ ...PARITY_ENV, CHECKOUT_QUOTE_SIGNING_SECRET: "test-carton-signing-secret" }, async () => {
+    liveQuoteMode = "ok";
+    discountDetails = { percentOff: 10, min_cartons: 5 };
+    const body = { ...VALID_PAY_BODY, items: cartonItems(5), discountCode: "FRIYAY999" };
+    const estimate = await invokeEstimate(body);
+    assert.equal(estimate.statusCode, 200);
+    assert.ok(estimate.body.checkoutQuoteToken);
+    discountDetails = { percentOff: 10, min_cartons: 6 };
+    resetSideEffectMocks();
+    const pay = await invokePay({ ...body, checkoutQuoteToken: estimate.body.checkoutQuoteToken });
+    assert.equal(pay.statusCode, 400);
+    assert.equal(pay.body.errorCode, "DISCOUNT_MIN_CARTONS");
+    assert.equal(pay.body.discount.missingCartons, 1);
+    assertNoPaySideEffects();
+  });
+});
+
+test("16. preview-only mode rejects payment before creating orders or contacting providers", async () => {
+  await withEnv({ ...PARITY_ENV, VERCEL_ENV: "preview", SQUARE_ENVIRONMENT: "sandbox", CHECKOUT_PREVIEW_ONLY: "true" }, async () => {
+    resetSideEffectMocks();
+    const pay = await invokePay(VALID_PAY_BODY);
+    assert.equal(pay.statusCode, 503);
+    assert.match(pay.body.error, /Payments and order creation are disabled/);
+    assertNoPaySideEffects();
+    assert.equal(getLiveShippingQuote.mock.callCount(), 0);
+    assert.equal(assertStockAvailableForItems.mock.callCount(), 0);
+  });
+});
+
+
+test("17. recreated code cannot reuse an older signed checkout price", async () => {
+  await withEnv({ ...PARITY_ENV, CHECKOUT_QUOTE_SIGNING_SECRET: "test-carton-signing-secret" }, async () => {
+    liveQuoteMode = "ok";
+    discountDetails = { id: "original-code", percentOff: 10, min_cartons: 1 };
+    const body = { ...VALID_PAY_BODY, items: cartonItems(5), discountCode: "RECREATED" };
+    const estimate = await invokeEstimate(body);
+    assert.equal(estimate.statusCode, 200);
+    discountDetails = { id: "replacement-code", percentOff: 5, min_cartons: 1 };
+    resetSideEffectMocks();
+    const pay = await invokePay({ ...body, checkoutQuoteToken: estimate.body.checkoutQuoteToken });
+    assert.equal(pay.statusCode, 409);
+    assert.match(pay.body.error, /changed|replaced/i);
     assertNoPaySideEffects();
   });
 });

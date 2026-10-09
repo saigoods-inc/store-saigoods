@@ -2614,14 +2614,113 @@ button {
   margin-top: 0;
 }
 
-.checkout-discount-warning {
-  margin: 0 0 0.65rem;
+.checkout-discount-warning,
+.checkout-discount-success {
+  margin: 0.65rem 0 0;
   font-size: var(--fs-small);
   line-height: var(--leading-normal);
   color: #b42318;
 }
 
-.checkout-discount-warning[hidden] {
+.checkout-discount-warning {
+  color: #80634d;
+}
+
+.checkout-discount-success {
+  color: #187347;
+}
+
+.checkout-discount-feedback {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 1rem;
+}
+
+.checkout-discount-feedback > p {
+  grid-column: 1;
+}
+
+.checkout-discount-details {
+  display: block;
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+
+.checkout-discount-details[hidden] {
+  display: none;
+}
+
+.checkout-discount-actions {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1;
+  margin-top: 0.65rem;
+}
+
+.checkout-discount-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: 0.35rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #b42318;
+  font: inherit;
+  font-size: var(--fs-small);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  overflow: hidden;
+  transition: padding 280ms ease, background-color 280ms ease;
+}
+
+.checkout-discount-action svg {
+  flex-shrink: 0;
+}
+
+.checkout-discount-action span {
+  max-width: 0;
+  margin-left: 0;
+  opacity: 0;
+  overflow: hidden;
+  transform: translateX(0.5rem);
+  transition: max-width 280ms ease, margin-left 280ms ease,
+    opacity 220ms ease, transform 280ms ease;
+}
+
+.checkout-discount-action:hover,
+.checkout-discount-action:focus-visible {
+  padding-inline: 0.6rem;
+  background: #fef3f2;
+}
+
+.checkout-discount-action:hover span,
+.checkout-discount-action:focus-visible span {
+  max-width: 7em;
+  margin-left: 0.35rem;
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.checkout-discount-action:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .checkout-discount-action,
+  .checkout-discount-action span {
+    transition: none;
+  }
+}
+
+.checkout-discount-warning[hidden],
+.checkout-discount-success[hidden],
+.checkout-discount-actions[hidden] {
   display: none !important;
 }
 

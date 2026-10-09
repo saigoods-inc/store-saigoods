@@ -1,4 +1,5 @@
 import { isCheckoutAddressValidationEnabled } from "../lib/address-validation.js";
+import { isCheckoutPreviewOnly } from "../lib/checkout-preview.js";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -12,11 +13,12 @@ export default async function handler(req, res) {
     (process.env.SQUARE_ENVIRONMENT || "production").toLowerCase() === "sandbox" ? "sandbox" : "production";
 
   const checkoutAddressValidationEnabled = isCheckoutAddressValidationEnabled();
+  const checkoutPreviewOnly = isCheckoutPreviewOnly();
   const isProduction = process.env.NODE_ENV === "production";
   const checkoutShowAddressValidationDisabledBanner =
     !checkoutAddressValidationEnabled && !isProduction;
 
-  if (!squareApplicationId || !squareLocationId) {
+  if (!checkoutPreviewOnly && (!squareApplicationId || !squareLocationId)) {
     res.status(503).json({
       error: "Embedded checkout is not configured. Add SQUARE_APPLICATION_ID and SQUARE_LOCATION_ID.",
       squareApplicationId: null,
@@ -34,5 +36,6 @@ export default async function handler(req, res) {
     squareEnvironment,
     checkoutAddressValidationEnabled,
     checkoutShowAddressValidationDisabledBanner,
+    ...(checkoutPreviewOnly ? { checkoutPreviewOnly: true } : {}),
   });
 }

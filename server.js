@@ -236,9 +236,10 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    if (pathname === "/api/admin-discount-codes" && req.method === "GET") {
+    if (pathname === "/api/admin-discount-codes") {
+      const body = ["POST", "DELETE"].includes(req.method) ? await readJsonBody(req) : undefined;
       await adminDiscountCodesHandler(
-        { method: "GET", headers: req.headers },
+        { method: req.method, headers: req.headers, body },
         adaptExpressStyleResponse(res),
       );
       return;

@@ -1,18 +1,11 @@
 import { setCheckoutSummaryValue } from './checkout-summary-value.js';
+import { CHECKOUT_DRAFT_FIELDS, checkoutDiscountSuccess, clearCheckoutDraft, isCheckoutDiscountApiError, readCheckoutDraft, saveCheckoutDraft } from './checkout-discount-state.js';
 import { formatCartUnitLabel, formatSizeLineText, getCartQuote } from "./catalog.js";
 import { clearCart, getCart } from "./cart-store.js";
 import { escapeHtml, initSite, setButtonBusy, showToast } from "./site.js";
 import { trackBeginCheckout, trackPurchase } from "./analytics.js";
 
 const root = document.querySelector("[data-checkout-root]");
-
-/** Backend discount-validation messages → show under discount header (not shipping). */
-const CHECKOUT_DISCOUNT_ERROR_PREFIXES = [
-  "This discount code is invalid or not applicable to this address.",
-  "Enter a valid discount code",
-  "That discount code is not valid.",
-  "This discount code has already been used.",
-];
 
 /** Shown above the shipping form when the carrier verified a deliverable normalized address. */
 const CHECKOUT_ADDRESS_NOTICE_COPY =
@@ -25,17 +18,6 @@ function isAddressMismatchOrSuggestionPayload(data) {
     code === "address_mismatch" ||
     Boolean(data?.addressSuggestion && typeof data.addressSuggestion === "object")
   );
-}
-
-function isCheckoutDiscountApiError(message) {
-  const m = String(message || "").trim();
-  if (!m) {
-    return false;
-  }
-  if (m.includes("just used by another order")) {
-    return true;
-  }
-  return CHECKOUT_DISCOUNT_ERROR_PREFIXES.some((p) => m === p || m.startsWith(p));
 }
 
 const US_STATE_CODES = [
@@ -74,6 +56,8 @@ let confirmAddressNeedsRefresh = true;
 let latestQuotedAddressSnapshot = null;
 let selectedShippingRate = null;
 let quoteExpiryTimer = null;
+let checkoutPaymentCompleted = false;
+let checkoutPreviewOnly = false;
 /** Bumped when the shipping address (or discount) invalidates the quote; stale in-flight estimates must not repaint the UI. */
 let checkoutQuoteEpoch = 0;
 const CHECKOUT_ATTEMPT_STORAGE_KEY = "saigoods.checkoutAttemptId";
@@ -138,7 +122,8 @@ async function init() {
     if (!res.ok) {
       throw new Error(config.error || "Checkout is not configured.");
     }
-    if (!config.squareApplicationId) {
+    checkoutPreviewOnly = config.checkoutPreviewOnly === true;
+    if (!checkoutPreviewOnly && !config.squareApplicationId) {
       throw new Error("Square embedded checkout is not configured.");
     }
   } catch (e) {
@@ -159,7 +144,7 @@ async function init() {
 
   const squareEnvironment =
     String(config.squareEnvironment || "production").toLowerCase() === "sandbox" ? "sandbox" : "production";
-  await loadSquareWebSdk(squareEnvironment);
+  if (!checkoutPreviewOnly) await loadSquareWebSdk(squareEnvironment);
   let miniQuote;
   try {
     miniQuote = await getCartQuote(items);
@@ -170,9 +155,45 @@ async function init() {
   initCheckoutStateDropdown();
   trackBeginCheckout(miniQuote);
   applyCheckoutAddressValidationDevBanner(config);
-  await initSquareCard(config.squareApplicationId, config.squareLocationId);
+  if (!checkoutPreviewOnly) await initSquareCard(config.squareApplicationId, config.squareLocationId);
+  if (checkoutPreviewOnly) {
+    document.getElementById("sq-card-container").textContent = "Preview only — try discount codes and totals. Payments and order creation are disabled.";
+    document.getElementById("checkout-pay").textContent = "Payments disabled in preview";
+  }
   wireEvents();
   wireCheckoutFieldClearErrors();
+  window.addEventListener("cart:updated", handleCheckoutCartChange);
+  window.addEventListener("storage", (event) => {
+    if (!event.key || event.key === "saigoods-cart-v1") handleCheckoutCartChange();
+  });
+  window.addEventListener("pageshow", handleCheckoutCartChange);
+}
+
+function handleCheckoutCartChange() {
+  if (checkoutPaymentCompleted) return;
+  const currentItems = getCart(store.site.sizes);
+  if (JSON.stringify(currentItems) === JSON.stringify(items)) return;
+  items = currentItems;
+  markEstimateStale();
+  if (!items.length) {
+    window.location.replace("/cart.html");
+    return;
+  }
+  if (readDiscountCode()) {
+    showDiscountSectionWarning("Your cart changed. Confirm address & discount to check this code again.");
+  }
+  const epoch = checkoutQuoteEpoch;
+  void getCartQuote(items).then((quote) => {
+    if (epoch !== checkoutQuoteEpoch || !estimateStale) return;
+    renderLineItems(quote, store.site.sizes);
+    const subtotal = document.getElementById("sum-sub");
+    if (subtotal) subtotal.textContent = quote.subtotalFormatted || "—";
+    const total = document.getElementById("sum-total");
+    if (total) setCheckoutSummaryValue(total, "—");
+  }).catch(() => {
+    if (epoch !== checkoutQuoteEpoch || !estimateStale) return;
+    showShippingSectionError("Your cart changed. Confirm address & discount to refresh your totals.");
+  });
 }
 
 function applyCheckoutAddressValidationDevBanner(config) {
@@ -318,17 +339,24 @@ function renderCheckoutShell(miniQuote, options = {}) {
         </div>
 
         <div class="checkout-discount-block">
-          <h2 class="checkout-section-title">Discount code <span class="checkout-optional">(optional)</span></h2>
-          <p id="checkout-discount-warning" class="checkout-discount-warning" role="alert" hidden></p>
+          <h2 id="checkout-discount-title" class="checkout-section-title">Discount code <span class="checkout-optional">(optional)</span></h2>
           <label class="checkout-field checkout-field--full">
             <input
               type="text"
               name="discountCode"
+              aria-labelledby="checkout-discount-title"
               autocomplete="off"
               autocapitalize="characters"
               spellcheck="false"
             />
           </label>
+          <div class="checkout-discount-feedback">
+            <p id="checkout-discount-warning" class="checkout-discount-warning" role="alert" hidden></p>
+            <p id="checkout-discount-success" class="checkout-discount-success" role="status" hidden></p>
+            <div id="checkout-discount-actions" class="checkout-discount-actions" hidden>
+              <button type="button" class="checkout-discount-action" id="checkout-remove-discount" aria-label="Remove code"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6" /></svg><span>Remove code</span></button>
+            </div>
+          </div>
           <button type="button" class="button button--secondary button--full checkout-confirm-address" id="checkout-update-totals">
             Confirm address & discount
           </button>
@@ -376,7 +404,7 @@ function renderCheckoutShell(miniQuote, options = {}) {
             <strong id="sum-residential">—</strong>
           </div>
           <div id="checkout-row-discount" class="summary-card__row summary-card__row--discount" hidden>
-            <span>Discount:</span>
+            <span><span id="checkout-discount-label">Discount:</span><small id="checkout-discount-details" class="checkout-discount-details" hidden></small></span>
             <strong id="sum-discount">—</strong>
           </div>
           <div class="summary-card__row summary-card__row--tax">
@@ -400,6 +428,7 @@ function renderCheckoutShell(miniQuote, options = {}) {
   `;
 
   renderLineItems(miniQuote, store.site.sizes);
+  restoreCheckoutDraft();
   const sumSub = document.getElementById("sum-sub");
   if (sumSub && miniQuote?.subtotalFormatted) {
     sumSub.textContent = miniQuote.subtotalFormatted;
@@ -489,6 +518,22 @@ function readContactFromForm() {
 
 function readDiscountCode() {
   return root.querySelector('[name="discountCode"]')?.value?.trim() || "";
+}
+
+function persistCheckoutDraft() {
+  try {
+    const values = Object.fromEntries(CHECKOUT_DRAFT_FIELDS.map((name) => [name, root.querySelector(`[name="${name}"]`)?.value || ""]));
+    saveCheckoutDraft(sessionStorage, values);
+  } catch { /* Some browsers disable access to sessionStorage entirely. */ }
+}
+
+function restoreCheckoutDraft() {
+  try {
+    for (const [name, value] of Object.entries(readCheckoutDraft(sessionStorage))) {
+      const input = root.querySelector(`[name="${name}"]`);
+      if (input) input.value = value;
+    }
+  } catch { /* Checkout works without draft persistence. */ }
 }
 
 /** Estimate adapter: prefer QuoteResponseV1 nested fields with legacy fallback. */
@@ -603,6 +648,7 @@ function shippingStatusDisplay(v) {
 
 function markEstimateStale() {
   checkoutQuoteEpoch += 1;
+  clearDiscountSectionWarning();
   latestEstimate = null;
   latestQuotedAddressSnapshot = null;
   estimateStale = true;
@@ -823,6 +869,10 @@ function currentAddressMatchesLatestQuoteSnapshot() {
 function resetCheckoutSummaryDiscountAmount() {
   const sumDiscount = document.getElementById("sum-discount");
   const discountRow = document.getElementById("checkout-row-discount");
+  const discountLabel = document.getElementById("checkout-discount-label");
+  if (discountLabel) discountLabel.textContent = "Discount:";
+  const discountDetails = document.getElementById("checkout-discount-details");
+  if (discountDetails) { discountDetails.textContent = ""; discountDetails.hidden = true; }
   if (sumDiscount) {
     sumDiscount.textContent = "—";
   }
@@ -845,6 +895,16 @@ function applyCheckoutOrderSummary(data, opts = {}) {
   const deliveryEstimate = document.getElementById("checkout-delivery-estimate");
   const view = quoteView(data);
   const showDiscountBreakdown = Boolean(view.discountFormatted);
+  const discountLabel = document.getElementById("checkout-discount-label");
+  const discountFeedback = checkoutDiscountSuccess(data?.discountCodeDetails);
+  if (discountLabel) {
+    discountLabel.textContent = discountFeedback ? "Discount Applied" : "Discount:";
+  }
+  const discountDetails = document.getElementById("checkout-discount-details");
+  if (discountDetails) {
+    discountDetails.textContent = discountFeedback?.summaryLabel || "";
+    discountDetails.hidden = !discountFeedback;
+  }
 
   const discountRow = document.getElementById("checkout-row-discount");
 
@@ -1154,6 +1214,11 @@ function syncPayButtonForAddressSuggestion() {
   if (!payBtn || payBtn.getAttribute("aria-busy") === "true") {
     return;
   }
+  if (checkoutPreviewOnly) {
+    payBtn.disabled = true;
+    payBtn.title = "Payments and order creation are disabled in this preview.";
+    return;
+  }
   const pending =
     latestEstimate &&
     latestEstimate.addressSuggestion &&
@@ -1191,9 +1256,9 @@ function syncConfirmAddressButtonState() {
   if (!btn) return;
   btn.disabled = estimateLoading || !confirmAddressNeedsRefresh;
   btn.classList.toggle("checkout-confirm-address--loading", estimateLoading);
-  btn.textContent = estimateLoading ? "Calculating shipping..." : "Confirm address & discount";
+  btn.textContent = estimateLoading ? "Checking..." : "Confirm address & discount";
   if (estimateLoading) {
-    btn.title = "Calculating current shipping services…";
+    btn.title = "Checking address, discount, and shipping services…";
   } else if (!confirmAddressNeedsRefresh) {
     btn.title = "Address and discount confirmed. Edit either to refresh.";
   } else {
@@ -1202,6 +1267,10 @@ function syncConfirmAddressButtonState() {
 }
 
 function clearDiscountSectionWarning() {
+  const success = document.getElementById("checkout-discount-success");
+  const actions = document.getElementById("checkout-discount-actions");
+  if (success) { success.hidden = true; success.textContent = ""; }
+  if (actions) actions.hidden = true;
   const el = document.getElementById("checkout-discount-warning");
   const input = root.querySelector('[name="discountCode"]');
   if (el) {
@@ -1217,18 +1286,34 @@ function clearDiscountSectionWarning() {
 /**
  * @param {string} message From API (eligible-address errors use the canonical backend string).
  */
-function showDiscountSectionWarning(message) {
+function showDiscountSectionWarning(message, response) {
+  clearDiscountSectionWarning();
   const el = document.getElementById("checkout-discount-warning");
   const input = root.querySelector('[name="discountCode"]');
   if (!el) {
     return;
   }
-  el.textContent = message;
+  const minimum = response?.discount?.minCartons;
+  el.textContent = response?.errorCode === "DISCOUNT_MIN_CARTONS" && Number.isSafeInteger(minimum) && minimum > 0
+    ? `${response.discount.code || "This code"} requires at least ${minimum} ${minimum === 1 ? "carton" : "cartons"}.`
+    : message;
   el.hidden = false;
   if (input) {
     input.setAttribute("aria-describedby", "checkout-discount-warning");
     input.setAttribute("aria-invalid", "true");
   }
+}
+
+function showDiscountSectionSuccess(details) {
+  clearDiscountSectionWarning();
+  const feedback = checkoutDiscountSuccess(details);
+  const el = document.getElementById("checkout-discount-success");
+  if (!feedback || !el) return;
+  el.textContent = feedback.message;
+  el.hidden = false;
+  root.querySelector('[name="discountCode"]')?.setAttribute("aria-describedby", "checkout-discount-success");
+  const actions = document.getElementById("checkout-discount-actions");
+  if (actions) actions.hidden = false;
 }
 
 /**
@@ -1377,7 +1462,8 @@ async function runEstimate(options = {}) {
         showAddressSuggestionIfAny(data);
       }
 
-      throw new Error(publicCheckoutShippingMessage(data.error) || "Could not calculate totals.");
+      const message = isCheckoutDiscountApiError(data.error, data) ? data.error : publicCheckoutShippingMessage(data.error);
+      throw Object.assign(new Error(message || "Could not calculate totals."), { checkoutResponse: data });
     }
 
     const previousSelection = options.previousShippingSelection || selectedShippingRate;
@@ -1390,6 +1476,8 @@ async function runEstimate(options = {}) {
     clearDiscountSectionWarning();
     clearAddressFieldErrors();
     applyCheckoutOrderSummary(data, { initialSummary });
+    if (!initialSummary && requireAddress) showDiscountSectionSuccess(data.discountCodeDetails);
+    renderLineItems(data, store.site.sizes);
     if (!initialSummary) {
       renderShippingRateChoices(data, previousSelection);
       scheduleQuoteExpiry(data);
@@ -1451,8 +1539,8 @@ async function runEstimate(options = {}) {
       return;
     }
     const msg = e.message || "Could not verify shipping address.";
-    if (requireAddress && isCheckoutDiscountApiError(msg)) {
-      showDiscountSectionWarning(msg);
+    if (requireAddress && isCheckoutDiscountApiError(msg, e.checkoutResponse)) {
+      showDiscountSectionWarning(msg, e.checkoutResponse);
     } else if (!checkoutEstimateApiErrorHandled) {
       if (pendingAddressSuggestionFromResponse) {
         showShippingSectionError(CHECKOUT_ADDRESS_NOTICE_COPY, { tone: "notice" });
@@ -1481,6 +1569,10 @@ async function runEstimate(options = {}) {
     }
     estimateStale = true;
     confirmAddressNeedsRefresh = true;
+    selectedShippingRate = null;
+    renderShippingRateChoices(null);
+    if (quoteExpiryTimer) clearTimeout(quoteExpiryTimer);
+    quoteExpiryTimer = null;
     syncPayButtonForAddressSuggestion();
   } finally {
     estimateLoading = false;
@@ -1521,7 +1613,7 @@ function renderLineItems(miniQuote, sizes) {
   const rows = (miniQuote?.items || [])
     .map((item) => {
       const name = escapeHtml(item.name || item.slug);
-      const meta = `${escapeHtml(formatCartUnitLabel(item))} · ${escapeHtml(item.lineTotalFormatted)}`;
+      const meta = `${escapeHtml(formatCartUnitLabel(item))} · ${escapeHtml(item.originalLineTotalFormatted || item.lineTotalFormatted)}`;
       const sizesHtml = renderCheckoutSizeHtml(item, sizes);
       return `<div class="checkout-line"><div class="checkout-line__name">${name}</div><div class="checkout-line__meta">${meta}</div>${sizesHtml}</div>`;
     })
@@ -1667,6 +1759,7 @@ async function initSquareCard(applicationId, locationId) {
 
 function wireCheckoutFieldClearErrors() {
   root.addEventListener("input", (e) => {
+    persistCheckoutDraft();
     const t = e.target;
     const name = t?.name;
     if (name && ADDRESS_FIELD_ERR_IDS[name]) {
@@ -1689,6 +1782,7 @@ function wireCheckoutFieldClearErrors() {
     }
   });
   root.addEventListener("change", (e) => {
+    persistCheckoutDraft();
     const t = e.target;
     if (t?.name === "state") {
       const errEl = document.getElementById(ADDRESS_FIELD_ERR_IDS.state);
@@ -1708,6 +1802,16 @@ function wireCheckoutFieldClearErrors() {
 }
 
 function wireEvents() {
+  root.addEventListener("click", (event) => {
+    if (event.target.closest?.('a[href="/cart.html"]')) persistCheckoutDraft();
+  });
+  document.getElementById("checkout-remove-discount")?.addEventListener("click", () => {
+    const input = root.querySelector('[name="discountCode"]');
+    if (input) input.value = "";
+    persistCheckoutDraft();
+    markEstimateStale();
+    document.getElementById("checkout-update-totals")?.focus();
+  });
   document.getElementById("checkout-apply-suggested-address")?.addEventListener("click", () => {
     const sug = latestEstimate?.addressSuggestion;
     if (!sug || typeof sug !== "object") {
@@ -1735,6 +1839,7 @@ function wireEvents() {
     if (zip) {
       zip.value = String(sug.postalCode || "").trim();
     }
+    persistCheckoutDraft();
     hideAddressSuggestion();
     clearAddressFieldErrors();
     clearShippingSectionError();
@@ -1742,6 +1847,7 @@ function wireEvents() {
   });
 
   document.getElementById("checkout-update-totals")?.addEventListener("click", () => {
+    persistCheckoutDraft();
     if (!applyContactValidationErrors()) {
       showToast("Please complete your name, email, and phone before confirming your address.", "error");
       return;
@@ -1756,7 +1862,6 @@ function wireEvents() {
 
     clearCheckoutInputErrors();
     clearShippingSectionError();
-    clearDiscountSectionWarning();
 
     if (!applyContactValidationErrors()) {
       return;
@@ -1834,10 +1939,13 @@ function wireEvents() {
           resetCheckoutAttemptId();
         }
         applyCheckoutShippingAddressErrors(data);
-        throw new Error(publicCheckoutShippingMessage(data.error) || "Payment failed.");
+        const message = isCheckoutDiscountApiError(data.error, data) ? data.error : publicCheckoutShippingMessage(data.error);
+        throw Object.assign(new Error(message || "Payment failed."), { checkoutResponse: data });
       }
 
       checkoutSucceeded = true;
+      checkoutPaymentCompleted = true;
+      try { clearCheckoutDraft(sessionStorage); } catch { /* Optional browser persistence. */ }
       trackPurchase(data);
       clearCart();
       resetCheckoutAttemptId();
@@ -1848,8 +1956,9 @@ function wireEvents() {
       });
     } catch (e) {
       const msg = e.message || "Payment failed.";
-      if (isCheckoutDiscountApiError(msg)) {
-        showDiscountSectionWarning(msg);
+      if (isCheckoutDiscountApiError(msg, e.checkoutResponse)) {
+        markEstimateStale();
+        showDiscountSectionWarning(msg, e.checkoutResponse);
       } else {
         showToast(msg, "error");
       }
