@@ -276,8 +276,8 @@ export function DiscountCodesPage() {
                   <td className="px-0 py-4 pr-5 align-middle">{statusChip(Boolean(row.is_used))}</td>
                   <td className="px-0 py-4 pr-5 align-middle text-[13px] text-sg-muted">{codeDate(row.used_at)}</td>
                   <td className="px-0 py-4 pr-5 align-middle font-mono text-[12px]">{row.used_by_order_id || "-"}</td>
-                  <td className="py-4 pr-0 text-right align-middle">
-                    <div className="flex items-center justify-end gap-2">
+                  <td className="py-4 pr-3 text-right align-middle">
+                    <div className="flex items-center justify-end gap-1.5">
                       <button type="button" className="sg25-btn sg25-btn-ghost h-8 w-8 p-0" aria-label={`${copiedCode === row.code ? "Copied" : "Copy"} ${row.code || "code"}`} title={copiedCode === row.code ? "Copied" : "Copy code"} disabled={Boolean(row.is_used)} onClick={() => void copyCode(row.code)}>
                         <Icon name={copiedCode === row.code ? "check" : "clipboard"} className="h-4 w-4" />
                       </button>
