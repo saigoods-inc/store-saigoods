@@ -2670,27 +2670,48 @@ button {
   text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
+  overflow: hidden;
+  transition: padding 280ms ease, background-color 280ms ease;
+}
+
+.checkout-discount-action svg {
+  flex-shrink: 0;
 }
 
 .checkout-discount-action span {
-  display: none;
+  max-width: 0;
+  margin-left: 0;
+  opacity: 0;
+  overflow: hidden;
+  transform: translateX(0.5rem);
+  transition: max-width 280ms ease, margin-left 280ms ease,
+    opacity 220ms ease, transform 280ms ease;
 }
 
 .checkout-discount-action:hover,
 .checkout-discount-action:focus-visible {
-  gap: 0.35rem;
   padding-inline: 0.6rem;
   background: #fef3f2;
 }
 
 .checkout-discount-action:hover span,
 .checkout-discount-action:focus-visible span {
-  display: inline;
+  max-width: 7em;
+  margin-left: 0.35rem;
+  opacity: 1;
+  transform: translateX(0);
 }
 
 .checkout-discount-action:focus-visible {
   outline: 2px solid currentColor;
   outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .checkout-discount-action,
+  .checkout-discount-action span {
+    transition: none;
+  }
 }
 
 .checkout-discount-warning[hidden],
