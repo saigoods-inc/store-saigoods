@@ -2594,6 +2594,12 @@ function OrderDrawer({
                 <details className="group rounded-[10px] border border-sg-border" open={canSendPaymentEmail}>
                   <DrawerDisclosureTitle icon="clipboard">Payment email</DrawerDisclosureTitle>
                   <div className="grid gap-x-8 gap-y-2 border-t border-sg-border px-4 pb-4 pt-3 text-[13px] sm:grid-cols-[150px_minmax(0,1fr)]">
+                    {canSendPaymentEmail && actionStatus ? (
+                      <p role={actionStatus.tone === "success" ? "status" : "alert"}
+                        className={`rounded-[8px] px-3 py-2 text-[13px] font-semibold sm:col-span-2 ${actionStatus.tone === "success" ? "bg-sg-success-soft text-sg-success" : "bg-sg-danger-soft text-sg-danger"}`}>
+                        {actionStatus.message}
+                      </p>
+                    ) : null}
                     <span className="text-sg-muted">Payment link</span>
                     <span className={`font-semibold ${paymentLinkExpired ? "text-sg-danger" : "text-sg-muted"}`}>
                       {paymentLinkExpired ? "Expired — resend required" : paymentLinkUrl ? "Link created · email delivery not verified" : "Not sent — no payment link created"}
