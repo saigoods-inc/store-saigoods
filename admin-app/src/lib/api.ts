@@ -97,8 +97,8 @@ export interface SummaryResponse {
     feeCalculationIssues?: { count?: number; rows?: Array<{ orderRef?: string; reason?: string }> };
     unusuallyHighShipping?: { count?: number; rows?: Array<{ orderRef?: string; shippingExpenseCents?: number; revenueCents?: number }> };
     marketplaceFinancialsIncomplete?: { count?: number; rows?: Array<{ marketplace?: string; externalOrderId?: string }> };
-    inventoryOutOfStock?: { count?: number; rows?: Array<{ slug?: string; size?: string }> };
-    lowInventory?: { count?: number; rows?: Array<{ slug?: string; size?: string }> };
+    inventoryOutOfStock?: { count?: number; rows?: Array<{ slug?: string; productSlug?: string; productName?: string; size?: string }> };
+    lowInventory?: { count?: number; rows?: Array<{ slug?: string; productSlug?: string; productName?: string; size?: string }> };
     incomingBatchesOnHold?: { count?: number; rows?: Array<{ batch_name?: string }> };
   };
 }

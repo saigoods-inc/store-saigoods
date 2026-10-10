@@ -259,7 +259,7 @@ function SummaryKpi({
   iconToneClassName?: string;
 }) {
   return (
-    <article className="sg25-card h-full overflow-hidden p-4 sm:p-5">
+    <article className="sg25-card flex h-full min-w-0 flex-col justify-center overflow-hidden p-4 sm:p-5">
       <div className="flex items-start justify-between gap-2.5 sm:gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-[0.74rem] font-medium leading-[1.16] text-sg-muted sm:text-[0.8rem]">{label}</p>
@@ -270,7 +270,6 @@ function SummaryKpi({
           >
             {value}
           </p>
-          <p className="mt-2 text-[11px] leading-[1.15] text-sg-muted sm:text-[12px]">{subtext}</p>
         </div>
         <div
           className={`flex shrink-0 items-center justify-center rounded-full ${iconToneClassName} ${
@@ -280,6 +279,7 @@ function SummaryKpi({
           {icon}
         </div>
       </div>
+      <p className="mt-2 w-full text-[11px] leading-[1.25] text-sg-muted sm:text-[12px]">{subtext}</p>
     </article>
   );
 }
@@ -351,14 +351,14 @@ function MiniAlertGrid({
       title: "Out of Stock",
       count: alerts.inventoryOutOfStock?.count || 0,
       rows:
-        alerts.inventoryOutOfStock?.rows?.slice(0, 2).map((row) => [row.slug, row.size].filter(Boolean).join(" / ")) || [],
+        alerts.inventoryOutOfStock?.rows?.slice(0, 2).map((row) => [row.productName || row.productSlug || row.slug, row.size].filter(Boolean).join(" / ")) || [],
       tone: "border-sg-danger bg-sg-danger-soft/75",
       countTone: "bg-sg-danger text-white",
     },
     {
       title: "Low Stock",
       count: alerts.lowInventory?.count || 0,
-      rows: alerts.lowInventory?.rows?.slice(0, 2).map((row) => [row.slug, row.size].filter(Boolean).join(" / ")) || [],
+      rows: alerts.lowInventory?.rows?.slice(0, 2).map((row) => [row.productName || row.productSlug || row.slug, row.size].filter(Boolean).join(" / ")) || [],
       tone: "border-sg-warning bg-sg-warning-soft/70",
       countTone: "bg-sg-warning text-white",
     },
@@ -379,14 +379,14 @@ function MiniAlertGrid({
   ].filter((item) => item.count > 0 && item.rows.length > 0);
 
   return (
-    <section className="sg25-card flex h-full flex-col p-4 sm:p-5">
+    <section className={`sg25-card min-w-0 p-4 sm:p-5 ${items.length <= 1 ? "sg25-summary-alerts-compact" : ""}`}>
       <div className="flex items-center gap-2">
         <Icon name="alert" className="h-5 w-5 text-sg-primary" />
         <h2 className="text-[1rem] font-bold sm:text-[1.08rem]">Alerts &amp; Watchouts</h2>
       </div>
       <p className="mt-2 text-[11px] leading-[1.15] text-sg-muted sm:text-[12px]">Current operational issues across orders.</p>
       <div className="mt-5 min-h-0 overflow-y-auto pr-1">
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className={`grid gap-3 ${items.length > 1 ? "sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2" : ""}`}>
         {items.length ? (
           items.map((item) => (
             <article key={item.title} className={`h-full rounded-[10px] border p-4 sm:p-5 ${item.tone}`}>
@@ -402,7 +402,7 @@ function MiniAlertGrid({
             </article>
           ))
         ) : (
-          <div className="rounded-[10px] border border-dashed border-sg-border px-5 py-8 text-center text-[12px] text-sg-muted md:col-span-2">
+          <div className="rounded-[10px] border border-dashed border-sg-border px-5 py-8 text-center text-[12px] text-sg-muted">
             No active alerts or watchouts.
           </div>
         )}
@@ -850,11 +850,19 @@ function ProductPerformance({
   );
 }
 
+function recentOrderReference(orderRef?: string, channel?: string) {
+  const reference = String(orderRef || "-");
+  const separator = reference.indexOf(" · ");
+  return separator >= 0 && reference.slice(0, separator).toLowerCase() === String(channel || "").toLowerCase()
+    ? reference.slice(separator + 3)
+    : reference;
+}
+
 function RecentOrders({ summary }: { summary: SummaryResponse }) {
   const rows = summary.breakdown?.recentFinancialActivity?.slice(0, 6) || [];
 
   return (
-    <section className="sg25-card h-full min-w-0 overflow-hidden p-4 sm:p-5">
+    <section className="sg25-card h-full w-full min-w-0 overflow-hidden p-4 sm:p-5">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Icon name="cart" className="h-5 w-5 text-sg-primary" />
@@ -870,9 +878,9 @@ function RecentOrders({ summary }: { summary: SummaryResponse }) {
         className="mt-5 max-w-full overflow-x-auto overscroll-x-contain"
         tabIndex={0}
       >
-        <table className="w-[980px] min-w-[980px] table-fixed border-collapse text-left">
+        <table className="w-full min-w-[1020px] table-fixed border-collapse text-left">
           <colgroup>
-            <col className="w-[220px]" />
+            <col className="w-[260px]" />
             <col className="w-[230px]" />
             <col className="w-[170px]" />
             <col className="w-[150px]" />
@@ -893,7 +901,7 @@ function RecentOrders({ summary }: { summary: SummaryResponse }) {
             {rows.map((row) => (
               <tr key={`${row.orderRef}-${row.paidAt}`} className="border-b border-sg-border text-[12px] last:border-b-0 sm:text-[13px]">
                 <td className="py-3.5 pr-6 align-middle">
-                  <span className="block whitespace-nowrap font-mono">{row.orderRef || "-"}</span>
+                  <span className="block break-words font-mono">{recentOrderReference(row.orderRef, row.channel)}</span>
                   {row.channel ? <span className="mt-1 inline-flex rounded-full bg-sg-input-bg px-2 py-0.5 text-[9px] font-semibold uppercase text-sg-muted">{row.channel}</span> : null}
                 </td>
                 <td className="py-3.5 pr-6">{row.customer || "-"}</td>
@@ -935,7 +943,7 @@ function InventoryHealth({ summary }: { summary: SummaryResponse }) {
   ];
 
   return (
-    <section className="sg25-card flex h-full flex-col p-4 sm:p-5">
+    <section className="sg25-card flex h-full w-full min-w-0 flex-col p-4 sm:p-5">
       <div className="flex items-center gap-2">
         <Icon name="package" className="h-5 w-5 text-sg-primary" />
         <h2 className="text-[1rem] font-bold sm:text-[1.08rem]">Inventory Health</h2>
@@ -972,7 +980,6 @@ function ShippingZoneRanking({ rows }: { rows: NexusSummaryRow[] }) {
             </div>
             <div>
               <h2 className="text-[0.98rem] font-bold sm:text-[1.04rem]">Shipping Zone Ranking</h2>
-              <p className="mt-1 text-[11px] leading-[1.15] text-sg-muted sm:text-[12px]">States ranked by order volume and paid revenue.</p>
             </div>
           </div>
         </div>
@@ -1247,14 +1254,14 @@ export function SummaryPage() {
             options={[{ value: "all", label: "All channels" }, { value: "website", label: "Website" }, { value: "amazon", label: "Amazon" }, { value: "walmart", label: "Walmart" }]}
             onChange={setChannel}
             ariaLabel="Dashboard sales channel filter"
-            triggerClassName="h-[39px] px-4 pr-3 text-[11.5px] sm:!w-auto sm:text-[12px]"
+            triggerClassName="h-[39px] rounded-[8px] px-4 pr-3 text-[11.5px] sm:!w-auto sm:text-[12px]"
           />
           <SelectField
             value={preset}
             options={presetOptions}
             onChange={setPreset}
             ariaLabel="Dashboard summary range filter"
-            triggerClassName="h-[39px] px-4 pr-3 text-[11.5px] sm:!w-auto sm:text-[12px]"
+            triggerClassName="h-[39px] rounded-[8px] px-4 pr-3 text-[11.5px] sm:!w-auto sm:text-[12px]"
           />
         </div>
       </section>
@@ -1299,11 +1306,9 @@ export function SummaryPage() {
         <div className="mb-3">
           <h2 id="operations-overview-title" className="text-[0.95rem] font-bold">Operations overview</h2>
         </div>
-        <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(420px,1fr)]">
-          <div className="min-w-0">
-            <MiniAlertGrid summary={summary} nexusRows={nexusRows} />
-          </div>
-          <div className="grid min-w-0 gap-4 sm:grid-cols-2">
+        <div className="sg25-operations-grid grid items-start gap-4">
+          <MiniAlertGrid summary={summary} nexusRows={nexusRows} />
+          <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <SummaryKpi
             label="Square Processing Fees"
             value={formatUsdCents(kpis.totalSquareProcessingFeesCents)}

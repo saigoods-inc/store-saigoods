@@ -147,10 +147,14 @@ export function AdminShell({
     document.body.style.userSelect = "none";
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("blur", handleMouseUp);
+    document.addEventListener("mouseleave", handleMouseUp);
 
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("blur", handleMouseUp);
+      document.removeEventListener("mouseleave", handleMouseUp);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
@@ -171,7 +175,7 @@ export function AdminShell({
   return (
     <ShellHeaderMetaContext.Provider value={setHeaderMeta}>
       <div className="min-h-screen overflow-x-clip bg-sg-bg text-sg-text">
-        <div className="flex min-h-screen" style={sidebarVars}>
+        <div className={`flex min-h-screen ${isResizing ? "sg25-sidebar-resizing" : ""}`} style={sidebarVars}>
           <div
             className={`fixed inset-0 z-40 bg-[#1f1b18]/35 transition md:hidden ${open ? "block" : "hidden"}`}
             onClick={() => setOpen(false)}
@@ -180,7 +184,7 @@ export function AdminShell({
 
           <aside
             style={sidebarVars}
-            className={`fixed inset-y-0 left-0 z-50 flex h-screen w-[248px] max-w-[88vw] flex-col overflow-hidden border-r border-sg-border bg-white transition duration-200 md:w-[var(--sg25-sidebar-width)] md:min-w-[var(--sg25-sidebar-width)] md:max-w-[var(--sg25-sidebar-width)] md:overflow-visible ${
+            className={`sg25-sidebar fixed inset-y-0 left-0 z-50 flex h-screen w-[248px] max-w-[88vw] flex-col overflow-hidden border-r border-sg-border bg-white md:w-[var(--sg25-sidebar-width)] md:min-w-[var(--sg25-sidebar-width)] md:max-w-[var(--sg25-sidebar-width)] md:overflow-visible ${
               open ? "translate-x-0" : "-translate-x-full md:translate-x-0"
             }`}
           >
@@ -200,7 +204,7 @@ export function AdminShell({
               ) : null}
             </div>
 
-            <div className={`min-h-0 flex-1 overflow-y-auto overscroll-contain py-4 ${effectiveSidebarCollapsed ? "px-3" : "px-3.5"}`}>
+            <div className={`min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain py-4 ${effectiveSidebarCollapsed ? "px-3" : "px-3.5"}`}>
               {!effectiveSidebarCollapsed ? (
                 <p className="px-3 text-[11px] font-semibold uppercase tracking-normal text-sg-muted">Navigation</p>
               ) : null}
@@ -250,6 +254,7 @@ export function AdminShell({
               type="button"
               className="absolute right-0 top-4 z-[60] hidden h-8 w-5 translate-x-1/2 items-center justify-center rounded-full border border-sg-border bg-white p-0 text-sg-muted shadow-[0_8px_18px_rgba(31,27,24,0.08)] transition hover:bg-sg-input-bg md:inline-flex"
               aria-label={effectiveSidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+              aria-expanded={!effectiveSidebarCollapsed}
               onClick={() => setSidebarCollapsed((current) => !current)}
             >
               <Icon name="chevron" className={`h-3 w-3 ${effectiveSidebarCollapsed ? "-rotate-90" : "rotate-90"}`} />
@@ -264,8 +269,8 @@ export function AdminShell({
             </div>
           </aside>
 
-          <div className="min-w-0 flex-1 overflow-x-clip md:ml-[var(--sg25-sidebar-width)]">
-            <header className="fixed left-0 right-0 top-0 z-30 border-b border-sg-border bg-sg-bg/80 shadow-[0_10px_30px_rgba(31,27,24,0.04)] backdrop-blur-xl md:left-[var(--sg25-sidebar-width)]">
+          <div className="sg25-admin-content min-w-0 flex-1 overflow-x-clip md:ml-[var(--sg25-sidebar-width)]">
+            <header className="sg25-admin-header fixed left-0 right-0 top-0 z-30 border-b border-sg-border bg-sg-bg/80 shadow-[0_10px_30px_rgba(31,27,24,0.04)] backdrop-blur-xl md:left-[var(--sg25-sidebar-width)]">
               <div className="flex items-center justify-between gap-3 px-4 py-3 md:px-6 xl:px-8">
                 <div className="flex min-w-0 items-center gap-3">
                   <button
