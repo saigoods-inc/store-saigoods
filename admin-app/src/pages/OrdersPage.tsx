@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useAuth } from "../auth/AuthProvider";
 import { useAdminShellHeaderMeta } from "../components/layout/AdminShell";
 import { CustomSelect } from "../components/ui/CustomSelect";
-import { ApiError, cancelAndRefundOrder, checkCancelledOrderRefundStatus, completeOrderHandoff, confirmOrderProductShipped, fetchInventoryDashboard, fetchMarketplaceOrders, fetchOrderShipFromDisplay, notifyBuyerShipping, postMarketplaceOrderAction, prepareManualOrderEdit, previewOrderPackingPlan, purchaseOrderShippoAllLabels, purchaseOrderShippoLabel, saveOrderExternalFulfillment, sendCancelledOrderRefundEmail, sendManualOrderLink, syncOrderToShippo, updateOrderPackingPlan } from "../lib/api";
+import { ApiError, cancelAndRefundOrder, checkCancelledOrderRefundStatus, completeOrderHandoff, confirmOrderProductShipped, fetchInventoryDashboard, fetchMarketplaceOrders, fetchPaymentEmailDeliveryStatus, fetchOrderShipFromDisplay, notifyBuyerShipping, postMarketplaceOrderAction, prepareManualOrderEdit, previewOrderPackingPlan, purchaseOrderShippoAllLabels, purchaseOrderShippoLabel, saveOrderExternalFulfillment, sendCancelledOrderRefundEmail, sendManualOrderLink, syncOrderToShippo, updateOrderPackingPlan } from "../lib/api";
 import type { AdminOrderPackingPlanResponse, AdminOrderShipFromDisplayResponse, InventoryVariantRow, MarketplaceOrder, PackingPlanContent, PackingPlanParcel, PackingPlanSummary } from "../lib/api";
 import { formatDateTime, formatNumber, formatUsdCents } from "../lib/format";
 import { Icon } from "../lib/icons";
@@ -1905,6 +1905,18 @@ function OrderDrawer({
   const paymentLinkExpired = isExpiredManualPaymentLink(order);
   const canSendPaymentEmail = manualSquareLinkOrder && !paid && !cancelled;
   const paymentLinkNeedsResend = canSendPaymentEmail && paymentLinkExpired;
+  const emailAuth = useAuth();
+  const deliveryQuery = useQuery({
+    queryKey: ["payment-email-delivery", orderId],
+    queryFn: async () => fetchPaymentEmailDeliveryStatus(orderId, await emailAuth.getAccessToken()),
+    enabled: (manualSquareLinkOrder || Boolean(paymentLinkUrl)) && actionBusy !== "arrivalLink",
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    retry: false,
+  });
+  const delivery = deliveryQuery.data;
+  const deliveryLabel = deliveryQuery.isError ? "Delivery status unavailable — try refreshing" : delivery?.label || "Checking delivery…";
+
   const paymentDetailRows = [
     { label: "Method", value: fieldText(order, ["payment_method", "manual_payment_method"]) },
     { label: "Payment flow", value: paymentFlow },
@@ -2600,10 +2612,15 @@ function OrderDrawer({
                         {actionStatus.message}
                       </p>
                     ) : null}
-                    <span className="text-sg-muted">Payment link</span>
-                    <span className={`font-semibold ${paymentLinkExpired ? "text-sg-danger" : "text-sg-muted"}`}>
-                      {paymentLinkExpired ? "Expired — resend required" : paymentLinkUrl ? "Link created · email delivery not verified" : "Not sent — no payment link created"}
-                    </span>
+                    <span className="text-sg-muted">Email status</span>
+                    <div className="min-w-0 space-y-1" role="status">
+                      <p className={`font-semibold ${!deliveryQuery.isError && delivery?.status === "delivered" ? "text-sg-success" : "text-sg-muted"}`}>{deliveryLabel}</p>
+                      {delivery?.sentAt ? <p className="text-[11px] text-sg-muted">Sent {formatDateTime(delivery.sentAt)}</p> : null}
+                      {paymentLinkExpired ? <p className="text-[12px] text-sg-danger">Payment link expired — send a new link to accept payment.</p> : null}
+                      <button type="button" className="text-[12px] font-semibold text-sg-primary" disabled={deliveryQuery.isFetching || Boolean(actionBusy)} onClick={() => void deliveryQuery.refetch()}>
+                        {deliveryQuery.isFetching ? "Checking…" : "Refresh email status"}
+                      </button>
+                    </div>
                     {canSendPaymentEmail ? (
                       <div className="flex flex-wrap gap-2 sm:col-span-2 sm:pl-[182px]">
                         <button
@@ -3397,6 +3414,7 @@ export function OrdersPage() {
     try {
       const token = await auth.getAccessToken();
       const result = await sendManualOrderLink({ orderId, allowPayLaterLink: true }, token);
+      await queryClient.invalidateQueries({ queryKey: ["payment-email-delivery", orderId] });
       setDrawerActionStatus({
         tone: result.emailed === true ? "success" : "error",
         message: result.emailed === true
