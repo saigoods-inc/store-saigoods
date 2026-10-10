@@ -324,3 +324,14 @@ test("Phase 10B-2B send-link test file contains no live provider host literals",
   assert.doesNotMatch(thisFile, /store\.saigoods\.com/);
   assert.doesNotMatch(thisFile, /api\.shippo\.com/);
 });
+
+// Exercise the HTTP handler gates as well as the downstream delivery helper.
+test("carrier payment-link handler honors persisted free shipping on first send and resend", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const env = { ...process.env };
+  for (const key of ["NODE_TEST_CONTEXT", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SQUARE_ACCESS_TOKEN", "RESEND_API_KEY", "SHIPPO_API_TOKEN"]) delete env[key];
+  Object.assign(env, { INTERNAL_REPORTS_SECRET: "test-internal-secret", PUBLIC_BASE_URL: "https://store.example.test", MANUAL_PAYMENT_LINK_SIGNING_SECRET: "test-only-secret" });
+  const result = spawnSync(process.execPath, ["--experimental-test-module-mocks", "--test", path.join(__dirname, "test-fixtures/manual-free-shipping-payment-link.fixture.mjs")], { env, encoding: "utf8", timeout: 30000 });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+});
