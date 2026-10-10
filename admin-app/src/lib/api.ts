@@ -950,3 +950,13 @@ export async function previewOrderPackingPlan(orderId: string, token?: string) {
     selectedPackingPlan: null,
   };
 }
+
+export interface PaymentEmailDeliveryStatus {
+  status: string;
+  label: string;
+  sentAt?: string | null;
+}
+
+export function fetchPaymentEmailDeliveryStatus(orderId: string, token?: string) {
+  return postJson<PaymentEmailDeliveryStatus>("/api/admin-order-payment-email-status", { orderId }, token);
+}
