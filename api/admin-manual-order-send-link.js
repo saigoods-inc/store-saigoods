@@ -142,7 +142,13 @@ function invalidCarrierOrderSnapshotMessage(order) {
   const service = String(order?.quoted_shipping_service_label || order?.quoted_shipping_service_code || "").trim();
   const providerQuoteId = String(order?.quoted_shipping_provider_quote_id || "").trim();
   const shippingCents = Math.max(0, Math.round(Number(order?.shipping_cents) || 0));
-  if (!providerQuoteId || !service || shippingCents <= 0) {
+  // A saved admin/zone free-shipping approval waives the buyer's charge,
+  // not the requirement for a confirmed carrier rate.
+  const snapshot = order?.checkout_quote_snapshot_json;
+  const validFreeShipping = snapshot?.freeShipping?.applied === true &&
+    snapshot?.shipping?.freeShippingApplied === true &&
+    order?.quoted_shipping_status === "rated";
+  if (!providerQuoteId || !service || (shippingCents <= 0 && !validFreeShipping)) {
     return "This payment link was created before a valid carrier rate was saved. Do not resend it; refresh rates and recreate the order.";
   }
   return "";
