@@ -1308,7 +1308,8 @@ export function SummaryPage() {
         </div>
         <div className="sg25-operations-grid grid items-start gap-4">
           <MiniAlertGrid summary={summary} nexusRows={nexusRows} />
-          <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="sg25-summary-metrics-container min-w-0">
+          <div className="sg25-summary-metrics grid gap-4">
           <SummaryKpi
             label="Square Processing Fees"
             value={formatUsdCents(kpis.totalSquareProcessingFeesCents)}
@@ -1361,6 +1362,7 @@ export function SummaryPage() {
             iconToneClassName="bg-sg-success-soft text-sg-success"
             compact
           />
+          </div>
           </div>
         </div>
       </section>

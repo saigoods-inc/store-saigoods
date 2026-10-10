@@ -117,6 +117,15 @@
 .sg25-sidebar-resizing .sg25-admin-content,
 .sg25-sidebar-resizing .sg25-admin-header { transition: none; }
 
+/* Keep each metric at least 200px wide even when navigation is resized. */
+.sg25-summary-metrics-container { container: summary-metrics / inline-size; }
+@container summary-metrics (min-width: 416px) {
+  .sg25-summary-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container summary-metrics (min-width: 632px) {
+  .sg25-summary-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
 @media (min-width: 1280px) {
   .sg25-operations-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.65fr); }
   .sg25-operations-grid:has(.sg25-summary-alerts-compact) {
