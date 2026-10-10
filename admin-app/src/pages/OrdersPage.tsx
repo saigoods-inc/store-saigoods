@@ -1903,7 +1903,8 @@ function OrderDrawer({
   const paymentLinkSentAt = fieldText(order, ["payment_link_sent_at"]);
   const paymentLinkExpiresAt = fieldText(order, ["payment_link_expires_at"]);
   const paymentLinkExpired = isExpiredManualPaymentLink(order);
-  const paymentLinkNeedsResend = manualSquareLinkOrder && paymentLinkExpired;
+  const canSendPaymentEmail = manualSquareLinkOrder && !paid && !cancelled;
+  const paymentLinkNeedsResend = canSendPaymentEmail && paymentLinkExpired;
   const paymentDetailRows = [
     { label: "Method", value: fieldText(order, ["payment_method", "manual_payment_method"]) },
     { label: "Payment flow", value: paymentFlow },
@@ -2589,36 +2590,36 @@ function OrderDrawer({
                 </div>
               </section>
 
-              {paymentLinkUrl || paymentLinkNeedsResend ? (
-                <details className="group rounded-[10px] border border-sg-border" open={paymentLinkNeedsResend}>
-                  <DrawerDisclosureTitle icon="clipboard">Documents</DrawerDisclosureTitle>
+              {paymentLinkUrl || canSendPaymentEmail ? (
+                <details className="group rounded-[10px] border border-sg-border" open={canSendPaymentEmail}>
+                  <DrawerDisclosureTitle icon="clipboard">Payment email</DrawerDisclosureTitle>
                   <div className="grid gap-x-8 gap-y-2 border-t border-sg-border px-4 pb-4 pt-3 text-[13px] sm:grid-cols-[150px_minmax(0,1fr)]">
                     <span className="text-sg-muted">Payment link</span>
-                    <span className={`font-semibold ${paymentLinkExpired ? "text-sg-danger" : "text-sg-success"}`}>
-                      {paymentLinkExpired ? "Expired — resend required" : "Active · valid for 48 hours"}
+                    <span className={`font-semibold ${paymentLinkExpired ? "text-sg-danger" : "text-sg-muted"}`}>
+                      {paymentLinkExpired ? "Expired — resend required" : paymentLinkUrl ? "Link created · email delivery not verified" : "Not sent — no payment link created"}
                     </span>
-                    {paymentLinkNeedsResend ? (
+                    {canSendPaymentEmail ? (
                       <div className="flex flex-wrap gap-2 sm:col-span-2 sm:pl-[182px]">
                         <button
                           type="button"
                           className="sg25-btn sg25-btn-ghost h-9 whitespace-nowrap px-4 text-[12px]"
-                          disabled={actionBusy === "arrivalLink"}
+                          disabled={Boolean(actionBusy) || !fieldText(order, ["customer_email"])}
                           onClick={() => void onSendArrivalPaymentLink(orderId)}
                         >
                           <Icon name="arrow-up-right" className="h-4 w-4" />
-                          {actionBusy === "arrivalLink" ? "Sending link" : "Send new payment link"}
+                          {actionBusy === "arrivalLink" ? "Sending email…" : paymentLinkExpired ? "Send new payment link" : paymentLinkUrl ? "Resend payment email" : "Send payment email"}
                         </button>
-                        <button
+                        {paymentLinkNeedsResend ? <button
                           type="button"
                           className="sg25-btn sg25-btn-ghost h-9 whitespace-nowrap px-4 text-[12px]"
-                          disabled={actionBusy === "editExpired"}
+                          disabled={Boolean(actionBusy)}
                           onClick={() => void onEditExpiredOrder(orderId)}
                         >
                           <Icon name="clipboard" className="h-4 w-4" />
                           {actionBusy === "editExpired" ? "Opening editor" : "Edit order first"}
-                        </button>
+                        </button> : null}
                         <p className="w-full text-[11px] leading-4 text-sg-muted">
-                          Send a fresh 48-hour link with the current order, or edit items and recalculate delivery before sending.
+                          {fieldText(order, ["customer_email"]) ? `To: ${fieldText(order, ["customer_email"])}. ${paymentLinkExpired ? "Creates a fresh 48-hour link." : paymentLinkUrl ? "Resends the existing link without extending its expiry." : "Creates a payment link for this existing order."}` : "Add a customer email before sending."}
                         </p>
                       </div>
                     ) : null}
@@ -3380,21 +3381,28 @@ export function OrdersPage() {
     );
   }
 
+  const paymentEmailSending = useRef(false);
+
   async function handleSendArrivalPaymentLink(orderId: string) {
+    if (paymentEmailSending.current) return;
+    paymentEmailSending.current = true;
     setDrawerActionBusy("arrivalLink");
     setDrawerActionStatus(null);
     try {
       const token = await auth.getAccessToken();
       const result = await sendManualOrderLink({ orderId, allowPayLaterLink: true }, token);
-      await ordersQuery.refetch();
       setDrawerActionStatus({
-        tone: "success",
-        message: result.warning || "A new 48-hour payment link was sent to the customer.",
+        tone: result.emailed === true ? "success" : "error",
+        message: result.emailed === true
+          ? "Payment email accepted for sending. Delivery to the inbox is not yet confirmed."
+          : result.warning || "Payment email was not sent. Retry using this order; do not create another order.",
       });
+      await ordersQuery.refetch();
     } catch (error) {
       const message = error instanceof ApiError || error instanceof Error ? error.message : "Action failed.";
       setDrawerActionStatus({ tone: "error", message });
     } finally {
+      paymentEmailSending.current = false;
       setDrawerActionBusy(null);
     }
   }
